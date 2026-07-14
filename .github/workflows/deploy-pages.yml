@@ -31,6 +31,10 @@ jobs:
         run: npm run test
       - name: Build
         run: npm run build
+      - name: Use GitHub Actions as Pages source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method PUT "repos/${{ github.repository }}/pages" -f build_type=workflow
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact
