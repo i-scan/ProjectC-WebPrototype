@@ -1,6 +1,6 @@
 # ProjectC Web Prototype
 
-用于验证 ProjectC 核心规则的网页实验原型。
+用于验证 ProjectC 核心规则、视觉信息流与网页渲染方案的实验原型。
 
 当前目标不是制作完整游戏，而是快速验证：
 
@@ -11,6 +11,16 @@
 - 敌人公开意图
 - 基础战斗与救援目标
 - 首批测试卡牌
+- DOM、PixiJS 与 Three.js 在棋盘型场景中的性能差异
+
+## 在线页面
+
+页面顶部可以切换：
+
+- **规则实验室**：现有双层棋盘规则原型。
+- **图形性能实验室**：DOM / CSS、PixiJS 2D 与 Three.js 3D 对照测试。
+
+Graphics Lab 也可以通过 `#graphics-lab` 直接进入。测试结果只代表当前设备、浏览器、窗口尺寸与负载配置，不应单独作为正式版引擎决策。
 
 ## 本地运行
 
@@ -21,6 +31,18 @@ npm install
 npm run dev
 ```
 
+## 构建与测试
+
+```bash
+npm run test
+npm run build
+```
+
 ## 规则定位
 
 当前规则均为 v0 可配置假设，优先服务体验验证。经过验证的结论再同步回 `ProjectC/docs/design.md`。
+
+视觉方向、信息层级与后续 Player View 蓝图记录在 ProjectC 文档仓库的：
+
+- `docs/visual-iteration-plan.md`
+- `docs/visual-blueprint.md`
