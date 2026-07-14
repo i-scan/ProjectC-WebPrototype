@@ -2,7 +2,8 @@ name: Deploy GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - agent/bootstrap-web-prototype
   workflow_dispatch:
 
 permissions:
