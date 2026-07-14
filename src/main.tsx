@@ -2,12 +2,15 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { GraphicsLab } from './graphics/GraphicsLab'
+import { VisualPrototype } from './visual/VisualPrototype'
 import './styles.css'
 
-type View = 'rules' | 'graphics'
+type View = 'rules' | 'visual' | 'graphics'
 
 function viewFromHash(): View {
-  return window.location.hash === '#graphics-lab' ? 'graphics' : 'rules'
+  if (window.location.hash === '#graphics-lab') return 'graphics'
+  if (window.location.hash === '#visual-prototype') return 'visual'
+  return 'rules'
 }
 
 function Root() {
@@ -20,7 +23,11 @@ function Root() {
   }, [])
 
   const navigate = (next: View) => {
-    window.location.hash = next === 'graphics' ? 'graphics-lab' : 'rules-lab'
+    window.location.hash = next === 'graphics'
+      ? 'graphics-lab'
+      : next === 'visual'
+        ? 'visual-prototype'
+        : 'rules-lab'
   }
 
   return (
@@ -31,12 +38,17 @@ function Root() {
           <button className={view === 'rules' ? 'selected' : ''} onClick={() => navigate('rules')}>
             规则实验室
           </button>
+          <button className={view === 'visual' ? 'selected' : ''} onClick={() => navigate('visual')}>
+            3D 视觉切片
+          </button>
           <button className={view === 'graphics' ? 'selected' : ''} onClick={() => navigate('graphics')}>
             图形性能实验室
           </button>
         </nav>
       </div>
-      {view === 'rules' ? <App /> : <GraphicsLab />}
+      {view === 'rules' && <App />}
+      {view === 'visual' && <VisualPrototype />}
+      {view === 'graphics' && <GraphicsLab />}
     </>
   )
 }
