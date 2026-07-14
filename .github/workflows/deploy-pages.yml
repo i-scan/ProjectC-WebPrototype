@@ -31,10 +31,6 @@ jobs:
         run: npm run test
       - name: Build
         run: npm run build
-      - name: Use GitHub Actions as Pages source
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api --method PUT "repos/${{ github.repository }}/pages" -f build_type=workflow
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact
@@ -52,3 +48,39 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+      - name: Verify published site
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+
+          html=""
+          for attempt in {1..12}; do
+            if html="$(curl --fail --silent --show-error --location "$PAGE_URL")"; then
+              break
+            fi
+            echo "Site is not available yet; retrying ($attempt/12)..."
+            sleep 5
+          done
+
+          test -n "$html"
+
+          if printf '%s' "$html" | grep -q '/src/main.tsx'; then
+            echo 'Published page still references the Vite development entry.' >&2
+            exit 1
+          fi
+
+          script_path="$(printf '%s' "$html" | grep -oE 'src="[^"]+\.js"' | head -n 1 | cut -d '"' -f 2)"
+          test -n "$script_path"
+
+          case "$script_path" in
+            http://*|https://*) script_url="$script_path" ;;
+            /*)
+              origin="$(printf '%s' "$PAGE_URL" | sed -E 's#(https?://[^/]+).*#\1#')"
+              script_url="${origin}${script_path}"
+              ;;
+            *) script_url="${PAGE_URL%/}/${script_path}" ;;
+          esac
+
+          curl --fail --silent --show-error --location "$script_url" >/dev/null
+          echo "Verified page and JavaScript asset: $script_url"
