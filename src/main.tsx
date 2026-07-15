@@ -4,6 +4,7 @@ import { App } from './App'
 import { GraphicsLab } from './graphics/GraphicsLab'
 import { VisualPrototype } from './visual/VisualPrototype'
 import './styles.css'
+import './visual/visual-v3.css'
 
 type View = 'rules' | 'visual' | 'graphics'
 
@@ -39,7 +40,7 @@ function Root() {
             规则实验室
           </button>
           <button className={view === 'visual' ? 'selected' : ''} onClick={() => navigate('visual')}>
-            3D 视觉切片
+            2D / 3D 视觉切片
           </button>
           <button className={view === 'graphics' ? 'selected' : ''} onClick={() => navigate('graphics')}>
             图形性能实验室
