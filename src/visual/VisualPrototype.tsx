@@ -25,6 +25,7 @@ import { PixiVisualBoard } from './PixiVisualBoard'
 import { buildVisualEvents, type PlaybackEvent } from './visualPlayback'
 import './visual.css'
 import './visual-v2.css'
+import './visual-history.css'
 
 const cardIcons: Record<Card['effect'], string> = {
   'heat-cell': '☀',
@@ -42,6 +43,7 @@ const cardIcons: Record<Card['effect'], string> = {
 const speedLabels = ['手动', '0.5×', '1×', '2×', '4×'] as const
 const phaseDelays = [0, 1400, 850, 450, 220] as const
 const cueDelays = [360, 520, 340, 210, 120] as const
+const maxUndoSteps = 120
 
 type RendererMode = 'three' | 'pixi'
 
@@ -62,6 +64,7 @@ function fallbackEvent(kind: VisualEvent['kind'], target: Coord | undefined, lab
 
 export function VisualPrototype() {
   const [state, setState] = useState(() => createInitialState())
+  const [undoStack, setUndoStack] = useState<GameState[]>([])
   const [selection, setSelection] = useState<VisualSelection>({ kind: 'inspect' })
   const [targetLayer, setTargetLayer] = useState<Layer>('ground')
   const [selectedCoord, setSelectedCoord] = useState<Coord>({ x: 1, y: 8 })
@@ -107,6 +110,7 @@ export function VisualPrototype() {
     ) {
       cues[0] = { ...cues[0], kind: fallbackKind, label: after.logs[0], target: fallbackTarget }
     }
+    setUndoStack((current) => [...current, before].slice(-maxUndoSteps))
     setState(after)
     setEventQueue(cues.length > 0
       ? cues
@@ -200,13 +204,32 @@ export function VisualPrototype() {
     setSelection({ kind: 'inspect' })
   }
 
-  const reset = () => {
+  const undo = () => {
+    if (undoStack.length === 0) return
+    const previous = undoStack[undoStack.length - 1]
+    const previousPlayer = getPlayer(previous)
+    setSimulationSpeed(0)
+    setUndoStack((current) => current.slice(0, -1))
+    setState(previous)
+    setHoverCoord(undefined)
+    setSelection({ kind: 'inspect' })
+    setEventQueue([
+      fallbackEvent(
+        'reset',
+        previousPlayer.position,
+        `已悔棋：Turn ${previous.turn} · ${phaseLabel(previous.phase)}`,
+      ),
+    ])
+  }
+
+  const restart = () => {
     const next = createInitialState({ turnMode: state.config.turnMode })
     setState(next)
+    setUndoStack([])
     setSelectedCoord({ x: 1, y: 8 })
     setHoverCoord(undefined)
     setSelection({ kind: 'inspect' })
-    setEventQueue([fallbackEvent('reset', { x: 1, y: 8 }, '局面已重置')])
+    setEventQueue([fallbackEvent('reset', { x: 1, y: 8 }, '棋局已重新开始')])
   }
 
   const selectedLabel = selection.kind === 'inspect'
@@ -341,10 +364,18 @@ export function VisualPrototype() {
               <button className={targetLayer === 'ground' ? 'active' : ''} onClick={() => setTargetLayer('ground')}>Ground</button>
               <button className={targetLayer === 'sky' ? 'active' : ''} onClick={() => setTargetLayer('sky')}>Sky</button>
             </div>
-            <div>
+            <div className="visual-session-controls">
+              <button
+                className="visual-undo"
+                disabled={undoStack.length === 0}
+                title="回退最近一次玩家行动或阶段演算"
+                onClick={undo}
+              >
+                ↶ 悔棋 <small>{undoStack.length}</small>
+              </button>
               <button className={showSky ? 'active' : ''} onClick={() => setShowSky((value) => !value)}>天空层</button>
               <button className={showDebug ? 'active' : ''} onClick={() => setShowDebug((value) => !value)}>Debug</button>
-              <button onClick={reset}>重置局面</button>
+              <button className="visual-restart" title="清空悔棋历史并重建初始局面" onClick={restart}>重开棋局</button>
             </div>
           </div>
 
@@ -490,7 +521,7 @@ export function VisualPrototype() {
           <section className="visual-slice-note">
             <h3>当前对照重点</h3>
             <p>Three.js 强调真实高度、自由镜头、灯光和遮挡；PixiJS 强调固定构图、清晰轮廓、图层排序和低成本 2D 特效。</p>
-            <p>两个切片共用规则、操作、Inspector 与演算队列。应比较可读性、画面潜力和制作成本，而不是只比较空场景 FPS。</p>
+            <p>悔棋会回退一次玩家行动或自动阶段演算，并自动切换到手动速度；重开棋局会清空历史，但保留渲染方案和显示设置。</p>
           </section>
         </aside>
       </section>
