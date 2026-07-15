@@ -13,6 +13,7 @@ import {
   type BasicAction,
   type Card,
   type Coord,
+  type GameState,
   type Layer,
 } from '../game'
 import {
@@ -20,6 +21,8 @@ import {
   type VisualEvent,
   type VisualSelection,
 } from './InteractiveThreeBoard'
+import { PixiVisualBoard } from './PixiVisualBoard'
+import { buildVisualEvents, type PlaybackEvent } from './visualPlayback'
 import './visual.css'
 import './visual-v2.css'
 
@@ -37,7 +40,10 @@ const cardIcons: Record<Card['effect'], string> = {
 }
 
 const speedLabels = ['手动', '0.5×', '1×', '2×', '4×'] as const
-const speedDelays = [0, 1400, 850, 450, 220] as const
+const phaseDelays = [0, 1400, 850, 450, 220] as const
+const cueDelays = [360, 520, 340, 210, 120] as const
+
+type RendererMode = 'three' | 'pixi'
 
 function eventKindForCard(card: Card): VisualEvent['kind'] {
   if (card.effect === 'cool-cell' || card.effect === 'cold-strike') return 'cool'
@@ -50,6 +56,10 @@ function formatTemperature(value: number) {
   return value > 0 ? `+${value}` : String(value)
 }
 
+function fallbackEvent(kind: VisualEvent['kind'], target: Coord | undefined, label: string): PlaybackEvent {
+  return { id: Date.now(), kind, target, label }
+}
+
 export function VisualPrototype() {
   const [state, setState] = useState(() => createInitialState())
   const [selection, setSelection] = useState<VisualSelection>({ kind: 'inspect' })
@@ -60,9 +70,12 @@ export function VisualPrototype() {
   const [showSky, setShowSky] = useState(true)
   const [showDebug, setShowDebug] = useState(false)
   const [simulationSpeed, setSimulationSpeed] = useState(2)
-  const [event, setEvent] = useState<VisualEvent>()
+  const [rendererMode, setRendererMode] = useState<RendererMode>('three')
+  const [eventQueue, setEventQueue] = useState<PlaybackEvent[]>([])
 
   const player = getPlayer(state)
+  const currentEvent = eventQueue[0]
+  const playbackActive = eventQueue.length > 0
   const inspectCoord = hoverCoord ?? selectedCoord
   const inspectedCell = cellAt(state, inspectCoord)
   const inspectedActor = actorAt(state, inspectCoord)
@@ -79,8 +92,25 @@ export function VisualPrototype() {
     [state.objectives],
   )
 
-  const emitEvent = (kind: VisualEvent['kind'], target?: Coord) => {
-    setEvent({ id: Date.now(), kind, target })
+  const commitTransition = (
+    before: GameState,
+    after: GameState,
+    fallbackKind: VisualEvent['kind'],
+    fallbackTarget?: Coord,
+  ) => {
+    const cues = buildVisualEvents(before, after, fallbackTarget)
+    if (
+      cues.length === 1 &&
+      before.phase === after.phase &&
+      before.turn === after.turn &&
+      after.logs[0] !== before.logs[0]
+    ) {
+      cues[0] = { ...cues[0], kind: fallbackKind, label: after.logs[0], target: fallbackTarget }
+    }
+    setState(after)
+    setEventQueue(cues.length > 0
+      ? cues
+      : [fallbackEvent(fallbackKind, fallbackTarget, after.logs[0] ?? '状态已更新')])
   }
 
   useEffect(() => {
@@ -92,36 +122,52 @@ export function VisualPrototype() {
   }, [])
 
   useEffect(() => {
-    if (simulationSpeed === 0 || state.phase === 'player' || state.status !== 'active') return
+    if (eventQueue.length === 0) return
     const timer = window.setTimeout(() => {
-      const target = getPlayer(state).position
-      setState((current) => advancePhase(current))
-      emitEvent('phase', target)
-    }, speedDelays[simulationSpeed])
+      setEventQueue((current) => current.slice(1))
+    }, cueDelays[simulationSpeed])
     return () => window.clearTimeout(timer)
-  }, [simulationSpeed, state.phase, state.status, state.turn])
+  }, [eventQueue, simulationSpeed])
+
+  useEffect(() => {
+    if (
+      simulationSpeed === 0 ||
+      state.phase === 'player' ||
+      state.status !== 'active' ||
+      eventQueue.length > 0
+    ) return
+
+    const timer = window.setTimeout(() => {
+      const before = state
+      const target = getPlayer(before).position
+      const after = advancePhase(before)
+      commitTransition(before, after, 'phase', target)
+    }, phaseDelays[simulationSpeed])
+    return () => window.clearTimeout(timer)
+  }, [simulationSpeed, state, eventQueue.length])
 
   const handleBoardClick = (coord: Coord) => {
     setSelectedCoord(coord)
-    if (state.phase !== 'player' || state.status !== 'active') return
+    if (playbackActive || state.phase !== 'player' || state.status !== 'active') return
 
     if (selection.kind === 'basic') {
-      const next = performBasicAction(state, selection.action, coord)
-      setState(next)
-      emitEvent(selection.action === 'move' ? 'move' : 'attack', coord)
-      if (selection.action === 'attack') setSelection({ kind: 'inspect' })
+      const before = state
+      const after = performBasicAction(before, selection.action, coord)
+      commitTransition(before, after, selection.action === 'move' ? 'move' : 'attack', coord)
+      if (selection.action === 'attack' || after.ap < 1) setSelection({ kind: 'inspect' })
       return
     }
 
     if (selection.kind === 'card') {
-      const next = playCard(state, selection.card.id, coord, targetLayer)
-      setState(next)
-      emitEvent(eventKindForCard(selection.card), coord)
+      const before = state
+      const after = playCard(before, selection.card.id, coord, targetLayer)
+      commitTransition(before, after, eventKindForCard(selection.card), coord)
       setSelection({ kind: 'inspect' })
     }
   }
 
   const chooseBasicAction = (action: BasicAction) => {
+    if (playbackActive) return
     setSelection((current) =>
       current.kind === 'basic' && current.action === action
         ? { kind: 'inspect' }
@@ -130,9 +176,11 @@ export function VisualPrototype() {
   }
 
   const chooseCard = (card: Card) => {
+    if (playbackActive) return
     if (card.target === 'self') {
-      setState((current) => playCard(current, card.id, undefined, targetLayer))
-      emitEvent(eventKindForCard(card), player.position)
+      const before = state
+      const after = playCard(before, card.id, undefined, targetLayer)
+      commitTransition(before, after, eventKindForCard(card), player.position)
       setSelection({ kind: 'inspect' })
       return
     }
@@ -145,18 +193,20 @@ export function VisualPrototype() {
   }
 
   const advance = () => {
-    const next = state.phase === 'player' ? endPlayerTurn(state) : advancePhase(state)
-    setState(next)
+    if (playbackActive) return
+    const before = state
+    const after = before.phase === 'player' ? endPlayerTurn(before) : advancePhase(before)
+    commitTransition(before, after, 'phase', player.position)
     setSelection({ kind: 'inspect' })
-    emitEvent('phase', player.position)
   }
 
   const reset = () => {
     const next = createInitialState({ turnMode: state.config.turnMode })
     setState(next)
     setSelectedCoord({ x: 1, y: 8 })
+    setHoverCoord(undefined)
     setSelection({ kind: 'inspect' })
-    emitEvent('reset', { x: 1, y: 8 })
+    setEventQueue([fallbackEvent('reset', { x: 1, y: 8 }, '局面已重置')])
   }
 
   const selectedLabel = selection.kind === 'inspect'
@@ -168,12 +218,15 @@ export function VisualPrototype() {
       : `为「${selection.card.name}」选择目标`
 
   const autoResolving = simulationSpeed > 0 && state.phase !== 'player' && state.status === 'active'
+  const boardHelp = rendererMode === 'three'
+    ? '拖动旋转 · 滚轮缩放 · Q/E 或 A/D 连续旋转 · W/S 调整俯角'
+    : '拖动平移 · 滚轮缩放 · 固定等轴测构图，突出 2D 图层与轮廓控制'
 
   return (
     <main className="visual-prototype">
       <header className="visual-hud">
         <div className="visual-brand">
-          <p className="eyebrow">ProjectC · Three.js Visual Slice</p>
+          <p className="eyebrow">ProjectC · {rendererMode === 'three' ? 'Three.js 3D' : 'PixiJS 2D'} Visual Slice</p>
           <h1>双层环境棋盘 · 视觉验证切片</h1>
         </div>
 
@@ -197,14 +250,14 @@ export function VisualPrototype() {
           </label>
           <button
             className="visual-primary"
-            disabled={state.status !== 'active' || autoResolving}
+            disabled={state.status !== 'active' || playbackActive || autoResolving}
             onClick={advance}
           >
             {state.phase === 'player'
-              ? '结束玩家回合'
+              ? playbackActive ? '表现队列中…' : '结束玩家回合'
               : autoResolving
                 ? '自动演算中…'
-                : '推进一步'}
+                : playbackActive ? '表现队列中…' : '推进一步'}
           </button>
         </div>
       </header>
@@ -228,14 +281,14 @@ export function VisualPrototype() {
             <div className="visual-action-grid">
               <button
                 className={selection.kind === 'basic' && selection.action === 'move' ? 'active sticky' : ''}
-                disabled={state.phase !== 'player' || state.ap < 1}
+                disabled={playbackActive || state.phase !== 'player' || state.ap < 1}
                 onClick={() => chooseBasicAction('move')}
               >
                 <span>➜</span><strong>连续移动</strong><small>1 AP / 格 · 保持选择</small>
               </button>
               <button
                 className={selection.kind === 'basic' && selection.action === 'attack' ? 'active danger' : ''}
-                disabled={state.phase !== 'player' || state.ap < 1}
+                disabled={playbackActive || state.phase !== 'player' || state.ap < 1}
                 onClick={() => chooseBasicAction('attack')}
               >
                 <span>⚔</span><strong>剑攻击</strong><small>1 AP · 相邻敌人</small>
@@ -263,10 +316,26 @@ export function VisualPrototype() {
         </aside>
 
         <section className="visual-board-column">
+          <div className="visual-renderer-tabs" role="tablist" aria-label="视觉切片渲染方案">
+            <button
+              className={rendererMode === 'three' ? 'active' : ''}
+              onClick={() => { setRendererMode('three'); setHoverCoord(undefined) }}
+            >
+              <strong>Three.js 3D</strong><span>真实高度、灯光、云影与自由镜头</span>
+            </button>
+            <button
+              className={rendererMode === 'pixi' ? 'active' : ''}
+              onClick={() => { setRendererMode('pixi'); setHoverCoord(undefined) }}
+            >
+              <strong>PixiJS 2D</strong><span>固定等轴测、清晰轮廓与精灵化特效</span>
+            </button>
+            <p>两个切片共用同一 GameState；切换不会重置局面。</p>
+          </div>
+
           <div className="visual-board-toolbar">
             <div className="visual-camera-help">
               <button onClick={() => setCameraResetToken((value) => value + 1)}>重置镜头</button>
-              <span>拖动旋转 · 滚轮缩放 · Q/E 或 A/D 连续旋转 · W/S 调整俯角</span>
+              <span>{boardHelp}</span>
             </div>
             <div className="visual-layer-switch">
               <button className={targetLayer === 'ground' ? 'active' : ''} onClick={() => setTargetLayer('ground')}>Ground</button>
@@ -279,19 +348,44 @@ export function VisualPrototype() {
             </div>
           </div>
 
-          <div className="visual-board-frame">
-            <InteractiveThreeBoard
-              state={state}
-              selectedCoord={selectedCoord}
-              selection={selection}
-              targetLayer={targetLayer}
-              cameraResetToken={cameraResetToken}
-              showSky={showSky}
-              showDebug={showDebug}
-              event={event}
-              onCellClick={handleBoardClick}
-              onCellHover={setHoverCoord}
-            />
+          <div className={`visual-board-frame renderer-${rendererMode}`}>
+            {rendererMode === 'three' ? (
+              <InteractiveThreeBoard
+                state={state}
+                selectedCoord={selectedCoord}
+                selection={selection}
+                targetLayer={targetLayer}
+                cameraResetToken={cameraResetToken}
+                showSky={showSky}
+                showDebug={showDebug}
+                event={currentEvent}
+                onCellClick={handleBoardClick}
+                onCellHover={setHoverCoord}
+              />
+            ) : (
+              <PixiVisualBoard
+                state={state}
+                selectedCoord={selectedCoord}
+                hoverCoord={hoverCoord}
+                selection={selection}
+                targetLayer={targetLayer}
+                cameraResetToken={cameraResetToken}
+                showSky={showSky}
+                showDebug={showDebug}
+                event={currentEvent}
+                onCellClick={handleBoardClick}
+                onCellHover={setHoverCoord}
+              />
+            )}
+
+            {currentEvent && (
+              <div className={`visual-event-banner ${currentEvent.kind}`}>
+                <strong>{currentEvent.label ?? '状态演出'}</strong>
+                {currentEvent.amount ? <span>{currentEvent.kind === 'attack' ? '伤害' : '变化'} {currentEvent.amount}</span> : null}
+                {eventQueue.length > 1 ? <small>后续 {eventQueue.length - 1} 项</small> : null}
+              </div>
+            )}
+
             <div className="visual-board-legend">
               <span><i className="cold" />偏冷</span>
               <span><i className="neutral" />中性</span>
@@ -316,7 +410,7 @@ export function VisualPrototype() {
                 return (
                   <button
                     className={`visual-card ${active ? 'active' : ''} ${temperatureClass}`}
-                    disabled={state.phase !== 'player' || state.ap < card.cost || state.status !== 'active'}
+                    disabled={playbackActive || state.phase !== 'player' || state.ap < card.cost || state.status !== 'active'}
                     key={card.id}
                     onClick={() => chooseCard(card)}
                   >
@@ -382,7 +476,10 @@ export function VisualPrototype() {
           </section>
 
           <section>
-            <div className="visual-section-heading"><h3>本轮因果链</h3><span>{autoResolving ? `${speedLabels[simulationSpeed]} 自动演算` : '最近日志'}</span></div>
+            <div className="visual-section-heading">
+              <h3>本轮因果链</h3>
+              <span>{playbackActive ? `表现队列 ${eventQueue.length}` : autoResolving ? `${speedLabels[simulationSpeed]} 自动演算` : '最近日志'}</span>
+            </div>
             <div className="visual-causality">
               {state.logs.slice(0, 7).map((log, index) => (
                 <div key={`${index}-${log}`}><span>{index + 1}</span><p>{log}</p></div>
@@ -391,9 +488,9 @@ export function VisualPrototype() {
           </section>
 
           <section className="visual-slice-note">
-            <h3>当前验证重点</h3>
-            <p>连续镜头能否缓解遮挡；Ground / Sky 分组是否提高理解；连续移动与自动阶段演算是否使完整回合更自然。</p>
-            <p>速度设为“手动”时恢复逐阶段推进，适合检查规则日志和环境演化结果。</p>
+            <h3>当前对照重点</h3>
+            <p>Three.js 强调真实高度、自由镜头、灯光和遮挡；PixiJS 强调固定构图、清晰轮廓、图层排序和低成本 2D 特效。</p>
+            <p>两个切片共用规则、操作、Inspector 与演算队列。应比较可读性、画面潜力和制作成本，而不是只比较空场景 FPS。</p>
           </section>
         </aside>
       </section>
