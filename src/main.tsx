@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { GraphicsLab } from './graphics/GraphicsLab'
+import { VisualFeedbackObserver } from './visual/VisualFeedbackObserver'
 import { VisualPrototype } from './visual/VisualPrototype'
 import './styles.css'
 import './visual/visual-v3.css'
@@ -48,7 +49,12 @@ function Root() {
         </nav>
       </div>
       {view === 'rules' && <App />}
-      {view === 'visual' && <VisualPrototype />}
+      {view === 'visual' && (
+        <>
+          <VisualPrototype />
+          <VisualFeedbackObserver />
+        </>
+      )}
       {view === 'graphics' && <GraphicsLab />}
     </>
   )
