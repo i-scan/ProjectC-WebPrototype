@@ -2,15 +2,17 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { GraphicsLab } from './graphics/GraphicsLab'
+import { HexPrototype } from './hex/HexPrototype'
 import { VisualFeedbackObserver } from './visual/VisualFeedbackObserver'
 import { VisualPrototype } from './visual/VisualPrototype'
 import './styles.css'
 import './visual/visual-v3.css'
 
-type View = 'rules' | 'visual' | 'graphics'
+type View = 'rules' | 'visual' | 'hex' | 'graphics'
 
 function viewFromHash(): View {
   if (window.location.hash === '#graphics-lab') return 'graphics'
+  if (window.location.hash === '#hex-prototype') return 'hex'
   if (window.location.hash === '#visual-prototype') return 'visual'
   return 'rules'
 }
@@ -27,10 +29,14 @@ function Root() {
   const navigate = (next: View) => {
     window.location.hash = next === 'graphics'
       ? 'graphics-lab'
-      : next === 'visual'
-        ? 'visual-prototype'
-        : 'rules-lab'
+      : next === 'hex'
+        ? 'hex-prototype'
+        : next === 'visual'
+          ? 'visual-prototype'
+          : 'rules-lab'
   }
+
+  const visualView = view === 'visual' || view === 'hex'
 
   return (
     <>
@@ -41,7 +47,10 @@ function Root() {
             规则实验室
           </button>
           <button className={view === 'visual' ? 'selected' : ''} onClick={() => navigate('visual')}>
-            2D / 3D 视觉切片
+            四边格视觉切片
+          </button>
+          <button className={view === 'hex' ? 'selected' : ''} onClick={() => navigate('hex')}>
+            六边格验证
           </button>
           <button className={view === 'graphics' ? 'selected' : ''} onClick={() => navigate('graphics')}>
             图形性能实验室
@@ -49,13 +58,10 @@ function Root() {
         </nav>
       </div>
       {view === 'rules' && <App />}
-      {view === 'visual' && (
-        <>
-          <VisualPrototype />
-          <VisualFeedbackObserver />
-        </>
-      )}
+      {view === 'visual' && <VisualPrototype />}
+      {view === 'hex' && <HexPrototype />}
       {view === 'graphics' && <GraphicsLab />}
+      {visualView && <VisualFeedbackObserver />}
     </>
   )
 }
