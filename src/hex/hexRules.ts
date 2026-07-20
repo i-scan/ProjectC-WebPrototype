@@ -93,7 +93,7 @@ export function getHexWind(cell: GameState['cells'][number]): HexDirection | nul
 }
 
 function setHexWind(cell: GameState['cells'][number], direction: HexDirection | null) {
-  ;(cell as GameState['cells'][number] & { wind: HexDirection | null }).wind = direction
+  ;(cell as unknown as { wind: HexDirection | null }).wind = direction
 }
 
 function addLog(state: GameState, message: string): void {
