@@ -47,10 +47,10 @@ function Root() {
             规则实验室
           </button>
           <button className={view === 'visual' ? 'selected' : ''} onClick={() => navigate('visual')}>
-            四边格视觉切片
+            Square4
           </button>
           <button className={view === 'hex' ? 'selected' : ''} onClick={() => navigate('hex')}>
-            六边格验证
+            Hex6
           </button>
           <button className={view === 'graphics' ? 'selected' : ''} onClick={() => navigate('graphics')}>
             图形性能实验室
