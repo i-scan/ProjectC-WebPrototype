@@ -1,0 +1,154 @@
+name: Patch Hex6 Grid
+
+on:
+  push:
+    branches:
+      - agent/bootstrap-web-prototype
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/bootstrap-web-prototype
+      - name: Fix Hex6 geometry and picking
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path: Path, old: str, new: str):
+              text = path.read_text()
+              if old not in text:
+                  raise SystemExit(f'Expected block not found in {path}: {old[:80]!r}')
+              path.write_text(text.replace(old, new))
+
+          main = Path('src/main.tsx')
+          replace(main, '四边格视觉切片', 'Square4')
+          replace(main, '六边格验证', 'Hex6')
+
+          prototype = Path('src/hex/HexPrototype.tsx')
+          replace(prototype, 'ProjectC · Three.js Hex Validation', 'ProjectC · Hex6 · Three.js')
+          replace(prototype, '<h1>六边格双层环境棋盘</h1>', '<h1>Hex6 双层环境棋盘</h1>')
+
+          board = Path('src/hex/HexThreeBoard.tsx')
+          replace(
+              board,
+              "const sameCoord = (a?: Coord, b?: Coord) => Boolean(a && b && a.x === b.x && a.y === b.y)\n",
+              "const sameCoord = (a?: Coord, b?: Coord) => Boolean(a && b && a.x === b.x && a.y === b.y)\n\nfunction pointInsideHex(x: number, z: number, radius = HEX_RADIUS) {\n  const absX = Math.abs(x)\n  const absZ = Math.abs(z)\n  const rootThree = Math.sqrt(3)\n  return absZ <= radius && absX <= rootThree * radius * 0.5 && rootThree * absZ + absX <= rootThree * radius\n}\n",
+          )
+          replace(board, "  mesh.rotation.y = Math.PI / 6\n", "")
+          replace(board, "  ring.rotation.z = Math.PI / 6\n", "")
+
+          old_picker = '''    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    const coordFromPointer = (eventValue: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect()
+      pointer.x = ((eventValue.clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((eventValue.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      const hit = raycaster.intersectObjects(clickTargetsRef.current, false)[0]
+      return hit?.object.userData.coord as Coord | undefined
+    }
+'''
+          new_picker = '''    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    const boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.08)
+    const boardPoint = new THREE.Vector3()
+    let publishedHover: Coord | undefined
+
+    const publishHover = (coord?: Coord) => {
+      if ((!publishedHover && !coord) || sameCoord(publishedHover, coord)) return
+      publishedHover = coord ? { ...coord } : undefined
+      onHoverRef.current?.(coord)
+    }
+
+    const coordFromPointer = (eventValue: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect()
+      pointer.x = ((eventValue.clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((eventValue.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointer, camera)
+      if (!raycaster.ray.intersectPlane(boardPlane, boardPoint)) return undefined
+
+      const currentState = stateRef.current
+      let nearest: Coord | undefined
+      let nearestDistance = Number.POSITIVE_INFINITY
+      for (const cell of currentState.cells) {
+        const center = hexWorldPosition(cell.coord, currentState)
+        const dx = boardPoint.x - center.x
+        const dz = boardPoint.z - center.z
+        const distanceSquared = dx * dx + dz * dz
+        if (distanceSquared < nearestDistance) {
+          nearest = cell.coord
+          nearestDistance = distanceSquared
+        }
+      }
+      if (!nearest) return undefined
+
+      const center = hexWorldPosition(nearest, currentState)
+      return pointInsideHex(boardPoint.x - center.x, boardPoint.z - center.z, HEX_RADIUS * 1.025)
+        ? nearest
+        : undefined
+    }
+'''
+          replace(board, old_picker, new_picker)
+          replace(board, "        onHoverRef.current?.(undefined)\n", "        publishHover(undefined)\n")
+          replace(board, "      onHoverRef.current?.(coord)\n", "      publishHover(coord)\n")
+
+          old_leave = '''    const handleWheel = (eventValue: WheelEvent) => {
+      eventValue.preventDefault()
+      orbitRef.current.zoom = clamp(orbitRef.current.zoom * Math.exp(-eventValue.deltaY * 0.001), 0.58, 2.15)
+      updateCamera()
+    }
+'''
+          new_leave = '''    const handleWheel = (eventValue: WheelEvent) => {
+      eventValue.preventDefault()
+      orbitRef.current.zoom = clamp(orbitRef.current.zoom * Math.exp(-eventValue.deltaY * 0.001), 0.58, 2.15)
+      updateCamera()
+    }
+    const handleLeave = () => {
+      if (!drag.active) publishHover(undefined)
+    }
+'''
+          replace(board, old_leave, new_leave)
+          replace(board, "    renderer.domElement.addEventListener('pointerleave', () => onHoverRef.current?.(undefined))\n", "    renderer.domElement.addEventListener('pointerleave', handleLeave)\n")
+          replace(board, "      renderer.domElement.removeEventListener('pointercancel', handleUp)\n      renderer.domElement.removeEventListener('wheel', handleWheel)\n", "      renderer.domElement.removeEventListener('pointercancel', handleUp)\n      renderer.domElement.removeEventListener('pointerleave', handleLeave)\n      renderer.domElement.removeEventListener('wheel', handleWheel)\n")
+          replace(board, "      tile.rotation.y = Math.PI / 6\n", "")
+
+          old_edges = '''      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(tile.geometry),
+        new THREE.LineBasicMaterial({ color: temperatureColors[clamp(cell.groundTemp, -3, 3) + 3], transparent: true, opacity: 0.62 }),
+      )
+      tile.add(edges)
+'''
+          new_edges = '''      const outlinePoints = Array.from({ length: 6 }, (_, index) => {
+        const angle = Math.PI * 0.5 - index * Math.PI / 3
+        return new THREE.Vector3(Math.cos(angle) * HEX_RADIUS, 0.096, Math.sin(angle) * HEX_RADIUS)
+      })
+      const edges = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints(outlinePoints),
+        new THREE.LineBasicMaterial({
+          color: temperatureColors[clamp(cell.groundTemp, -3, 3) + 3],
+          transparent: true,
+          opacity: 0.42,
+          depthWrite: false,
+        }),
+      )
+      edges.renderOrder = 5
+      tile.add(edges)
+'''
+          replace(board, old_edges, new_edges)
+
+          workflow = Path('.github/workflows/patch-hex6-grid.yml')
+          workflow.unlink()
+          PY
+      - name: Commit Hex6 fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.tsx src/hex/HexPrototype.tsx src/hex/HexThreeBoard.tsx .github/workflows/patch-hex6-grid.yml
+          git commit -m "Fix Hex6 tiling and stable cell picking"
+          git push origin HEAD:agent/bootstrap-web-prototype
