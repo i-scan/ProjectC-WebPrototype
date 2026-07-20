@@ -15,14 +15,4 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run test
-      - name: Build
-        shell: bash
-        run: |
-          set -o pipefail
-          npm run build 2>&1 | tee build.log
-      - name: Upload build diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-diagnostics
-          path: build.log
+      - run: npm run build
