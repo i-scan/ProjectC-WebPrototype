@@ -7,6 +7,7 @@ import { VisualFeedbackObserver } from './visual/VisualFeedbackObserver'
 import { VisualPrototype } from './visual/VisualPrototype'
 import './styles.css'
 import './visual/visual-v3.css'
+import './visual/inspector-fix.css'
 
 type View = 'rules' | 'visual' | 'hex' | 'graphics'
 
