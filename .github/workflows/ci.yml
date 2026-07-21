@@ -62,6 +62,11 @@ jobs:
             offsetToAxial,
           } from './hexTopology'
           export type { HexDirection } from './hexTopology'
+
+          const clone = <T>(value: T): T => structuredClone(value)
+          const sameCoord = (a: Coord, b: Coord) => a.x === b.x && a.y === b.y
+          const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
+          const keyOf = (coord: Coord) => `${coord.x},${coord.y}`
           """
           topology_import = re.sub(r'^          ', '', topology_import, flags=re.M)
 
