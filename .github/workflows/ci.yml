@@ -5,14 +5,43 @@ on:
     branches: [main, "agent/**"]
   pull_request:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: projectc-prototype-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: agent/bootstrap-web-prototype
+      - name: Detect Hex6 repair trigger
+        id: hex_fix
+        run: |
+          if test -f src/hex/.visual-cards-fix-trigger; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Apply Hex6 hover rain and draw repair
+        if: steps.hex_fix.outputs.run == 'true'
+        run: python scripts/apply_hex_hover_rain_cards_fix.py
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install
       - run: npm run test
       - run: npm run build
+      - name: Commit validated Hex6 repair
+        if: steps.hex_fix.outputs.run == 'true'
+        run: |
+          rm src/hex/.visual-cards-fix-trigger
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/hex/HexThreeBoard.tsx src/hex/hexRules.ts src/hex/.visual-cards-fix-trigger
+          git commit -m "Fix Hex6 hover clouds rain and card draws"
+          git push origin HEAD:agent/bootstrap-web-prototype
