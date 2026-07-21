@@ -4,6 +4,7 @@ import { actorAt, getPlayer, type Actor, type Cell, type Coord, type GameState, 
 import type { VisualSelection } from '../visual/InteractiveThreeBoard'
 import type { PlaybackEvent } from '../visual/visualPlayback'
 import { buildHexPath, getHexWind, hexDistance, type HexDirection } from './hexRules'
+import { hexDirectionYaw, hexWorldOffset } from './hexTopology'
 
 const HEX_RADIUS = 0.56
 const HEX_X = Math.sqrt(3) * HEX_RADIUS
@@ -57,10 +58,7 @@ function pointInsideHex(x: number, z: number, radius = HEX_RADIUS) {
 }
 
 function rawHexPosition(coord: Coord) {
-  return {
-    x: (coord.x + 0.5 * (coord.y & 1)) * HEX_X,
-    z: coord.y * HEX_Z,
-  }
+  return hexWorldOffset(coord, HEX_RADIUS)
 }
 
 export function hexWorldPosition(coord: Coord, state: GameState, height = 0) {
@@ -156,15 +154,7 @@ function createWindArrow(direction: HexDirection) {
   head.rotation.z = -Math.PI / 2
   head.position.x = 0.34
   group.add(shaft, head)
-  const rotations: Record<HexDirection, number> = {
-    E: 0,
-    NE: Math.PI / 3,
-    NW: 2 * Math.PI / 3,
-    W: Math.PI,
-    SW: -2 * Math.PI / 3,
-    SE: -Math.PI / 3,
-  }
-  group.rotation.y = rotations[direction]
+  group.rotation.y = hexDirectionYaw(direction)
   group.position.y = 1.35
   return group
 }

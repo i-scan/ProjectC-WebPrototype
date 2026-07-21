@@ -18,71 +18,37 @@ import {
   type Moisture,
 } from '../game'
 
-export type HexDirection = 'E' | 'NE' | 'NW' | 'W' | 'SW' | 'SE'
+import {
+  getHexNeighbors,
+  hexAdvance,
+  hexDirectionOnLine,
+  hexDistance,
+  isHexStraightLine,
+  type HexDirection,
+} from './hexTopology'
 
-type Axial = { q: number; r: number }
-
-const HEX_DIRECTIONS: Array<{ direction: HexDirection; q: number; r: number }> = [
-  { direction: 'E', q: 1, r: 0 },
-  { direction: 'NE', q: 1, r: -1 },
-  { direction: 'NW', q: 0, r: -1 },
-  { direction: 'W', q: -1, r: 0 },
-  { direction: 'SW', q: -1, r: 1 },
-  { direction: 'SE', q: 0, r: 1 },
-]
+export {
+  HEX_DIRECTIONS,
+  axialToOffset,
+  getHexNeighbors,
+  hexAdvance,
+  hexDirectionBetween,
+  hexDirectionOnLine,
+  hexDirectionWorldVector,
+  hexDirectionYaw,
+  hexDistance,
+  hexLine,
+  hexRay,
+  hexWorldOffset,
+  isHexStraightLine,
+  offsetToAxial,
+} from './hexTopology'
+export type { HexDirection } from './hexTopology'
 
 const clone = <T>(value: T): T => structuredClone(value)
 const sameCoord = (a: Coord, b: Coord) => a.x === b.x && a.y === b.y
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 const keyOf = (coord: Coord) => `${coord.x},${coord.y}`
-
-export function offsetToAxial(coord: Coord): Axial {
-  return {
-    q: coord.x - (coord.y - (coord.y & 1)) / 2,
-    r: coord.y,
-  }
-}
-
-export function axialToOffset(axial: Axial): Coord {
-  return {
-    x: axial.q + (axial.r - (axial.r & 1)) / 2,
-    y: axial.r,
-  }
-}
-
-export function hexDistance(a: Coord, b: Coord): number {
-  const first = offsetToAxial(a)
-  const second = offsetToAxial(b)
-  const dq = first.q - second.q
-  const dr = first.r - second.r
-  const ds = -first.q - first.r + second.q + second.r
-  return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(ds))
-}
-
-export function getHexNeighbors(coord: Coord): Array<{ coord: Coord; direction: HexDirection }> {
-  const axial = offsetToAxial(coord)
-  return HEX_DIRECTIONS.map((entry) => ({
-    direction: entry.direction,
-    coord: axialToOffset({ q: axial.q + entry.q, r: axial.r + entry.r }),
-  }))
-}
-
-export function hexDirectionBetween(from: Coord, to: Coord): HexDirection | null {
-  return getHexNeighbors(from).find((entry) => sameCoord(entry.coord, to))?.direction ?? null
-}
-
-export function hexDirectionDelta(coord: Coord, direction: HexDirection): Coord {
-  return getHexNeighbors(coord).find((entry) => entry.direction === direction)?.coord ?? coord
-}
-
-export function isHexStraightLine(a: Coord, b: Coord): boolean {
-  const first = offsetToAxial(a)
-  const second = offsetToAxial(b)
-  const dq = second.q - first.q
-  const dr = second.r - first.r
-  const ds = -dq - dr
-  return dq === 0 || dr === 0 || ds === 0
-}
 
 export function isHexInside(state: GameState, coord: Coord): boolean {
   return coord.x >= 0 && coord.y >= 0 && coord.x < state.config.width && coord.y < state.config.height
@@ -107,10 +73,19 @@ function isBlocked(state: GameState, coord: Coord, movingActorId?: string): bool
 }
 
 export function hexStepToward(state: GameState, from: Coord, to: Coord, movingActorId: string): Coord {
+  const currentDistance = hexDistance(from, to)
   return getHexNeighbors(from)
-    .map((entry) => entry.coord)
-    .filter((coord) => isHexInside(state, coord) && !isBlocked(state, coord, movingActorId))
-    .sort((a, b) => hexDistance(a, to) - hexDistance(b, to))[0] ?? from
+    .map((entry, order) => ({
+      ...entry,
+      order,
+      distance: hexDistance(entry.coord, to),
+    }))
+    .filter((entry) =>
+      entry.distance < currentDistance &&
+      isHexInside(state, entry.coord) &&
+      !isBlocked(state, entry.coord, movingActorId),
+    )
+    .sort((a, b) => a.distance - b.distance || a.order - b.order)[0]?.coord ?? from
 }
 
 export function buildHexPath(state: GameState, from: Coord, to: Coord, maxSteps: number, movingActorId = ''): Coord[] {
@@ -270,21 +245,33 @@ function targetActorForCard(state: GameState, target: Coord): Actor | undefined 
   return state.actors.find((actor) => actor.alive && sameCoord(actor.position, target))
 }
 
+export function hexPushDestination(
+  state: GameState,
+  actorPosition: Coord,
+  awayFrom: Coord,
+  movingActorId = '',
+): Coord | null {
+  if (hexDistance(awayFrom, actorPosition) !== 1) return null
+  const direction = hexDirectionOnLine(awayFrom, actorPosition)
+  if (!direction) return null
+  const destination = hexAdvance(actorPosition, direction)
+  if (!isHexInside(state, destination) || isBlocked(state, destination, movingActorId)) return null
+  return destination
+}
+
 function pushActor(state: GameState, actor: Actor, awayFrom: Coord): void {
   if (actor.mass === 'heavy') {
     addLog(state, `${actor.name} 质量为 Heavy，普通推斩无法击退。`)
     return
   }
-  const destination = getHexNeighbors(actor.position)
-    .map((entry) => entry.coord)
-    .filter((coord) => isHexInside(state, coord) && !isBlocked(state, coord, actor.id))
-    .sort((a, b) => hexDistance(b, awayFrom) - hexDistance(a, awayFrom))[0]
-  if (destination && hexDistance(destination, awayFrom) > hexDistance(actor.position, awayFrom)) {
-    actor.position = destination
-    addLog(state, `${actor.name} 被沿六边方向击退到 (${destination.x},${destination.y})。`)
-  } else {
-    addLog(state, `${actor.name} 的击退被阻挡。`)
+  const destination = hexPushDestination(state, actor.position, awayFrom, actor.id)
+  if (!destination) {
+    addLog(state, `${actor.name} 的直线击退被阻挡。`)
+    return
   }
+  const direction = hexDirectionOnLine(awayFrom, actor.position)
+  actor.position = destination
+  addLog(state, `${actor.name} 沿 ${direction} 方向被击退到 (${destination.x},${destination.y})。`)
 }
 
 function removeCardFromHand(state: GameState, cardId: string): void {
@@ -447,7 +434,7 @@ function moveClouds(state: GameState): void {
     if (cell.skyFill !== 'cloud') continue
     const wind = getHexWind(cell)
     if (!wind) continue
-    const destination = hexDirectionDelta(cell.coord, wind)
+    const destination = hexAdvance(cell.coord, wind)
     const target = cellAt(state, destination)
     if (!target || target.skyFill !== 'clear' || occupiedTargets.has(keyOf(destination))) continue
     moves.push({ from: cell.coord, to: destination, age: cell.cloudAge })
