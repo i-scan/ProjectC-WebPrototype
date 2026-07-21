@@ -79,7 +79,6 @@ jobs:
               '',
               'legacy topology definitions',
           )
-
           rules = rules.replace('hexDirectionDelta(', 'hexAdvance(')
 
           rules = regex_once(
@@ -140,7 +139,6 @@ jobs:
           function removeCardFromHand""".replace('          ', ''),
               'directional push',
           )
-
           rules_path.write_text(rules)
 
           board_path = Path('src/hex/HexThreeBoard.tsx')
@@ -168,9 +166,7 @@ jobs:
           )
           board_path.write_text(board)
 
-          trigger = Path('src/hex/.topology-repair-trigger')
-          trigger.unlink(missing_ok=True)
-
+          Path('src/hex/.topology-repair-trigger').unlink(missing_ok=True)
           Path('.github/workflows/ci.yml').write_text("""name: Prototype CI
 
           on:
@@ -195,10 +191,19 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - run: npm run test
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee test.log
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hex6-test-diagnostics
+          path: test.log
       - run: npm run build
       - name: Commit repaired Hex6 topology
-        if: ${{ hashFiles('src/hex/.topology-repair-trigger') == '' }}
         run: |
           if git diff --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
