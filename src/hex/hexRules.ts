@@ -18,6 +18,7 @@ import {
   type Moisture,
 } from '../game'
 
+import { randomizeHexDeck, shuffleCards } from './hexDeck'
 import {
   getHexNeighbors,
   hexAdvance,
@@ -207,7 +208,8 @@ function updateObjectivesInPlace(state: GameState): void {
 
 export function createHexInitialState(overrides?: Partial<GameConfig>): GameState {
   const state = createInitialState(overrides)
-  state.logs = ['Turn 1：六边格规则验证开始。']
+  randomizeHexDeck(state)
+  state.logs = ['Turn 1：六边格规则验证开始；牌库已随机洗牌。']
   return computeHexEnemyIntents(state)
 }
 
@@ -498,7 +500,7 @@ export function runHexGlobalEnvironment(state: GameState): GameState {
 function drawToFive(state: GameState): void {
   while (state.hand.length < 5) {
     if (state.deck.length === 0) {
-      state.deck = [...state.discard]
+      state.deck = shuffleCards(state.discard)
       state.discard = []
     }
     const card = state.deck.shift()

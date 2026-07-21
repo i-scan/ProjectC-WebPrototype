@@ -29,6 +29,14 @@ type Props = {
 
 type OrbitState = { yaw: number; pitch: number; zoom: number }
 type BobAnimation = { object: THREE.Object3D; baseY: number; phase: number; amplitude: number; speed: number }
+type RainAnimation = {
+  object: THREE.Mesh
+  material: THREE.MeshBasicMaterial
+  topY: number
+  bottomY: number
+  phase: number
+  speed: number
+}
 type MoveAnimation = { object: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number }
 type PulseAnimation = {
   object: THREE.Object3D
@@ -49,6 +57,7 @@ type AttackAnimation = {
 const DEFAULT_ORBIT: OrbitState = { yaw: Math.PI * 0.25, pitch: 0.74, zoom: 1 }
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 const sameCoord = (a?: Coord, b?: Coord) => Boolean(a && b && a.x === b.x && a.y === b.y)
+const coordKey = (coord: Coord) => `${coord.x},${coord.y}`
 
 function pointInsideHex(x: number, z: number, radius = HEX_RADIUS) {
   const absX = Math.abs(x)
@@ -141,7 +150,8 @@ function createCloud(cell: Cell, bob: BobAnimation[]) {
     group.add(sphere)
   }
   group.position.y = 2.12
-  bob.push({ object: group, baseY: 2.12, phase: Math.random() * Math.PI * 2, amplitude: 0.07, speed: 1.1 })
+  const stablePhase = (cell.coord.x * 1.37 + cell.coord.y * 2.11) % (Math.PI * 2)
+  bob.push({ object: group, baseY: 2.12, phase: stablePhase, amplitude: 0.07, speed: 1.1 })
   return group
 }
 
@@ -302,7 +312,7 @@ function addLocalEffect(
     const angle = index / particleCount * Math.PI * 2
     particle.position.set(
       position.x + Math.cos(angle) * 0.18,
-      position.y + (effect === 'vapor' ? 0.2 : 0.03),
+      effect === 'rain' ? 1.85 + (index % 3) * 0.12 : position.y + (effect === 'vapor' ? 0.2 : 0.03),
       position.z + Math.sin(angle) * 0.18,
     )
     content.add(particle)
@@ -311,7 +321,7 @@ function addLocalEffect(
       material,
       startedAt: performance.now() + index * 18,
       duration: 820,
-      rise: effect === 'rain' ? -0.9 : effect === 'wind' ? 0.1 : 0.65,
+      rise: effect === 'rain' ? -1.5 : effect === 'wind' ? 0.1 : 0.65,
     })
   }
 }
@@ -339,6 +349,9 @@ export function HexThreeBoard({
   const onHoverRef = useRef(onCellHover)
   const stateRef = useRef(state)
   const bobRef = useRef<BobAnimation[]>([])
+  const rainRef = useRef<RainAnimation[]>([])
+  const cloudObjectsRef = useRef(new Map<string, THREE.Group>())
+  const interactionLayerRef = useRef<THREE.Group | null>(null)
   const moveRef = useRef<MoveAnimation[]>([])
   const pulseRef = useRef<PulseAnimation[]>([])
   const attackRef = useRef<AttackAnimation[]>([])
@@ -536,6 +549,11 @@ export function HexThreeBoard({
       for (const item of bobRef.current) {
         item.object.position.y = item.baseY + Math.sin(seconds * item.speed + item.phase) * item.amplitude
       }
+      for (const item of rainRef.current) {
+        const progress = (seconds * item.speed + item.phase) % 1
+        item.object.position.y = item.topY - (item.topY - item.bottomY) * progress
+        item.material.opacity = 0.22 + Math.sin(progress * Math.PI) * 0.55
+      }
       moveRef.current = moveRef.current.filter((item) => {
         const progress = clamp((now - item.startedAt) / item.duration, 0, 1)
         const eased = 1 - Math.pow(1 - progress, 3)
@@ -612,6 +630,9 @@ export function HexThreeBoard({
     }
     actorObjectsRef.current.clear()
     bobRef.current = []
+    rainRef.current = []
+    cloudObjectsRef.current.clear()
+    interactionLayerRef.current = null
     moveRef.current = []
     pulseRef.current = []
     attackRef.current = []
@@ -625,6 +646,11 @@ export function HexThreeBoard({
     floor.position.y = -0.46
     floor.receiveShadow = true
     content.add(floor)
+
+    const interactionLayer = new THREE.Group()
+    interactionLayer.name = 'hex-interaction-layer'
+    content.add(interactionLayer)
+    interactionLayerRef.current = interactionLayer
 
     for (const cell of state.cells) {
       const position = hexWorldPosition(cell.coord, state)
@@ -644,19 +670,6 @@ export function HexThreeBoard({
       tile.add(createTopOutline(cell))
       content.add(tile)
 
-      if (sameCoord(cell.coord, selectedCoord)) {
-        const selected = createHexOverlay(0xf7d06e, 0.3, 0.14, 0.49)
-        selected.position.x = position.x
-        selected.position.z = position.z
-        content.add(selected)
-        bobRef.current.push({ object: selected, baseY: 0.14, phase: 0, amplitude: 0.025, speed: 4 })
-      }
-      if (sameCoord(cell.coord, hoverCoord)) {
-        const hover = createHexOverlay(0xffffff, 0.15, 0.155, 0.45)
-        hover.position.x = position.x
-        hover.position.z = position.z
-        content.add(hover)
-      }
       if (isValidTarget(state, selection, cell.coord)) {
         const color = selection.kind === 'basic' && selection.action === 'attack'
           ? 0xf05b68
@@ -745,14 +758,8 @@ export function HexThreeBoard({
         const cloud = createCloud(cell, bobRef.current)
         cloud.position.x = position.x
         cloud.position.z = position.z
-        if (sameCoord(cell.coord, selectedCoord) || sameCoord(cell.coord, hoverCoord)) {
-          cloud.traverse((child) => {
-            if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
-              child.material.opacity = 0.28
-            }
-          })
-        }
         content.add(cloud)
+        cloudObjectsRef.current.set(coordKey(cell.coord), cloud)
         const shadow = createHexOverlay(0x24354d, 0.24, 0.12, 0.38)
         shadow.position.x = position.x
         shadow.position.z = position.z
@@ -773,18 +780,30 @@ export function HexThreeBoard({
         })
       }
       if (showSky && cell.intents.some((intentValue) => intentValue.type === 'rain')) {
-        for (let index = 0; index < 5; index += 1) {
-          const drop = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.012, 0.012, 0.43, 5),
-            new THREE.MeshBasicMaterial({ color: 0x7fdcff, transparent: true, opacity: 0.67 }),
-          )
+        for (let index = 0; index < 7; index += 1) {
+          const material = new THREE.MeshBasicMaterial({
+            color: 0x7fdcff,
+            transparent: true,
+            opacity: 0.67,
+            depthWrite: false,
+          })
+          const drop = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.34, 5), material)
+          const topY = 2.02 + (index % 3) * 0.16
+          const bottomY = 0.16
           drop.position.set(
-            position.x - 0.28 + index * 0.14,
-            1.05 + (index % 2) * 0.28,
-            position.z + ((index * 7) % 3 - 1) * 0.11,
+            position.x - 0.3 + (index % 4) * 0.19,
+            topY,
+            position.z - 0.2 + Math.floor(index / 4) * 0.3,
           )
           content.add(drop)
-          bobRef.current.push({ object: drop, baseY: drop.position.y, phase: index, amplitude: 0.3, speed: 3.8 })
+          rainRef.current.push({
+            object: drop,
+            material,
+            topY,
+            bottomY,
+            phase: index / 7,
+            speed: 0.72 + (index % 2) * 0.12,
+          })
         }
       }
       if (showDebug) {
@@ -802,27 +821,6 @@ export function HexThreeBoard({
     }
 
     const player = getPlayer(state)
-    if (
-      selection.kind === 'basic' &&
-      selection.action === 'move' &&
-      hoverCoord &&
-      isValidTarget(state, selection, hoverCoord)
-    ) {
-      const path = buildHexPath(state, player.position, hoverCoord, 8, player.id)
-        .map((coord) => hexWorldPosition(coord, state, 0.18))
-      const line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(path),
-        new THREE.LineDashedMaterial({
-          color: 0x76e5b0,
-          dashSize: 0.14,
-          gapSize: 0.09,
-          transparent: true,
-          opacity: 0.9,
-        }),
-      )
-      line.computeLineDistances()
-      content.add(line)
-    }
 
     for (const actor of state.actors.filter((entry) => entry.alive && entry.faction === 'enemy')) {
       const steps = actor.actorType === 'hunter' ? 2 : 1
@@ -884,18 +882,58 @@ export function HexThreeBoard({
       }
     }
     if (event) addLocalEffect(content, event, state, pulseRef.current)
-  }, [
-    state,
-    selectedCoord.x,
-    selectedCoord.y,
-    hoverCoord?.x,
-    hoverCoord?.y,
-    selection,
-    targetLayer,
-    showSky,
-    showDebug,
-    event,
-  ])
+  }, [state, selection, targetLayer, showSky, showDebug, event])
+
+  useEffect(() => {
+    const layer = interactionLayerRef.current
+    if (!layer) return
+
+    for (const child of [...layer.children]) {
+      layer.remove(child)
+      disposeObject(child)
+    }
+
+    for (const [key, cloud] of cloudObjectsRef.current) {
+      const faded = key === coordKey(selectedCoord) || (hoverCoord && key === coordKey(hoverCoord))
+      cloud.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+          child.material.opacity = faded ? 0.28 : 0.8
+        }
+      })
+    }
+
+    const selectedPosition = hexWorldPosition(selectedCoord, state)
+    const selected = createHexOverlay(0xf7d06e, 0.3, 0.14, 0.49)
+    selected.position.x = selectedPosition.x
+    selected.position.z = selectedPosition.z
+    layer.add(selected)
+
+    if (hoverCoord) {
+      const hoverPosition = hexWorldPosition(hoverCoord, state)
+      const hover = createHexOverlay(0xffffff, 0.15, 0.155, 0.45)
+      hover.position.x = hoverPosition.x
+      hover.position.z = hoverPosition.z
+      layer.add(hover)
+
+      const player = getPlayer(state)
+      if (selection.kind === 'basic' && selection.action === 'move' && isValidTarget(state, selection, hoverCoord)) {
+        const path = buildHexPath(state, player.position, hoverCoord, 8, player.id)
+          .map((coord) => hexWorldPosition(coord, state, 0.18))
+        const line = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(path),
+          new THREE.LineDashedMaterial({
+            color: 0x76e5b0,
+            dashSize: 0.14,
+            gapSize: 0.09,
+            transparent: true,
+            opacity: 0.9,
+          }),
+        )
+        line.computeLineDistances()
+        layer.add(line)
+      }
+    }
+  }, [state, selectedCoord.x, selectedCoord.y, hoverCoord?.x, hoverCoord?.y, selection])
 
   return <div className="hex-board-host" ref={hostRef} aria-label="Three.js Hex6 棋盘" />
 }
