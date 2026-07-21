@@ -5,6 +5,13 @@ on:
     branches: [main, "agent/**"]
   pull_request:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: projectc-prototype-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -12,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: agent/bootstrap-web-prototype
-      - name: Apply Hex6 topology repair for validation
+      - name: Apply Hex6 topology repair
         if: ${{ hashFiles('src/hex/.topology-repair-trigger') != '' }}
         run: python scripts/repair_hex_topology.py
       - uses: actions/setup-node@v4
@@ -21,11 +28,12 @@ jobs:
       - run: npm install
       - run: npm run test
       - run: npm run build
-      - name: Export validated Hex6 sources
+      - name: Commit validated Hex6 repair
         if: ${{ hashFiles('src/hex/.topology-repair-trigger') != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: validated-hex6-topology
-          path: |
-            src/hex/hexRules.ts
-            src/hex/HexThreeBoard.tsx
+        run: |
+          rm src/hex/.topology-repair-trigger
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/hex/hexRules.ts src/hex/HexThreeBoard.tsx src/hex/.topology-repair-trigger
+          git commit -m "Fix Hex6 directional geometry"
+          git push origin HEAD:agent/bootstrap-web-prototype
