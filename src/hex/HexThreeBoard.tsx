@@ -5,6 +5,7 @@ import type { VisualSelection } from '../visual/InteractiveThreeBoard'
 import type { PlaybackEvent } from '../visual/visualPlayback'
 import { buildHexPath, getHexWind, hexDistance, type HexDirection } from './hexRules'
 import { hexDirectionYaw, hexWorldOffset } from './hexTopology'
+import type { HexMode, TravelPreference } from './hexTravel'
 
 const HEX_RADIUS = 0.56
 const HEX_X = Math.sqrt(3) * HEX_RADIUS
@@ -15,6 +16,10 @@ const actorColors = { player: 0x4ba7df, hunter: 0xd25463, elite: 0x8f62c7, npc: 
 
 type Props = {
   state: GameState
+  mode?: HexMode
+  travelPath?: Coord[]
+  travelTarget?: Coord
+  travelPreference?: TravelPreference
   selectedCoord: Coord
   hoverCoord?: Coord
   selection: VisualSelection
@@ -328,6 +333,10 @@ function addLocalEffect(
 
 export function HexThreeBoard({
   state,
+  mode = 'tactical',
+  travelPath = [],
+  travelTarget,
+  travelPreference = 'fastest',
   selectedCoord,
   hoverCoord,
   selection,
@@ -822,7 +831,38 @@ export function HexThreeBoard({
 
     const player = getPlayer(state)
 
-    for (const actor of state.actors.filter((entry) => entry.alive && entry.faction === 'enemy')) {
+    if (travelPath.length > 1) {
+      const points = travelPath.map((coord) => hexWorldPosition(coord, state, 0.2))
+      const pathMaterial = new THREE.LineDashedMaterial({
+        color: travelPreference === 'fastest' ? 0xf4ca62 : 0x69ddb0,
+        transparent: true,
+        opacity: mode === 'travel' ? 0.92 : 0.3,
+        dashSize: 0.2,
+        gapSize: 0.09,
+      })
+      const pathLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), pathMaterial)
+      pathLine.computeLineDistances()
+      pathLine.renderOrder = 20
+      content.add(pathLine)
+    }
+
+    if (travelTarget) {
+      const targetPosition = hexWorldPosition(travelTarget, state, 0.23)
+      const targetMaterial = new THREE.MeshBasicMaterial({
+        color: travelPreference === 'fastest' ? 0xffda72 : 0x76e4b4,
+        transparent: true,
+        opacity: mode === 'travel' ? 0.92 : 0.45,
+        depthWrite: false,
+      })
+      const targetMarker = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.42, 6), targetMaterial)
+      targetMarker.rotation.x = -Math.PI / 2
+      targetMarker.position.copy(targetPosition)
+      targetMarker.renderOrder = 21
+      content.add(targetMarker)
+      bobRef.current.push({ object: targetMarker, baseY: targetMarker.position.y, phase: 0, amplitude: 0.035, speed: 3.4 })
+    }
+
+    if (mode === 'tactical') for (const actor of state.actors.filter((entry) => entry.alive && entry.faction === 'enemy')) {
       const steps = actor.actorType === 'hunter' ? 2 : 1
       const pathCoords = buildHexPath(state, actor.position, player.position, steps, actor.id)
       if (pathCoords.length <= 1) continue
@@ -882,7 +922,7 @@ export function HexThreeBoard({
       }
     }
     if (event) addLocalEffect(content, event, state, pulseRef.current)
-  }, [state, selection, targetLayer, showSky, showDebug, event])
+  }, [state, mode, travelPath, travelTarget, travelPreference, selection, targetLayer, showSky, showDebug, event])
 
   useEffect(() => {
     const layer = interactionLayerRef.current

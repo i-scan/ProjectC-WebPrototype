@@ -39,6 +39,7 @@ import {
 } from './hexTravel'
 import './hex.css'
 import './hex-travel.css'
+import './hex-view-mode.css'
 
 const cardIcons: Record<Card['effect'], string> = {
   'heat-cell': '☀',
@@ -58,6 +59,7 @@ const phaseDelays = [0, 1400, 850, 450, 220] as const
 const travelDelays = [0, 1050, 680, 400, 230] as const
 const cueDelays = [360, 520, 340, 210, 120] as const
 const maxUndoSteps = 120
+type HexRenderer = '2d' | '3d'
 
 function eventKindForCard(card: Card): VisualEvent['kind'] {
   if (card.effect === 'cool-cell' || card.effect === 'cold-strike') return 'cool'
@@ -89,6 +91,7 @@ export function HexPrototype() {
   const [state, setState] = useState(() => createHexTravelState())
   const [undoStack, setUndoStack] = useState<HexHistoryEntry[]>([])
   const [mode, setMode] = useState<HexMode>('travel')
+  const [rendererMode, setRendererMode] = useState<HexRenderer>('3d')
   const [selection, setSelection] = useState<VisualSelection>({ kind: 'inspect' })
   const [targetLayer, setTargetLayer] = useState<Layer>('ground')
   const [selectedCoord, setSelectedCoord] = useState<Coord>(() => ({ ...getPlayer(state).position }))
@@ -417,6 +420,10 @@ export function HexPrototype() {
           <button className={mode === 'travel' ? 'active' : ''} onClick={() => mode === 'travel' ? undefined : resumeTravel()}>旅行 Travel</button>
           <button className={mode === 'tactical' ? 'active' : ''} onClick={() => mode === 'tactical' ? undefined : enterTactical()}>战术 Tactical</button>
         </div>
+        <div className="hex-view-switch" role="tablist" aria-label="地图表现方式">
+          <button className={rendererMode === '2d' ? 'active' : ''} onClick={() => { setRendererMode('2d'); setHoverCoord(undefined) }}>2D</button>
+          <button className={rendererMode === '3d' ? 'active' : ''} onClick={() => { setRendererMode('3d'); setHoverCoord(undefined) }}>3D</button>
+        </div>
         <div className="visual-turn-strip">
           <div><span>World</span><strong>{state.turn}</strong></div>
           <div><span>Mode</span><strong>{mode === 'travel' ? 'Travel' : phaseLabel(state.phase)}</strong></div>
@@ -496,7 +503,13 @@ export function HexPrototype() {
           <div className="visual-board-toolbar">
             <div className="visual-camera-help">
               <button onClick={() => setCameraResetToken((value) => value + 1)}>重置视图</button>
-              <span>{mode === 'travel' ? '点击任意可通行 Hex 规划路径；黄色为最快，绿色为安全。' : '拖动旋转 · 滚轮缩放 · 逐格战术操作。'}</span>
+              <span>{rendererMode === '3d'
+                ? mode === 'travel'
+                  ? '3D 旅行：点击远端 Hex 规划路径；拖动旋转，滚轮缩放。'
+                  : '3D 战术：拖动旋转 · 滚轮缩放 · 逐格战术操作。'
+                : mode === 'travel'
+                  ? '2D 旅行：总览路径、风险、地标与世界状态。'
+                  : '2D 战术：有效目标、敌人意图与计划中的旅行路径同时可见。'}</span>
             </div>
             <div className="visual-layer-switch">
               <button className={targetLayer === 'ground' ? 'active' : ''} onClick={() => setTargetLayer('ground')}>Ground</button>
@@ -510,11 +523,38 @@ export function HexPrototype() {
             </div>
           </div>
 
-          <div className="visual-board-frame hex-board-frame">
-            {mode === 'travel' ? (
-              <HexTravelMap state={state} path={travelPath} selectedCoord={selectedCoord} hoverCoord={hoverCoord} preference={travelPreference} onCellClick={handleBoardClick} onCellHover={setHoverCoord} />
+          <div className={`visual-board-frame hex-board-frame view-${rendererMode}`}>
+            {rendererMode === '2d' ? (
+              <HexTravelMap
+                state={state}
+                mode={mode}
+                path={travelPath}
+                selectedCoord={selectedCoord}
+                hoverCoord={hoverCoord}
+                selection={selection}
+                targetLayer={targetLayer}
+                preference={travelPreference}
+                onCellClick={handleBoardClick}
+                onCellHover={setHoverCoord}
+              />
             ) : (
-              <HexThreeBoard state={state} selectedCoord={selectedCoord} hoverCoord={hoverCoord} selection={selection} targetLayer={targetLayer} cameraResetToken={cameraResetToken} showSky={showSky} showDebug={showDebug} event={currentEvent} onCellClick={handleBoardClick} onCellHover={setHoverCoord} />
+              <HexThreeBoard
+                state={state}
+                mode={mode}
+                travelPath={travelPath}
+                travelTarget={travelTarget}
+                travelPreference={travelPreference}
+                selectedCoord={selectedCoord}
+                hoverCoord={hoverCoord}
+                selection={selection}
+                targetLayer={targetLayer}
+                cameraResetToken={cameraResetToken}
+                showSky={showSky}
+                showDebug={showDebug}
+                event={currentEvent}
+                onCellClick={handleBoardClick}
+                onCellHover={setHoverCoord}
+              />
             )}
             {currentEvent && <div className={`visual-event-banner ${currentEvent.kind}`}><strong>{currentEvent.label ?? 'Hex6 状态演出'}</strong>{currentEvent.amount ? <span>{currentEvent.kind === 'attack' ? '伤害' : '变化'} {currentEvent.amount}</span> : null}{eventQueue.length > 1 ? <small>后续 {eventQueue.length - 1} 项</small> : null}</div>}
             {mode === 'tactical' && travelMessage.startsWith('旅行被打断') && <div className="hex-interrupt-banner">{travelMessage}</div>}
