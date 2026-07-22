@@ -1,0 +1,110 @@
+.hex-view-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(126, 164, 211, .24);
+  border-radius: 10px;
+  background: rgba(8, 15, 25, .62);
+}
+
+.hex-view-switch button {
+  min-width: 46px;
+  padding: 6px 9px;
+}
+
+.hex-view-switch button.active {
+  border-color: rgba(226, 202, 108, .72);
+  color: #fff8d7;
+  background: rgba(91, 72, 29, .76);
+}
+
+.hex-prototype .visual-brand + .hex-mode-switch {
+  margin-left: auto;
+}
+
+.hex-travel-map-host.mode-tactical {
+  background:
+    radial-gradient(circle at 52% 42%, rgba(128, 91, 118, .16), transparent 46%),
+    linear-gradient(180deg, #18253a, #0b1422);
+}
+
+.hex-travel-map-host.mode-tactical .hex-travel-cell polygon {
+  opacity: .96;
+}
+
+.hex-travel-cell.valid-target polygon {
+  stroke: #72ddb0;
+  stroke-width: 2.7;
+  filter: brightness(1.12);
+}
+
+.hex-travel-cell.valid-target.attack polygon,
+.hex-travel-cell.valid-target.card polygon {
+  stroke: #f06a75;
+}
+
+.hex-travel-cell.valid-target.cool polygon {
+  stroke: #66c9ff;
+}
+
+.hex-travel-cell.valid-target.heat polygon {
+  stroke: #ff955e;
+}
+
+.hex-travel-cell.valid-target.layer-sky polygon {
+  stroke-dasharray: 4 2;
+}
+
+.hex-travel-path.planned {
+  opacity: .34;
+}
+
+.hex-2d-intents {
+  fill: none;
+  stroke: #ff6673;
+  stroke-width: 2.2;
+  stroke-dasharray: 5 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.hex-board-frame.view-2d::after,
+.hex-board-frame.view-3d::after {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  z-index: 12;
+  padding: 5px 8px;
+  border: 1px solid rgba(130, 169, 205, .24);
+  border-radius: 999px;
+  color: #9bb3ca;
+  background: rgba(5, 12, 20, .68);
+  font-size: 8px;
+  pointer-events: none;
+}
+
+.hex-board-frame.view-2d::after {
+  content: '2D View';
+}
+
+.hex-board-frame.view-3d::after {
+  content: '3D View';
+}
+
+@media (max-width: 1320px) {
+  .hex-view-switch button {
+    min-width: 40px;
+    padding-inline: 7px;
+  }
+}
+
+@media (max-width: 1050px) {
+  .hex-prototype .visual-hud {
+    flex-wrap: wrap;
+  }
+
+  .hex-prototype .visual-brand + .hex-mode-switch {
+    margin-left: 0;
+  }
+}
