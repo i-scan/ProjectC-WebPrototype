@@ -1,0 +1,46 @@
+name: Apply Hex6 View Decoupling
+
+on:
+  push:
+    branches:
+      - agent/bootstrap-web-prototype
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-hex-view-mode
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/bootstrap-web-prototype
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply renderer-mode patch
+        run: node scripts/apply-hex-view-mode.mjs
+      - name: Validate
+        run: |
+          npm install
+          npm run test
+          npm run build
+      - name: Remove one-time patch files
+        run: |
+          rm scripts/apply-hex-view-mode.mjs
+          rm .github/workflows/apply-hex-view-mode.yml
+          rm -f .github/hex-view-mode-trigger.txt
+      - name: Commit validated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Decouple Hex6 operation mode from 2D and 3D views"
+          git pull --rebase origin agent/bootstrap-web-prototype
+          git push origin HEAD:agent/bootstrap-web-prototype
