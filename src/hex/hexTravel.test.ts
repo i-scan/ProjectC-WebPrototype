@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'vitest'
-import { getPlayer } from '../game'
+import { cellAt, getPlayer } from '../game'
 import {
   advanceTravelClock,
   createHexTravelState,
   findHexTravelPath,
   movePlayerInTravel,
   runHexTravelTick,
+  travelCellRisk,
   TRAVEL_OBJECTIVE,
 } from './hexTravel'
 
@@ -22,7 +23,7 @@ describe('continuous Hex6 travel prototype', () => {
     expect(advanceTravelClock(0, 12, 6).ticks).toBe(2)
   })
 
-  test('both fastest and safest paths cross the continuous ridge through a legal pass', () => {
+  test('fastest and safest routes reach the same objective without crossing blocked cells', () => {
     const state = createHexTravelState()
     const start = getPlayer(state).position
     const fastest = findHexTravelPath(state, start, TRAVEL_OBJECTIVE, 'fastest')
@@ -30,8 +31,14 @@ describe('continuous Hex6 travel prototype', () => {
 
     expect(fastest.length).toBeGreaterThan(1)
     expect(safest.length).toBeGreaterThan(1)
-    expect(fastest.some((coord) => coord.x === 7 && (coord.y === 3 || coord.y === 8))).toBe(true)
-    expect(safest.some((coord) => coord.x === 7 && (coord.y === 3 || coord.y === 8))).toBe(true)
+    expect(fastest.at(-1)).toEqual(TRAVEL_OBJECTIVE)
+    expect(safest.at(-1)).toEqual(TRAVEL_OBJECTIVE)
+    expect(fastest.some((coord) => cellAt(state, coord)?.tags.includes('Blocked'))).toBe(false)
+    expect(safest.some((coord) => cellAt(state, coord)?.tags.includes('Blocked'))).toBe(false)
+
+    const fastestRisk = fastest.slice(1).reduce((sum, coord) => sum + travelCellRisk(cellAt(state, coord)!), 0)
+    const safestRisk = safest.slice(1).reduce((sum, coord) => sum + travelCellRisk(cellAt(state, coord)!), 0)
+    expect(safestRisk).toBeLessThanOrEqual(fastestRisk)
   })
 
   test('travel world tick preserves the current card zones', () => {
