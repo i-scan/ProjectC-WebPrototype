@@ -1,0 +1,290 @@
+.hex-mode-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(126, 164, 211, .24);
+  border-radius: 10px;
+  background: rgba(8, 15, 25, .62);
+}
+
+.hex-mode-switch button {
+  min-width: 78px;
+  padding: 6px 10px;
+}
+
+.hex-mode-switch button.active {
+  border-color: rgba(117, 199, 239, .72);
+  color: #e9f8ff;
+  background: rgba(39, 91, 123, .72);
+}
+
+.hex-travel-map-host {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 52% 42%, rgba(92, 132, 158, .18), transparent 48%),
+    linear-gradient(180deg, #14263a, #0a1421);
+}
+
+.hex-travel-map-host svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hex-travel-cell {
+  cursor: pointer;
+}
+
+.hex-travel-cell polygon {
+  stroke: rgba(13, 24, 36, .76);
+  stroke-width: 1.2;
+  transition: opacity .16s ease, stroke .16s ease, filter .16s ease;
+}
+
+.hex-travel-cell:hover polygon,
+.hex-travel-cell.hovered polygon {
+  stroke: #f0fbff;
+  stroke-width: 2.2;
+  filter: brightness(1.15);
+}
+
+.hex-travel-cell.selected polygon {
+  stroke: #f4d56d;
+  stroke-width: 2.5;
+}
+
+.hex-travel-cell.path polygon {
+  stroke: rgba(102, 224, 181, .86);
+}
+
+.hex-travel-cell.risky polygon {
+  stroke-dasharray: 3 2;
+}
+
+.hex-travel-cloud {
+  fill: rgba(237, 244, 248, .7);
+  stroke: rgba(146, 189, 215, .72);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.hex-travel-rain {
+  fill: none;
+  stroke: #7ddaff;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.hex-travel-landmark {
+  fill: #f4e7ad;
+  font-size: 10px;
+  font-weight: 700;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.hex-travel-path {
+  pointer-events: none;
+}
+
+.hex-travel-path polyline {
+  fill: none;
+  stroke: #69ddb0;
+  stroke-width: 4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 3px rgba(65, 221, 168, .44));
+}
+
+.hex-travel-path.fastest polyline {
+  stroke: #f4ca62;
+}
+
+.hex-travel-path circle {
+  fill: #ddfff1;
+  stroke: rgba(7, 30, 23, .84);
+  stroke-width: 1;
+}
+
+.hex-travel-path.fastest circle {
+  fill: #fff0b3;
+}
+
+.hex-travel-actor circle {
+  fill: #4aa4da;
+  stroke: #e8f8ff;
+  stroke-width: 2;
+}
+
+.hex-travel-actor.enemy circle {
+  fill: #bd4c59;
+}
+
+.hex-travel-actor.neutral circle,
+.hex-travel-actor.allied circle {
+  fill: #c79b51;
+}
+
+.hex-travel-actor text {
+  fill: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.hex-travel-panel {
+  display: grid;
+  gap: 7px;
+}
+
+.hex-travel-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.hex-travel-metrics > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+  border: 1px solid rgba(126, 164, 211, .16);
+  border-radius: 8px;
+  background: rgba(6, 13, 22, .46);
+}
+
+.hex-travel-metrics span {
+  color: #7890aa;
+  font-size: 7px;
+}
+
+.hex-travel-metrics strong {
+  overflow: hidden;
+  color: #e2f5ff;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hex-travel-clock {
+  display: grid;
+  gap: 5px;
+}
+
+.hex-travel-clock > div {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .08);
+}
+
+.hex-travel-clock i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #67c9ef, #77dfb0);
+  transition: width .22s ease;
+}
+
+.hex-travel-clock p,
+.hex-travel-status {
+  margin: 0;
+  color: #8ca5bd;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.hex-route-preference {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.hex-route-preference button.active {
+  border-color: rgba(115, 210, 175, .64);
+  color: #eafff7;
+  background: rgba(33, 88, 69, .68);
+}
+
+.hex-route-preference button.active.fastest {
+  border-color: rgba(242, 201, 95, .7);
+  background: rgba(92, 71, 27, .72);
+}
+
+.hex-travel-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.hex-travel-route-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 6px;
+}
+
+.hex-travel-route-list > div {
+  padding: 7px 8px;
+  border: 1px solid rgba(126, 164, 211, .15);
+  border-radius: 8px;
+  background: rgba(7, 15, 25, .42);
+}
+
+.hex-travel-route-list span {
+  display: block;
+  color: #7289a2;
+  font-size: 7px;
+}
+
+.hex-travel-route-list strong {
+  color: #dcefff;
+  font-size: 10px;
+}
+
+.hex-interrupt-banner {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  z-index: 16;
+  max-width: min(76%, 560px);
+  padding: 8px 12px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(248, 186, 91, .54);
+  border-radius: 999px;
+  color: #fff2cf;
+  background: rgba(79, 52, 20, .9);
+  font-size: 9px;
+  pointer-events: none;
+}
+
+.hex-travel-hand-note {
+  min-height: 92px;
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  padding: 12px;
+  text-align: center;
+}
+
+.hex-travel-hand-note p {
+  margin: 0;
+  color: #849bb4;
+  font-size: 9px;
+}
+
+@media (max-height: 800px) {
+  .hex-travel-hand-note {
+    min-height: 62px;
+    padding: 7px;
+  }
+
+  .hex-travel-metrics > div {
+    padding: 5px;
+  }
+}
