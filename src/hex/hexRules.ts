@@ -69,7 +69,8 @@ function addLog(state: GameState, message: string): void {
 }
 
 function isBlocked(state: GameState, coord: Coord, movingActorId?: string): boolean {
-  if (!cellAt(state, coord)) return true
+  const cell = cellAt(state, coord)
+  if (!cell || cell.tags.includes('Blocked') || cell.tags.includes('Void')) return true
   return state.actors.some((actor) => actor.alive && actor.id !== movingActorId && sameCoord(actor.position, coord))
 }
 

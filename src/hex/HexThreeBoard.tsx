@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
-import { actorAt, getPlayer, type Actor, type Cell, type Coord, type GameState, type Layer } from '../game'
+import { actorAt, cellAt, getPlayer, type Actor, type Cell, type Coord, type GameState, type Layer } from '../game'
 import type { VisualSelection } from '../visual/InteractiveThreeBoard'
 import type { PlaybackEvent } from '../visual/visualPlayback'
 import { buildHexPath, getHexWind, hexDistance, type HexDirection } from './hexRules'
@@ -255,6 +255,8 @@ function createActorPawn(actor: Actor, billboards: THREE.Group[]) {
 }
 
 function isValidTarget(state: GameState, selection: VisualSelection, coord: Coord) {
+  const cell = cellAt(state, coord)
+  if (!cell || cell.tags.includes('Blocked') || cell.tags.includes('Void')) return false
   const player = getPlayer(state)
   if (selection.kind === 'inspect') return false
   if (selection.kind === 'basic') {
@@ -468,6 +470,7 @@ export function HexThreeBoard({
       let nearest: Coord | undefined
       let nearestDistance = Number.POSITIVE_INFINITY
       for (const cell of currentState.cells) {
+        if (cell.tags.includes('Void')) continue
         const center = hexWorldPosition(cell.coord, currentState)
         const dx = boardPoint.x - center.x
         const dz = boardPoint.z - center.z
@@ -662,6 +665,7 @@ export function HexThreeBoard({
     interactionLayerRef.current = interactionLayer
 
     for (const cell of state.cells) {
+      if (cell.tags.includes('Void')) continue
       const position = hexWorldPosition(cell.coord, state)
       const tile = new THREE.Mesh(
         new THREE.CylinderGeometry(HEX_RADIUS, HEX_RADIUS, TILE_HEIGHT, 6),

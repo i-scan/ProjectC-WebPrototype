@@ -16,6 +16,16 @@ import { buildVisualEvents, type PlaybackEvent } from '../visual/visualPlayback'
 import { HexThreeBoard } from './HexThreeBoard'
 import { HexTravelMap } from './HexTravelMap'
 import {
+  activeScenarioCells,
+  createHexRoomState,
+  findScenarioObjective,
+  roomCellCount,
+  ROOM_DEFAULT_RADIUS,
+  ROOM_MAX_RADIUS,
+  ROOM_MIN_RADIUS,
+  type HexMapStructure,
+} from './hexRoom'
+import {
   advanceHexPhase,
   endHexPlayerTurn,
   getHexNeighbors,
@@ -33,13 +43,13 @@ import {
   movePlayerInTravel,
   runHexTravelTick,
   summarizeTravelPath,
-  TRAVEL_OBJECTIVE,
   type HexMode,
   type TravelPreference,
 } from './hexTravel'
 import './hex.css'
 import './hex-travel.css'
 import './hex-view-mode.css'
+import './hex-room.css'
 
 const cardIcons: Record<Card['effect'], string> = {
   'heat-cell': '☀',
@@ -88,9 +98,11 @@ type HexHistoryEntry = {
 }
 
 export function HexPrototype() {
-  const [state, setState] = useState(() => createHexTravelState())
+  const [mapStructure, setMapStructure] = useState<HexMapStructure>('room')
+  const [roomRadius, setRoomRadius] = useState(ROOM_DEFAULT_RADIUS)
+  const [state, setState] = useState(() => createHexRoomState(ROOM_DEFAULT_RADIUS))
   const [undoStack, setUndoStack] = useState<HexHistoryEntry[]>([])
-  const [mode, setMode] = useState<HexMode>('travel')
+  const [mode, setMode] = useState<HexMode>('tactical')
   const [rendererMode, setRendererMode] = useState<HexRenderer>('3d')
   const [selection, setSelection] = useState<VisualSelection>({ kind: 'inspect' })
   const [targetLayer, setTargetLayer] = useState<Layer>('ground')
@@ -107,7 +119,7 @@ export function HexPrototype() {
   const [travelProgress, setTravelProgress] = useState(0)
   const [worldTicks, setWorldTicks] = useState(0)
   const [traveling, setTraveling] = useState(false)
-  const [travelMessage, setTravelMessage] = useState('点击远端 Hex 规划路径并自动旅行。')
+  const [travelMessage, setTravelMessage] = useState('调整房间半径，比较战术密度、移动空间与环境覆盖。')
 
   const player = getPlayer(state)
   const currentEvent = eventQueue[0]
@@ -120,19 +132,24 @@ export function HexPrototype() {
     .filter((card): card is Card => Boolean(card))
   const selectedDistance = hexDistance(player.position, inspectCoord)
   const availableNeighbors = getHexNeighbors(player.position)
-    .filter((entry) => isHexInside(state, entry.coord) && !actorAt(state, entry.coord))
+    .filter((entry) => {
+      const cell = cellAt(state, entry.coord)
+      return isHexInside(state, entry.coord) && Boolean(cell) && !cell!.tags.includes('Blocked') && !actorAt(state, entry.coord)
+    })
   const threat = findNearestTravelThreat(state)
   const pathSummary = useMemo(
     () => summarizeTravelPath(state, travelPath, travelProgress),
     [state, travelPath, travelProgress],
   )
-  const reachedObjective = player.position.x === TRAVEL_OBJECTIVE.x && player.position.y === TRAVEL_OBJECTIVE.y
+  const scenarioObjective = findScenarioObjective(state)
+  const activeCellCount = activeScenarioCells(state).length
+  const reachedObjective = Boolean(scenarioObjective && player.position.x === scenarioObjective.x && player.position.y === scenarioObjective.y)
 
   const objectives = useMemo(() => [
-    { done: worldTicks > 0, label: '旅行移动触发世界演算' },
-    { done: mode === 'tactical', label: '由旅行切入战术模式' },
-    { done: reachedObjective, label: '抵达远端求救地点' },
-  ], [worldTicks, mode, reachedObjective])
+    { done: worldTicks > 0, label: '移动触发世界演算' },
+    { done: mode === 'tactical', label: '进入战术操作模式' },
+    { done: reachedObjective, label: mapStructure === 'room' ? '抵达房间目标' : '抵达远端求救地点' },
+  ], [worldTicks, mode, reachedObjective, mapStructure])
 
   const captureHistory = (snapshotState: GameState = state): HexHistoryEntry => ({
     state: structuredClone(snapshotState),
@@ -361,23 +378,31 @@ export function HexPrototype() {
     setEventQueue([fallbackEvent('reset', getPlayer(previous.state).position, `悔棋：Turn ${previous.state.turn} · ${previous.mode === 'travel' ? '旅行' : phaseLabel(previous.state.phase)}`)])
   }
 
-  const restart = () => {
-    const next = createHexTravelState({ turnMode: state.config.turnMode, baseAP: state.config.baseAP })
+  const loadScenario = (structure: HexMapStructure, radius = roomRadius) => {
+    const next = structure === 'room'
+      ? createHexRoomState(radius, { turnMode: state.config.turnMode, baseAP: state.config.baseAP })
+      : createHexTravelState({ turnMode: state.config.turnMode, baseAP: state.config.baseAP })
     const start = getPlayer(next).position
+    setMapStructure(structure)
+    setRoomRadius(radius)
     setState(next)
     setUndoStack([])
-    setMode('travel')
     setTravelPath([])
     setTravelTarget(undefined)
     setTravelProgress(0)
     setWorldTicks(0)
     setTraveling(false)
-    setTravelMessage('点击远端 Hex 规划路径并自动旅行。')
+    setTravelMessage(structure === 'room'
+      ? `房间半径 ${radius}：${roomCellCount(radius)} 个有效 Cell。`
+      : '点击远端 Hex 规划路径并自动旅行。')
     setSelectedCoord({ ...start })
     setHoverCoord(undefined)
     setSelection({ kind: 'inspect' })
-    setEventQueue([fallbackEvent('reset', start, '连续 Hex6 地图已重新开始')])
+    setCameraResetToken((value) => value + 1)
+    setEventQueue([fallbackEvent('reset', start, structure === 'room' ? `房间尺寸切换为 R${radius}` : '连续 Hex6 地图已重新开始')])
   }
+
+  const restart = () => loadScenario(mapStructure, roomRadius)
 
   const selectedLabel = selection.kind === 'inspect'
     ? '查看六边态势'
@@ -413,8 +438,8 @@ export function HexPrototype() {
     <main className="visual-prototype hex-prototype">
       <header className="visual-hud">
         <div className="visual-brand">
-          <p className="eyebrow">ProjectC · Continuous Hex6 Map</p>
-          <h1>旅行 / 战术双模式验证</h1>
+          <p className="eyebrow">ProjectC · Hex6 Map Structure Lab</p>
+          <h1>{mapStructure === 'room' ? '小房间尺寸验证' : '连续大地图验证'}</h1>
         </div>
         <div className="hex-mode-switch" role="tablist" aria-label="地图操作模式">
           <button className={mode === 'travel' ? 'active' : ''} onClick={() => mode === 'travel' ? undefined : resumeTravel()}>旅行 Travel</button>
@@ -449,6 +474,28 @@ export function HexPrototype() {
                 <div><span>体温</span><i className="temperature"><b style={{ width: `${((player.bodyTemperature + 3) / 6) * 100}%` }} /></i><strong>{formatTemperature(player.bodyTemperature)}</strong></div>
               </div>
             </div>
+          </section>
+
+          <section className="hex-map-structure-panel">
+            <div className="visual-section-heading"><h3>地图结构</h3><span>{mapStructure === 'room' ? `Room R${roomRadius}` : 'World 16×12'}</span></div>
+            <div className="hex-structure-switch">
+              <button className={mapStructure === 'world' ? 'active' : ''} onClick={() => loadScenario('world', roomRadius)}>大地图 World</button>
+              <button className={mapStructure === 'room' ? 'active' : ''} onClick={() => loadScenario('room', roomRadius)}>小房间 Room</button>
+            </div>
+            {mapStructure === 'room' ? (
+              <div className="hex-room-size-control">
+                <div><span>房间半径</span><strong>R{roomRadius}</strong></div>
+                <input aria-label="Hex6 房间大小" type="range" min={ROOM_MIN_RADIUS} max={ROOM_MAX_RADIUS} step="1" value={roomRadius} onChange={(eventValue) => loadScenario('room', Number(eventValue.target.value))} />
+                <div className="hex-room-size-labels"><span>紧凑 · 19 Cells</span><span>宽阔 · 169 Cells</span></div>
+                <div className="hex-room-metrics">
+                  <div><span>最长轴</span><strong>{roomRadius * 2 + 1} 格</strong></div>
+                  <div><span>有效 Cell</span><strong>{activeCellCount}</strong></div>
+                  <div><span>理论 Cell</span><strong>{roomCellCount(roomRadius)}</strong></div>
+                </div>
+              </div>
+            ) : (
+              <p className="hex-world-structure-note">保留当前连续 16×12 地图作为对照。切回 Room 后可继续用滑杆比较战术空间密度。</p>
+            )}
           </section>
 
           {mode === 'travel' ? (
@@ -496,8 +543,12 @@ export function HexPrototype() {
 
         <section className="visual-board-column hex-board-column">
           <div className="hex-comparison-strip">
-            <strong>{mode === 'travel' ? '连续地图旅行' : '同坐标战术局部'}</strong>
-            <span>{mode === 'travel' ? '点击远端目标后自动沿路径移动；世界、敌人和天气按旅行时钟推进。' : 'Actor、Ground、Sky 与旅行模式保持原坐标，只切换操作粒度和信息密度。'}</span>
+            <strong>{mapStructure === 'room' ? `紧凑房间 · R${roomRadius}` : mode === 'travel' ? '连续地图旅行' : '同坐标战术局部'}</strong>
+            <span>{mapStructure === 'room'
+              ? `${activeCellCount} 个有效 Cell；用同一套卡牌、Actor 和环境规则比较房间尺寸。`
+              : mode === 'travel'
+                ? '点击远端目标后自动沿路径移动；世界、敌人和天气按旅行时钟推进。'
+                : 'Actor、Ground、Sky 与旅行模式保持原坐标，只切换操作粒度和信息密度。'}</span>
             <span>{travelTarget ? `目标 (${travelTarget.x},${travelTarget.y})` : '尚未选择目标'}</span>
           </div>
           <div className="visual-board-toolbar">
@@ -588,7 +639,7 @@ export function HexPrototype() {
 
           <section className="visual-slice-note">
             <h3>本轮验证问题</h3>
-            <p>最快路线是否因为天气与敌人变得不稳定，而安全路线值得额外距离？</p>
+            <p>{mapStructure === 'room' ? '哪一个房间半径能在移动自由、卡牌覆盖和局部拥挤之间形成最佳张力？' : '最快路线是否因为天气与敌人变得不稳定，而安全路线值得额外距离？'}</p>
             <p>每 baseAP 格推进一次世界后，高 AP 是否自然表现为更高旅行机动性？</p>
             <p>遭遇切入战术后，位置、天气和剩余路径是否仍然连续、可理解？</p>
           </section>
