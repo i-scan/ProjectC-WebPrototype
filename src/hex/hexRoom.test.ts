@@ -9,6 +9,7 @@ import {
   ROOM_MIN_RADIUS,
 } from './hexRoom'
 import { hexDistance } from './hexTopology'
+import { findHexTravelPath } from './hexTravel'
 
 describe('adjustable compact Hex6 rooms', () => {
   test('room cell counts follow a compact hex radius', () => {
@@ -42,5 +43,13 @@ describe('adjustable compact Hex6 rooms', () => {
     const largeObjective = findScenarioObjective(large)!
     expect(hexDistance(getPlayer(small).position, smallObjective)).toBe(4)
     expect(hexDistance(getPlayer(large).position, largeObjective)).toBe(12)
+  })
+
+  test('travel paths remain inside the visible room footprint', () => {
+    const state = createHexRoomState(4)
+    const objective = findScenarioObjective(state)!
+    const path = findHexTravelPath(state, getPlayer(state).position, objective, 'fastest')
+    expect(path.length).toBeGreaterThan(1)
+    expect(path.every((coord) => !cellAt(state, coord)?.tags.includes('Void'))).toBe(true)
   })
 })
