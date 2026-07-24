@@ -1,0 +1,56 @@
+name: Apply Hex6 Room Sizing
+
+on:
+  push:
+    branches:
+      - agent/bootstrap-web-prototype
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-hex-room-size
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/bootstrap-web-prototype
+          fetch-depth: 0
+      - name: Check trigger
+        id: trigger
+        run: |
+          if [ -f .github/hex-room-size-trigger.txt ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Apply source patch
+        if: steps.trigger.outputs.enabled == 'true'
+        run: node scripts/apply-hex-room-size.mjs
+      - uses: actions/setup-node@v4
+        if: steps.trigger.outputs.enabled == 'true'
+        with:
+          node-version: 22
+      - name: Validate
+        if: steps.trigger.outputs.enabled == 'true'
+        run: |
+          npm install --no-package-lock
+          npm run test
+          npm run build
+      - name: Commit verified patch
+        if: steps.trigger.outputs.enabled == 'true'
+        run: |
+          rm -f package-lock.json tsconfig.app.tsbuildinfo tsconfig.node.tsbuildinfo
+          rm .github/hex-room-size-trigger.txt
+          rm scripts/apply-hex-room-size.mjs
+          rm .github/workflows/apply-hex-room-size.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/hex/HexPrototype.tsx src/hex/HexThreeBoard.tsx src/hex/hexRules.ts .github/hex-room-size-trigger.txt scripts/apply-hex-room-size.mjs .github/workflows/apply-hex-room-size.yml
+          git commit -m "Add adjustable Hex6 room size validation"
+          git push origin HEAD:agent/bootstrap-web-prototype
