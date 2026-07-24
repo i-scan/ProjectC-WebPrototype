@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
-import { actorAt, getPlayer, type Cell, type Coord, type GameState, type Layer } from '../game'
+import { actorAt, cellAt, getPlayer, type Cell, type Coord, type GameState, type Layer } from '../game'
 import type { VisualSelection } from '../visual/InteractiveThreeBoard'
 import { buildHexPath, hexDistance } from './hexRules'
+import { isVoidCell } from './hexRoom'
 import { hexWorldOffset } from './hexTopology'
 import { travelCellRisk, type HexMode, type TravelPreference } from './hexTravel'
 
@@ -57,6 +58,8 @@ function landmarkLabel(cell: Cell) {
 }
 
 function isValidTacticalTarget(state: GameState, selection: VisualSelection, coord: Coord) {
+  const cell = cellAt(state, coord)
+  if (!cell || isVoidCell(cell) || cell.tags.includes('Blocked')) return false
   const player = getPlayer(state)
   if (selection.kind === 'inspect') return false
   if (selection.kind === 'basic') {
@@ -83,8 +86,9 @@ export function HexTravelMap(props: HexTravelMapProps) {
     onCellHover,
   } = props
   const player = getPlayer(state)
+  const visibleCells = useMemo(() => state.cells.filter((cell) => !isVoidCell(cell)), [state.cells])
   const pathKeys = useMemo(() => new Set(path.map(keyOf)), [path])
-  const positions = useMemo(() => state.cells.map((cell) => hexCenter(cell.coord)), [state.cells])
+  const positions = useMemo(() => visibleCells.map((cell) => hexCenter(cell.coord)), [visibleCells])
   const bounds = useMemo(() => {
     const xs = positions.map((position) => position.x)
     const ys = positions.map((position) => position.y)
@@ -102,9 +106,9 @@ export function HexTravelMap(props: HexTravelMapProps) {
 
   return (
     <div className={`hex-travel-map-host mode-${mode}`}>
-      <svg viewBox={`${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`连续 Hex6 ${mode === 'travel' ? '旅行' : '战术'}二维地图`}>
+      <svg viewBox={`${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Hex6 ${mode === 'travel' ? '旅行' : '战术'}二维地图`}>
         <g className="hex-travel-cells">
-          {state.cells.map((cell) => {
+          {visibleCells.map((cell) => {
             const center = hexCenter(cell.coord)
             const selected = sameCoord(cell.coord, selectedCoord)
             const hovered = sameCoord(cell.coord, hoverCoord)
@@ -121,7 +125,7 @@ export function HexTravelMap(props: HexTravelMapProps) {
             return (
               <g
                 key={keyOf(cell.coord)}
-                className={`hex-travel-cell ${selected ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${onPath ? 'path' : ''} ${risk > 0 ? 'risky' : ''} ${validTarget ? `valid-target ${targetKind} layer-${targetLayer}` : ''}`}
+                className={`hex-travel-cell ${cell.tags.includes('RoomEdge') ? 'room-edge' : ''} ${selected ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${onPath ? 'path' : ''} ${risk > 0 ? 'risky' : ''} ${validTarget ? `valid-target ${targetKind} layer-${targetLayer}` : ''}`}
                 onClick={() => onCellClick(cell.coord)}
                 onMouseEnter={() => onCellHover?.(cell.coord)}
                 onMouseLeave={() => onCellHover?.(undefined)}
