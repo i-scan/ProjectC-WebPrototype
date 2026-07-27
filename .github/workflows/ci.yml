@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: agent/bootstrap-web-prototype
           fetch-depth: 0
       - name: Apply pending Hex6 mountain patch
         if: hashFiles('.github/hex-mountains-trigger.txt') != ''
@@ -26,7 +26,7 @@ jobs:
       - run: npm run test
       - run: npm run build
       - name: Commit verified Hex6 mountain patch
-        if: hashFiles('.github/hex-mountains-trigger.txt') != ''
+        if: github.event_name == 'push' && hashFiles('.github/hex-mountains-trigger.txt') != ''
         run: |
           rm -f package-lock.json tsconfig.app.tsbuildinfo tsconfig.node.tsbuildinfo
           rm .github/hex-mountains-trigger.txt
