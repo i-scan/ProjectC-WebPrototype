@@ -3,6 +3,7 @@ import { actorAt, cellAt, getPlayer, type Cell, type Coord, type GameState, type
 import type { VisualSelection } from '../visual/InteractiveThreeBoard'
 import { buildHexPath, hexDistance } from './hexRules'
 import { isVoidCell } from './hexRoom'
+import { hasHexLineOfSight, isMountainCell } from './hexTerrain'
 import { hexWorldOffset } from './hexTopology'
 import { travelCellRisk, type HexMode, type TravelPreference } from './hexTravel'
 
@@ -37,6 +38,7 @@ function polygonPoints(coord: Coord) {
 }
 
 function cellFill(cell: Cell) {
+  if (isMountainCell(cell)) return '#4b5058'
   if (cell.tags.includes('Blocked')) return '#2d3440'
   if (cell.groundFill === 'fire') return '#a95036'
   if (cell.groundFill === 'water') return '#327892'
@@ -68,8 +70,23 @@ function isValidTacticalTarget(state: GameState, selection: VisualSelection, coo
   }
   if (selection.card.target === 'self') return false
   if (hexDistance(player.position, coord) > selection.card.range) return false
-  if (selection.card.target === 'actor') return Boolean(actorAt(state, coord))
+  if (selection.card.target === 'actor') {
+    if (!actorAt(state, coord)) return false
+    if (selection.card.range > 1 && !hasHexLineOfSight(state, player.position, coord)) return false
+  }
   return true
+}
+
+function MountainGlyph({ center, ridge }: { center: { x: number; y: number }; ridge: boolean }) {
+  const mainPeak = `M ${center.x - 11} ${center.y + 8} L ${center.x - 2} ${center.y - 9} L ${center.x + 8} ${center.y + 8} Z`
+  const sidePeak = `M ${center.x - 2} ${center.y + 8} L ${center.x + 6} ${center.y - 3} L ${center.x + 13} ${center.y + 8} Z`
+  return (
+    <g className={`hex-travel-mountain ${ridge ? 'ridge' : 'peak'}`} aria-hidden="true">
+      <path d={mainPeak} />
+      <path d={sidePeak} />
+      <path className="snow" d={`M ${center.x - 5} ${center.y - 3} L ${center.x - 2} ${center.y - 9} L ${center.x + 2} ${center.y - 2} L ${center.x} ${center.y} Z`} />
+    </g>
+  )
 }
 
 export function HexTravelMap(props: HexTravelMapProps) {
@@ -116,6 +133,7 @@ export function HexTravelMap(props: HexTravelMapProps) {
             const fogDistance = hexDistance(player.position, cell.coord)
             const risk = travelCellRisk(cell)
             const label = landmarkLabel(cell)
+            const mountain = isMountainCell(cell)
             const validTarget = mode === 'tactical' && isValidTacticalTarget(state, selection, cell.coord)
             const targetKind = selection.kind === 'basic'
               ? selection.action
@@ -125,14 +143,15 @@ export function HexTravelMap(props: HexTravelMapProps) {
             return (
               <g
                 key={keyOf(cell.coord)}
-                className={`hex-travel-cell ${cell.tags.includes('RoomEdge') ? 'room-edge' : ''} ${selected ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${onPath ? 'path' : ''} ${risk > 0 ? 'risky' : ''} ${validTarget ? `valid-target ${targetKind} layer-${targetLayer}` : ''}`}
+                className={`hex-travel-cell ${mountain ? 'mountain' : ''} ${cell.tags.includes('RoomEdge') ? 'room-edge' : ''} ${selected ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${onPath ? 'path' : ''} ${risk > 0 ? 'risky' : ''} ${validTarget ? `valid-target ${targetKind} layer-${targetLayer}` : ''}`}
                 onClick={() => onCellClick(cell.coord)}
                 onMouseEnter={() => onCellHover?.(cell.coord)}
                 onMouseLeave={() => onCellHover?.(undefined)}
               >
                 <polygon points={polygonPoints(cell.coord)} fill={cellFill(cell)} opacity={mode === 'travel' && fogDistance > 5 ? 0.48 : 0.96} />
-                {cell.skyFill === 'cloud' && <circle cx={center.x + 7} cy={center.y - 7} r="5" className="hex-travel-cloud" />}
-                {cell.intents.some((intent) => intent.type === 'rain') && <path d={`M ${center.x - 7} ${center.y - 4} l -3 7 M ${center.x} ${center.y - 4} l -3 7 M ${center.x + 7} ${center.y - 4} l -3 7`} className="hex-travel-rain" />}
+                {mountain && <MountainGlyph center={center} ridge={cell.tags.includes('Ridge')} />}
+                {!mountain && cell.skyFill === 'cloud' && <circle cx={center.x + 7} cy={center.y - 7} r="5" className="hex-travel-cloud" />}
+                {!mountain && cell.intents.some((intent) => intent.type === 'rain') && <path d={`M ${center.x - 7} ${center.y - 4} l -3 7 M ${center.x} ${center.y - 4} l -3 7 M ${center.x + 7} ${center.y - 4} l -3 7`} className="hex-travel-rain" />}
                 {label && <text x={center.x} y={center.y + 5} className="hex-travel-landmark">{label}</text>}
               </g>
             )
