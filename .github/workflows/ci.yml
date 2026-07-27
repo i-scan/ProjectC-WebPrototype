@@ -16,8 +16,16 @@ jobs:
         with:
           ref: agent/bootstrap-web-prototype
           fetch-depth: 0
+      - name: Detect pending Hex6 mountain patch
+        id: mountain_patch
+        run: |
+          if [ -f .github/hex-mountains-trigger.txt ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Apply pending Hex6 mountain patch
-        if: hashFiles('.github/hex-mountains-trigger.txt') != ''
+        if: steps.mountain_patch.outputs.enabled == 'true'
         run: node scripts/apply-hex-mountains.mjs
       - uses: actions/setup-node@v4
         with:
@@ -26,7 +34,7 @@ jobs:
       - run: npm run test
       - run: npm run build
       - name: Commit verified Hex6 mountain patch
-        if: github.event_name == 'push' && hashFiles('.github/hex-mountains-trigger.txt') != ''
+        if: github.event_name == 'push' && steps.mountain_patch.outputs.enabled == 'true'
         run: |
           rm -f package-lock.json tsconfig.app.tsbuildinfo tsconfig.node.tsbuildinfo
           rm .github/hex-mountains-trigger.txt
