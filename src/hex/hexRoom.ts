@@ -7,6 +7,7 @@ import {
   type GameState,
 } from '../game'
 import { computeHexEnemyIntents, createHexInitialState } from './hexRules'
+import { markMountain } from './hexTerrain'
 import { hexAdvance, hexDistance } from './hexTopology'
 
 export type HexMapStructure = 'world' | 'room'
@@ -88,7 +89,7 @@ function configureRoomCells(state: GameState, center: Coord, radius: number): vo
   const shelter = hexAdvance(center, 'W', radius)
   const objective = hexAdvance(center, 'E', radius)
   const resource = { ...center }
-  const fire = hexAdvance(center, 'SE', Math.max(1, radius - 2))
+  const fire = hexAdvance(center, 'SW', Math.max(1, radius - 2))
   const cloud = hexAdvance(center, 'NE', Math.max(1, radius - 1))
 
   cellAt(state, shelter)?.tags.push('Shelter')
@@ -109,23 +110,35 @@ function configureRoomCells(state: GameState, center: Coord, radius: number): vo
     cloudCell.cloudAge = 2
     cloudCell.intents = [{ id: `room-rain-${radius}`, type: 'rain', countdown: 1 }]
   }
+
+  // A broken NW-SE ridge leaves the center as a contested pass. Its length
+  // grows slowly with the room so obstacle density does not overwhelm R2/R3.
+  const ridgeLength = Math.max(1, Math.floor(radius / 2))
+  for (let step = 1; step <= ridgeLength; step += 1) {
+    markMountain(state, hexAdvance(center, 'NW', step), 'ridge')
+    markMountain(state, hexAdvance(center, 'SE', step), 'ridge')
+  }
+
+  // One isolated peak sits just inside the player's side. It forces a choice
+  // between two approach lanes and is useful for testing push and line attacks.
+  markMountain(state, hexAdvance(center, 'W', Math.max(1, radius - 1)), 'peak')
 }
 
 function configureRoomActors(state: GameState, center: Coord, radius: number): void {
   const player = getPlayer(state)
   player.position = hexAdvance(center, 'W', radius)
-  player.intent = '比较房间尺寸与局部战术密度'
+  player.intent = '利用山体通口、侧翼和视线展开战术'
 
   const hunter = state.actors.find((actor) => actor.id === 'hunter')
   if (hunter) {
     hunter.position = hexAdvance(center, 'SE', radius)
-    hunter.name = '房间侧翼追猎者'
+    hunter.name = '山脊侧翼追猎者'
   }
 
   const elite = state.actors.find((actor) => actor.id === 'elite')
   if (elite) {
     elite.position = hexAdvance(center, 'NE', radius)
-    elite.name = '房间边界守卫'
+    elite.name = '山口守卫'
   }
 
   const npc = state.actors.find((actor) => actor.id === 'npc')
@@ -159,7 +172,7 @@ export function createHexRoomState(radiusInput = ROOM_DEFAULT_RADIUS, overrides?
   state.status = 'active'
   state.objectives = { eliteDefeated: false, npcWarmed: false, extracted: false }
   state.logs = [
-    `紧凑 Hex6 房间验证开始：半径 ${radius}，有效 Cell ${roomCellCount(radius)}。`,
+    `紧凑 Hex6 房间验证开始：半径 ${radius}，有效 Cell ${roomCellCount(radius)}；山体会阻挡移动、击退与直线攻击。`,
   ]
   return computeHexEnemyIntents(state)
 }
