@@ -4,6 +4,7 @@ import { actorAt, cellAt, getPlayer, type Actor, type Cell, type Coord, type Gam
 import type { VisualSelection } from '../visual/InteractiveThreeBoard'
 import type { PlaybackEvent } from '../visual/visualPlayback'
 import { buildHexPath, getHexWind, hexDistance, type HexDirection } from './hexRules'
+import { hasHexLineOfSight, isMountainCell } from './hexTerrain'
 import { hexDirectionYaw, hexWorldOffset } from './hexTopology'
 import type { HexMode, TravelPreference } from './hexTravel'
 
@@ -88,6 +89,7 @@ export function hexWorldPosition(coord: Coord, state: GameState, height = 0) {
 }
 
 function fillColor(cell: Cell) {
+  if (isMountainCell(cell)) return new THREE.Color(0x4f555d)
   const base = cell.groundFill === 'grass'
     ? new THREE.Color(0x4f7748)
     : cell.groundFill === 'water'
@@ -171,6 +173,42 @@ function createWindArrow(direction: HexDirection) {
   group.add(shaft, head)
   group.rotation.y = hexDirectionYaw(direction)
   group.position.y = 1.35
+  return group
+}
+
+function createMountain(cell: Cell) {
+  const group = new THREE.Group()
+  const ridge = cell.tags.includes('Ridge')
+  const rock = new THREE.MeshStandardMaterial({
+    color: ridge ? 0x555c64 : 0x626a73,
+    roughness: 0.94,
+    metalness: 0.02,
+    flatShading: true,
+  })
+  const snow = new THREE.MeshStandardMaterial({
+    color: 0xc9d3d8,
+    roughness: 0.86,
+    flatShading: true,
+  })
+  const stable = (cell.coord.x * 17 + cell.coord.y * 31) % 7
+  const peaks = ridge
+    ? [[-0.16, 0.42, -0.08, 0.3, 0.74], [0.15, 0.36, 0.1, 0.25, 0.62]]
+    : [[-0.08, 0.48, 0, 0.34, 0.88], [0.21, 0.3, 0.1, 0.22, 0.52]]
+  for (const [x, y, z, radius, height] of peaks) {
+    const peak = new THREE.Mesh(new THREE.ConeGeometry(radius, height, 6), rock)
+    peak.position.set(x + (stable - 3) * 0.008, y, z)
+    peak.rotation.y = stable * 0.21
+    peak.castShadow = true
+    peak.receiveShadow = true
+    group.add(peak)
+
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.48, height * 0.28, 6), snow)
+    cap.position.set(peak.position.x, y + height * 0.36, z)
+    cap.rotation.y = peak.rotation.y
+    cap.castShadow = true
+    group.add(cap)
+  }
+  group.position.y = 0.12
   return group
 }
 
@@ -265,7 +303,10 @@ function isValidTarget(state: GameState, selection: VisualSelection, coord: Coor
   }
   if (selection.card.target === 'self') return false
   if (hexDistance(player.position, coord) > selection.card.range) return false
-  if (selection.card.target === 'actor') return Boolean(actorAt(state, coord))
+  if (selection.card.target === 'actor') {
+    if (!actorAt(state, coord)) return false
+    if (selection.card.range > 1 && !hasHexLineOfSight(state, player.position, coord)) return false
+  }
   return true
 }
 
@@ -682,6 +723,13 @@ export function HexThreeBoard({
       tile.castShadow = false
       tile.add(createTopOutline(cell))
       content.add(tile)
+
+      if (isMountainCell(cell)) {
+        const mountain = createMountain(cell)
+        mountain.position.x = position.x
+        mountain.position.z = position.z
+        content.add(mountain)
+      }
 
       if (isValidTarget(state, selection, cell.coord)) {
         const color = selection.kind === 'basic' && selection.action === 'attack'

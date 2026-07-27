@@ -18,6 +18,7 @@ import {
   isHexInside,
   runHexGlobalEnvironment,
 } from './hexRules'
+import { markMountain } from './hexTerrain'
 
 export type HexMode = 'travel' | 'tactical'
 export type TravelPreference = 'fastest' | 'safest'
@@ -72,7 +73,7 @@ function configureTravelMap(state: GameState): void {
     // A vertical ridge splits the map. Two passes create a short dangerous route
     // and a longer safer route for direct comparison.
     if (x === 7 && y >= 1 && y <= 10 && y !== 3 && y !== 8) {
-      cell.tags.push('Blocked', 'Ridge')
+      cell.tags.push('Mountain', 'Blocked', 'BlocksSight', 'Ridge')
       cell.groundTemp = -1
       cell.moisture = 0
     }
@@ -114,6 +115,10 @@ function configureTravelMap(state: GameState): void {
       cell.skyTemp = -1
       if ((x + y) % 3 === 0) cell.groundFill = 'ice'
     }
+  }
+
+  for (const coord of [{ x: 4, y: 7 }, { x: 10, y: 6 }, { x: 12, y: 7 }]) {
+    markMountain(state, coord, 'peak')
   }
 
   cellAt(state, { x: 4, y: 5 })?.tags.push('Resource')

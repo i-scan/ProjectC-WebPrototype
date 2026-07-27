@@ -25,6 +25,7 @@ import {
   ROOM_MIN_RADIUS,
   type HexMapStructure,
 } from './hexRoom'
+import { countMountainCells } from './hexTerrain'
 import {
   advanceHexPhase,
   endHexPlayerTurn,
@@ -50,6 +51,7 @@ import './hex.css'
 import './hex-travel.css'
 import './hex-view-mode.css'
 import './hex-room.css'
+import './hex-mountain.css'
 
 const cardIcons: Record<Card['effect'], string> = {
   'heat-cell': '☀',
@@ -143,6 +145,7 @@ export function HexPrototype() {
   )
   const scenarioObjective = findScenarioObjective(state)
   const activeCellCount = activeScenarioCells(state).length
+  const mountainCellCount = countMountainCells(state)
   const reachedObjective = Boolean(scenarioObjective && player.position.x === scenarioObjective.x && player.position.y === scenarioObjective.y)
 
   const objectives = useMemo(() => [
@@ -490,7 +493,7 @@ export function HexPrototype() {
                 <div className="hex-room-metrics">
                   <div><span>最长轴</span><strong>{roomRadius * 2 + 1} 格</strong></div>
                   <div><span>有效 Cell</span><strong>{activeCellCount}</strong></div>
-                  <div><span>理论 Cell</span><strong>{roomCellCount(roomRadius)}</strong></div>
+                  <div><span>山体碰撞</span><strong>{mountainCellCount}</strong></div>
                 </div>
               </div>
             ) : (
@@ -545,7 +548,7 @@ export function HexPrototype() {
           <div className="hex-comparison-strip">
             <strong>{mapStructure === 'room' ? `紧凑房间 · R${roomRadius}` : mode === 'travel' ? '连续地图旅行' : '同坐标战术局部'}</strong>
             <span>{mapStructure === 'room'
-              ? `${activeCellCount} 个有效 Cell；用同一套卡牌、Actor 和环境规则比较房间尺寸。`
+              ? `${activeCellCount} 个有效 Cell、${mountainCellCount} 个山体；比较隘口、侧翼和视线。`
               : mode === 'travel'
                 ? '点击远端目标后自动沿路径移动；世界、敌人和天气按旅行时钟推进。'
                 : 'Actor、Ground、Sky 与旅行模式保持原坐标，只切换操作粒度和信息密度。'}</span>
@@ -609,7 +612,7 @@ export function HexPrototype() {
             )}
             {currentEvent && <div className={`visual-event-banner ${currentEvent.kind}`}><strong>{currentEvent.label ?? 'Hex6 状态演出'}</strong>{currentEvent.amount ? <span>{currentEvent.kind === 'attack' ? '伤害' : '变化'} {currentEvent.amount}</span> : null}{eventQueue.length > 1 ? <small>后续 {eventQueue.length - 1} 项</small> : null}</div>}
             {mode === 'tactical' && travelMessage.startsWith('旅行被打断') && <div className="hex-interrupt-banner">{travelMessage}</div>}
-            <div className="visual-board-legend"><span><i className="cold" />偏冷</span><span><i className="neutral" />中性</span><span><i className="hot" />偏热</span><span><i className="cloud" />Ground / Sky 连续共享</span></div>
+            <div className="visual-board-legend"><span><i className="cold" />偏冷</span><span><i className="neutral" />中性</span><span><i className="hot" />偏热</span><span><i className="cloud" />Ground / Sky 连续共享</span><span className="hex-collision-legend"><i />山体：阻挡移动 / 击退 / 直线</span></div>
           </div>
 
           {mode === 'tactical' ? (

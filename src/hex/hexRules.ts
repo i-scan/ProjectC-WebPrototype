@@ -19,6 +19,7 @@ import {
 } from '../game'
 
 import { randomizeHexDeck, shuffleCards } from './hexDeck'
+import { hasHexLineOfSight, isTerrainBlocked } from './hexTerrain'
 import {
   getHexNeighbors,
   hexAdvance,
@@ -70,36 +71,81 @@ function addLog(state: GameState, message: string): void {
 
 function isBlocked(state: GameState, coord: Coord, movingActorId?: string): boolean {
   const cell = cellAt(state, coord)
-  if (!cell || cell.tags.includes('Blocked') || cell.tags.includes('Void')) return true
+  if (isTerrainBlocked(cell)) return true
   return state.actors.some((actor) => actor.alive && actor.id !== movingActorId && sameCoord(actor.position, coord))
 }
 
+export function findHexActorPath(
+  state: GameState,
+  from: Coord,
+  to: Coord,
+  movingActorId = '',
+): Coord[] {
+  if (sameCoord(from, to)) return [{ ...from }]
+  if (!isHexInside(state, to) || isTerrainBlocked(cellAt(state, to))) return []
+
+  const open = new Set<string>([keyOf(from)])
+  const coords = new Map<string, Coord>([[keyOf(from), { ...from }]])
+  const cameFrom = new Map<string, string>()
+  const gScore = new Map<string, number>([[keyOf(from), 0]])
+  const fScore = new Map<string, number>([[keyOf(from), hexDistance(from, to)]])
+
+  while (open.size > 0) {
+    let currentKey = ''
+    let currentScore = Number.POSITIVE_INFINITY
+    for (const candidate of open) {
+      const score = fScore.get(candidate) ?? Number.POSITIVE_INFINITY
+      if (score < currentScore) {
+        currentKey = candidate
+        currentScore = score
+      }
+    }
+
+    const current = coords.get(currentKey)
+    if (!current) break
+    if (sameCoord(current, to)) {
+      const path: Coord[] = [{ ...current }]
+      let cursor = currentKey
+      while (cameFrom.has(cursor)) {
+        cursor = cameFrom.get(cursor)!
+        const coord = coords.get(cursor)
+        if (coord) path.push({ ...coord })
+      }
+      return path.reverse()
+    }
+
+    open.delete(currentKey)
+    for (const neighborEntry of getHexNeighbors(current)) {
+      const neighbor = neighborEntry.coord
+      if (!isHexInside(state, neighbor) || isTerrainBlocked(cellAt(state, neighbor))) continue
+      const occupied = state.actors.some((actor) =>
+        actor.alive &&
+        actor.id !== movingActorId &&
+        sameCoord(actor.position, neighbor),
+      )
+      if (occupied && !sameCoord(neighbor, to)) continue
+
+      const neighborKey = keyOf(neighbor)
+      coords.set(neighborKey, { ...neighbor })
+      const tentative = (gScore.get(currentKey) ?? Number.POSITIVE_INFINITY) + 1
+      if (tentative >= (gScore.get(neighborKey) ?? Number.POSITIVE_INFINITY)) continue
+      cameFrom.set(neighborKey, currentKey)
+      gScore.set(neighborKey, tentative)
+      fScore.set(neighborKey, tentative + hexDistance(neighbor, to))
+      open.add(neighborKey)
+    }
+  }
+
+  return []
+}
+
 export function hexStepToward(state: GameState, from: Coord, to: Coord, movingActorId: string): Coord {
-  const currentDistance = hexDistance(from, to)
-  return getHexNeighbors(from)
-    .map((entry, order) => ({
-      ...entry,
-      order,
-      distance: hexDistance(entry.coord, to),
-    }))
-    .filter((entry) =>
-      entry.distance < currentDistance &&
-      isHexInside(state, entry.coord) &&
-      !isBlocked(state, entry.coord, movingActorId),
-    )
-    .sort((a, b) => a.distance - b.distance || a.order - b.order)[0]?.coord ?? from
+  return findHexActorPath(state, from, to, movingActorId)[1] ?? from
 }
 
 export function buildHexPath(state: GameState, from: Coord, to: Coord, maxSteps: number, movingActorId = ''): Coord[] {
-  const path: Coord[] = [{ ...from }]
-  let current = { ...from }
-  for (let index = 0; index < maxSteps && hexDistance(current, to) > 0; index += 1) {
-    const next = hexStepToward(state, current, to, movingActorId)
-    if (sameCoord(next, current)) break
-    path.push(next)
-    current = next
-  }
-  return path
+  const path = findHexActorPath(state, from, to, movingActorId)
+  return path.length > 0 ? path.slice(0, Math.max(0, maxSteps) + 1) : [{ ...from }]
 }
 
 function spendAP(state: GameState, amount: number, label: string): boolean {
@@ -319,6 +365,7 @@ export function playHexCard(state: GameState, cardId: string, target?: Coord, la
     if (!targetActor || targetActor.faction !== 'enemy') return fail('需要选择有效敌人。')
     if (card.effect === 'pierce') {
       if (!isHexStraightLine(player.position, targetActor.position)) return fail('穿刺要求目标位于六边格三条主轴之一。')
+      if (!hasHexLineOfSight(next, player.position, targetActor.position)) return fail('穿刺路径被山体阻挡。')
       applyDamage(next, targetActor, 1, card.name, true)
     } else {
       applyDamage(next, targetActor, weaponDamage(player), card.name)
