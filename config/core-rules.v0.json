@@ -1,0 +1,394 @@
+{
+  "$schema": "./core-rules.schema.json",
+  "schemaVersion": "0.2.0",
+  "rulesetVersion": "0.1.0",
+  "updatedAt": "2026-07-28",
+  "status": "prototype-snapshot",
+  "designReference": "i-scan/ProjectC:docs/design.md",
+  "rulesReference": "i-scan/ProjectC:docs/core-rules-spec.md",
+  "validationReference": "i-scan/ProjectC:docs/core-rules-validation.md",
+  "implementationCommit": "2b977d51e224c4d263487cda9839b6701b4a74ff",
+  "turn": {
+    "defaultMode": "local-global",
+    "availableModes": [
+      "local-global",
+      "global-before-enemy",
+      "double-global"
+    ],
+    "baseAP": 3,
+    "maxReservedAP": 1,
+    "entropyPerAPSpent": 1,
+    "phasesByMode": {
+      "local-global": [
+        "enemy",
+        "enemy-local",
+        "global",
+        "thermal"
+      ],
+      "global-before-enemy": [
+        "global",
+        "enemy",
+        "enemy-local",
+        "thermal"
+      ],
+      "double-global": [
+        "global",
+        "enemy",
+        "enemy-local",
+        "global",
+        "thermal"
+      ]
+    }
+  },
+  "temperature": {
+    "minimum": -3,
+    "maximum": 3,
+    "directMinimum": -2,
+    "directMaximum": 2,
+    "extremeValues": [
+      -3,
+      3
+    ],
+    "extremeActorDamage": 1
+  },
+  "deck": {
+    "drawTo": 5,
+    "discardHandAtEndTurn": true,
+    "shuffleInitialDeck": false,
+    "shuffleDiscardIntoDeck": false,
+    "initialOrder": [
+      "heat-cell",
+      "cool-cell",
+      "grip",
+      "hot-strike",
+      "cold-strike",
+      "push-strike",
+      "pierce",
+      "bleed",
+      "guard",
+      "temper"
+    ]
+  },
+  "basicActions": {
+    "move": {
+      "cost": 1,
+      "range": 1,
+      "target": "adjacent-passable-cell"
+    },
+    "attack": {
+      "cost": 1,
+      "range": 1,
+      "target": "adjacent-enemy",
+      "damageSource": "weapon"
+    }
+  },
+  "equipment": {
+    "sword": {
+      "slot": "weapon",
+      "damage": 1
+    },
+    "normal-clothes": {
+      "slot": "armor",
+      "shieldBonus": 1,
+      "thermalInsulation": 1
+    },
+    "normal-shoes": {
+      "slot": "shoes"
+    }
+  },
+  "actors": {
+    "player": {
+      "hp": 8,
+      "maxHp": 8,
+      "shield": 1,
+      "bodyTemperature": 1,
+      "balanceTemperature": 1,
+      "thermalRegulation": 1,
+      "thermalInsulation": 1,
+      "mass": "normal",
+      "attackPower": 1,
+      "equipment": [
+        "sword",
+        "normal-clothes",
+        "normal-shoes"
+      ]
+    },
+    "hunter": {
+      "hp": 3,
+      "maxHp": 3,
+      "shield": 0,
+      "bodyTemperature": 1,
+      "balanceTemperature": 1,
+      "thermalRegulation": 1,
+      "thermalInsulation": 0,
+      "mass": "light",
+      "attackPower": 1
+    },
+    "elite": {
+      "hp": 6,
+      "maxHp": 6,
+      "shield": 1,
+      "bodyTemperature": 1,
+      "balanceTemperature": 1,
+      "thermalRegulation": 1,
+      "thermalInsulation": 1,
+      "mass": "heavy",
+      "attackPower": 2
+    },
+    "npc": {
+      "hp": 3,
+      "maxHp": 3,
+      "shield": 0,
+      "bodyTemperature": -3,
+      "balanceTemperature": 1,
+      "thermalRegulation": 0,
+      "thermalInsulation": 0,
+      "mass": "normal",
+      "attackPower": 0,
+      "recoveryTemperature": 0
+    }
+  },
+  "cards": [
+    {
+      "id": "heat-cell",
+      "name": "升温",
+      "cost": 1,
+      "range": 3,
+      "target": "cell",
+      "layer": "either",
+      "effect": {
+        "type": "modify-cell-temperature",
+        "delta": 1,
+        "useDirectClamp": true
+      }
+    },
+    {
+      "id": "cool-cell",
+      "name": "降温",
+      "cost": 1,
+      "range": 3,
+      "target": "cell",
+      "layer": "either",
+      "effect": {
+        "type": "modify-cell-temperature",
+        "delta": -1,
+        "useDirectClamp": true
+      }
+    },
+    {
+      "id": "grip",
+      "name": "紧握",
+      "cost": 1,
+      "range": 1,
+      "target": "cell",
+      "layer": "ground",
+      "effect": {
+        "type": "transfer-body-to-cell",
+        "selfBodyTemperatureDelta": -1,
+        "targetGroundTemperatureDelta": 1,
+        "useDirectClamp": true
+      }
+    },
+    {
+      "id": "hot-strike",
+      "name": "热势斩",
+      "cost": 2,
+      "range": 1,
+      "target": "actor",
+      "effect": {
+        "type": "weapon-strike-and-temperature",
+        "temperatureDelta": 1,
+        "layer": "ground",
+        "useDirectClamp": true
+      }
+    },
+    {
+      "id": "cold-strike",
+      "name": "冷锋",
+      "cost": 2,
+      "range": 1,
+      "target": "actor",
+      "effect": {
+        "type": "weapon-strike-and-temperature",
+        "temperatureDelta": -1,
+        "layer": "ground",
+        "useDirectClamp": true
+      }
+    },
+    {
+      "id": "push-strike",
+      "name": "推斩",
+      "cost": 2,
+      "range": 1,
+      "target": "actor",
+      "effect": {
+        "type": "weapon-strike-and-push",
+        "pushDistance": 1,
+        "pushAxis": "attack-line",
+        "affectedMasses": [
+          "light",
+          "normal"
+        ],
+        "blockedResult": "remain-in-place"
+      }
+    },
+    {
+      "id": "pierce",
+      "name": "穿刺",
+      "cost": 2,
+      "range": 2,
+      "target": "actor",
+      "effect": {
+        "type": "line-damage",
+        "damage": 1,
+        "ignoreShield": true,
+        "requiresHexMainAxis": true,
+        "blockedByTags": [
+          "BlocksSight"
+        ]
+      }
+    },
+    {
+      "id": "bleed",
+      "name": "放血",
+      "cost": 2,
+      "range": 1,
+      "target": "actor",
+      "effect": {
+        "type": "weapon-strike-and-bleed",
+        "bleedTurns": 2,
+        "bleedDamagePerTurn": 1
+      }
+    },
+    {
+      "id": "guard",
+      "name": "格挡",
+      "cost": 1,
+      "range": 0,
+      "target": "self",
+      "effect": {
+        "type": "gain-shield",
+        "shield": 2
+      }
+    },
+    {
+      "id": "temper",
+      "name": "回火",
+      "cost": 1,
+      "range": 0,
+      "target": "self",
+      "effect": {
+        "type": "move-body-toward-balance-and-shield",
+        "temperatureStep": 1,
+        "shield": 1
+      }
+    }
+  ],
+  "environment": {
+    "localReactions": {
+      "waterToIce": {
+        "groundTemperatureAtMost": -1
+      },
+      "iceToWater": {
+        "groundTemperatureAtLeast": 1
+      },
+      "grassToFire": {
+        "groundTemperatureAtLeast": 2,
+        "moistureBelow": 2
+      },
+      "waterToCloud": {
+        "groundTemperatureAtLeast": 1,
+        "requiredSkyFill": "clear"
+      }
+    },
+    "groundSkyCoupling": {
+      "minimumTemperatureDifference": 2,
+      "skyTemperatureStepTowardGround": 1
+    },
+    "wind": {
+      "minimumAdjacentSkyDifference": 2,
+      "direction": "high-to-low"
+    },
+    "cloud": {
+      "moveDistancePerGlobalPhase": 1,
+      "rainIntentAfterGlobalPhases": 2
+    },
+    "rain": {
+      "intentCountdown": 1,
+      "increaseMoisture": true,
+      "extinguishFire": true,
+      "groundTemperatureStepTowardZero": 1,
+      "consumeCloud": true
+    },
+    "thermalExchange": {
+      "passiveDirection": "cell-to-actor",
+      "actorToCellRequiresIntentionalAction": true
+    }
+  },
+  "mapProfiles": {
+    "room": {
+      "status": "implemented",
+      "topology": "hex6",
+      "minimumRadius": 2,
+      "maximumRadius": 7,
+      "defaultRadius": 4,
+      "cellCountFormula": "1 + 3 * r * (r + 1)",
+      "baseAP": 3,
+      "contentTags": [
+        "Shelter",
+        "Objective",
+        "Resource",
+        "WeatherHazard",
+        "Mountain",
+        "Blocked",
+        "BlocksSight",
+        "Ridge",
+        "Peak",
+        "Void"
+      ]
+    },
+    "world": {
+      "status": "implemented",
+      "topology": "hex6",
+      "width": 16,
+      "height": 12,
+      "start": {
+        "x": 1,
+        "y": 10
+      },
+      "objective": {
+        "x": 14,
+        "y": 1
+      },
+      "travelThreatRadius": 3,
+      "travelPreferences": [
+        "fastest",
+        "safest"
+      ],
+      "worldTickEveryMovedHexes": "baseAP",
+      "interruptTags": [
+        "Objective",
+        "Resource",
+        "NarrowPass",
+        "Watchtower"
+      ],
+      "interruptOnFire": true,
+      "interruptOnRainIntent": true
+    }
+  },
+  "terrainRules": {
+    "mountainTags": [
+      "Mountain",
+      "Blocked",
+      "BlocksSight"
+    ],
+    "ridgeTag": "Ridge",
+    "peakTag": "Peak",
+    "blocksGroundMovement": true,
+    "blocksTravelPathfinding": true,
+    "blocksPushDestination": true,
+    "blocksLineAttacks": true,
+    "blocksSkyWeather": false,
+    "createsLeewardZone": false
+  }
+}
