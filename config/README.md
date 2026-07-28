@@ -1,12 +1,12 @@
 # WebPrototype 规则配置
 
-本目录保存 `ProjectC-WebPrototype` 当前可执行实验 ruleset。
+本目录保存 `ProjectC-WebPrototype` 当前实验的声明配置、目标值和内容数据。
 
 ---
 
 ## 1. 文件职责
 
-- `core-rules.v0.json`：当前网页实验的机器可读配置；
+- `core-rules.v0.json`：当前网页实验的机器可读声明配置；
 - `core-rules.schema.json`：JSON Schema 2020-12 字段约束；
 - `CHANGELOG.md`：每次影响玩法结果的配置变更，最新在前。
 
@@ -21,11 +21,12 @@
 - `docs/design.md`：设计总纲、体验目标和系统职责；
 - `docs/core-rules-spec.md`：规则、机制和游戏内容的当前人类可读基准；
 - `docs/core-rules-validation.md`：重要实验的问题、候选、计划、证据和阶段判断；
+- `docs/runtime-data-integration-plan.md`：Shared Rule Core 与配置接入计划；
 - `docs/sync-status.md`：ruleset、规则基准和未来正式工程的差异。
 
 本目录回答：
 
-> 当前网页实验精确运行什么？
+> 当前实验希望使用哪些精确数据与参数？
 
 ProjectC `core-rules-spec.md` 回答：
 
@@ -39,14 +40,24 @@ ProjectC `core-rules-spec.md` 回答：
 
 ---
 
-## 3. 权威边界
+## 3. 当前运行权威
 
-- 本目录对网页原型当前运行值负责；
-- ProjectC 不保存与之竞争的实验配置副本；
-- 本目录中的值不会自动成为正式规则；
-- WebPrototype 可以为对照实验偏离 ProjectC 当前候选，但必须记录原因、版本和 validation ID；
-- 规则通过验证并经用户接受后，才在 ProjectC `core-rules-spec.md` 晋升；
-- 当前 JSON 不是未来 Unity、UE 或 Godot 的永久正式格式。
+当前必须区分：
+
+```text
+本目录
+= 声明配置、目标值和内容数据权威
+
+TypeScript Shared Rule Core
+= 当前实际执行的规则算法语义
+
+GameState
+= 当前运行过程中的可变状态权威
+```
+
+ruleset `0.1.0` 尚未被全部运行模块直接消费，因此本目录暂时不能被描述为完整运行时的唯一来源。
+
+当前值不会自动成为正式规则。WebPrototype 可以为对照实验偏离 ProjectC 当前候选，但必须记录原因、版本和 validation ID。
 
 顶层 `status` 使用 ProjectC 统一状态词：
 
@@ -56,7 +67,7 @@ ProjectC `core-rules-spec.md` 回答：
 - `pending`；
 - `deprecated`。
 
-当前 ruleset 使用 `prototype-snapshot`，表示它精确描述网页实验，但不表示全部内容已经接受。
+当前 ruleset 使用 `prototype-snapshot`，表示它描述网页实验目标值，不表示全部内容已经接受。
 
 Map profile 内部的 `implemented` 只描述该 profile 已在网页原型实现，不代表产品规则已验证。
 
@@ -74,11 +85,11 @@ Map profile 内部的 `implemented` 只描述该 profile 已在网页原型实�
 建议：
 
 - Ruleset Patch：数值微调或不改变消费方式的行为修正；
-- Ruleset Minor：新增 Card、Actor、环境规则、地图 profile 或兼容字段；
+- Ruleset Minor：新增 Card、Actor、环境规则、Map Profile、Scenario 或兼容字段；
 - Ruleset Major：AP、牌堆、拓扑、Session、时序或内容结构出现不兼容变化；
 - Schema 版本独立提升，纯元数据或字段结构变化不强制改变 rulesetVersion。
 
-只修改 README、注释、测试描述或权威引用而不改变玩法时，不提升 rulesetVersion，但应更新 Schema 版本或 PR 说明。
+只修改文档、测试描述、权威引用或进行不改变行为的 Shared Rule Core / 配置接入重构时，不提升 rulesetVersion。
 
 ---
 
@@ -121,9 +132,10 @@ Map profile 内部的 `implemented` 只描述该 profile 已在网页原型实�
 - Actor、Equipment、Enemy 和 NPC 数值；
 - 温度、湿度、风、Cloud、Rain 和物态阈值；
 - 回合、局部反应、全局环境和热交换顺序；
-- Room / World / Region profile；
+- Map Profile 的拓扑、尺寸、边界、形状和几何生成参数；
+- Scenario 的 Actor、Objective、Resource、Shelter、初始天气和任务；
 - Void、Mountain、障碍、路径、视线和旅行参数；
-- Objective、Session 和 Shelter；
+- Session 规则；
 - 实验回滚与废弃。
 
 仅视觉、重构或性能变化，如果不改变规则结果，应记录在 PR 或 ProjectC 阶段 Changelog，而不是伪造 ruleset 变化。
@@ -134,32 +146,74 @@ Map profile 内部的 `implemented` 只描述该 profile 已在网页原型实�
 
 ruleset `0.1.0` 当前属于：
 
-> 配置镜像 + 引用校验 + 硬编码漂移测试。
+> 配置镜像 + 引用校验 + 部分硬编码漂移测试。
 
-自动检查覆盖：
+已经检查：
 
-- 配置 Card 与 `CARD_LIBRARY`；
-- AP、温度和初始牌序与初始 GameState；
-- Actor 初始值；
+- Card ID、名称、费用、Range、目标与 Layer；
+- AP、温度和初始牌序；
+- Actor 部分初始值；
 - Room 半径；
 - World 尺寸、起点、目标和警戒距离；
 - Card、Equipment、mode 和其他 ID 引用。
 
-当前运行时仍保留重复硬编码。回归测试负责防止静默分叉。
+尚未完整覆盖：
+
+- Card Effect 具体参数；
+- Environment 阈值和时序；
+- Equipment 全部字段；
+- Turn Phase；
+- Map Profile 几何生成；
+- Scenario；
+- Initial GameState。
+
+当前运行时仍保留重复硬编码，回归测试只能防止部分静默分叉。
 
 ---
 
-## 8. 下一阶段配置驱动
+## 8. Shared Rule Core 与配置接入
 
-优先顺序：
+统一顺序：
 
 ```text
-config
-→ Card Library
-→ Actor / Equipment Template
-→ Scenario / Map Profile
-→ Initial GameState
+0. Shared Rule Core
+1. RuntimeRuleset Loader
+2. Card Library
+3. Actor / Equipment Template
+4. Map Profile
+5. Scenario Definition
+6. Initial GameState Factory
 ```
+
+Shared Rule Core 必须先合并 Square4 / Hex6 共用的费用、伤害、Card Effect、温度、环境反应和 Objective 语义；拓扑差异通过 Adapter 注入。
+
+### Map Profile
+
+负责：
+
+- topology；
+- 尺寸、半径或宽高；
+- 有效边界和 Void；
+- 形状；
+- Region 拼接；
+- 山脊、通口、障碍密度等几何生成参数与约束。
+
+不包含具体 Actor、Objective、Resource、Shelter 实例或初始天气。
+
+### Scenario
+
+负责：
+
+- 使用的 Map Profile；
+- seed；
+- Actor 实例与位置；
+- Shelter、Objective、Resource 和兴趣点；
+- 初始 Cell、Ground、Sky、Weather 和 Intent；
+- 任务、测试标签和观察指标。
+
+### Initial GameState
+
+由 RuntimeRuleset + Map Profile + Scenario + seed 构建，不直接把运行中的完整 GameState 保存为配置。
 
 迁移时要求：
 
@@ -169,6 +223,8 @@ config
 - 仍允许实验专用覆盖和固定 seed；
 - 逻辑配置不依赖 Three.js、PixiJS 或 React。
 
+某类数据完成直接配置驱动后，应删除对应 TypeScript 数据副本，并用 Factory、行为和确定性测试替代漂移测试。
+
 ---
 
 ## 9. 当前迁移友好性边界
@@ -176,7 +232,7 @@ config
 当前只要求：
 
 - 稳定 ID；
-- 配置、规则、GameState 与表现分离；
+- 配置、规则算法、GameState 与表现分离；
 - schemaVersion / rulesetVersion；
 - 确定性输入和输出；
 - 逻辑关卡和渲染器解耦；
