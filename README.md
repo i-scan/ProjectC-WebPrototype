@@ -20,7 +20,7 @@
 - Ground / Sky 中的风、Cloud、Rain；
 - 敌人公开 intent；
 - 基础战斗、救援、返程和首批卡牌；
-- 配置驱动、确定性和未来迁移友好性；
+- Shared Rule Core、配置驱动、确定性和未来迁移友好性；
 - DOM、PixiJS 与 Three.js 的表现和性能差异。
 
 ---
@@ -34,35 +34,34 @@
 - `docs/design.md`：产品方向、体验目标和系统职责；
 - `docs/core-rules-spec.md`：所有规则、机制和游戏内容的当前人类可读基准；
 - `docs/core-rules-validation.md`：重要实验的问题、计划、证据和阶段结论；
+- `docs/runtime-data-integration-plan.md`：Shared Rule Core 与配置接入顺序；
 - `docs/ai-decisions.md`：重要取舍；
 - `docs/task-log.md`：当前优先级；
 - `docs/sync-status.md`：规则、ruleset 和未来正式工程差异。
 
 ### 本仓库
 
-本仓库负责：
+当前必须区分：
 
-- `config/core-rules.v0.json`：当前网页实验 ruleset 的精确配置；
+```text
+config/core-rules.v0.json
+= 当前实验的声明配置、目标值和内容数据权威
+
+TypeScript Shared Rule Core
+= 当前实际执行的费用、目标、效果、时序、环境和 Objective 算法语义
+
+GameState
+= 当前运行过程中的可变状态权威
+```
+
+其他职责：
+
 - `config/core-rules.schema.json`：配置结构约束；
 - `config/CHANGELOG.md`：每次影响玩法结果的机制、数值和地图变化；
-- 代码：当前规则的参考实现；
 - 测试：配置、拓扑和规则回归；
 - 页面：体验和信息表达验证。
 
-必须区分：
-
-```text
-ProjectC/design.md
-= 游戏为何如此设计、应提供怎样的体验
-
-ProjectC/core-rules-spec.md
-= ProjectC 当前如何判断一项规则及其状态
-
-WebPrototype/config
-= 当前网页版本精确运行什么
-```
-
-WebPrototype 可以为了实验暂时偏离规则基准，但必须记录目的、版本、validation ID 和验证状态。原型实现不会自动成为正式规则。
+ruleset `0.1.0` 仍属于“配置镜像 + TypeScript 硬编码 + 漂移测试”。配置尚未被全部运行时直接消费，原型实现也不会自动成为正式规则。
 
 ---
 
@@ -76,6 +75,8 @@ WebPrototype 可以为了实验暂时偏离规则基准，但必须记录目的�
 4. ProjectC `docs/core-rules-spec.md`；
 5. ProjectC `docs/core-rules-validation.md` 中相关条目；
 6. 与任务相关的 `config/CHANGELOG.md` 和 ProjectC Changelog。
+
+配置接入、Shared Rule Core、Map Profile、Scenario 或 Initial GameState Factory 任务还必须阅读 ProjectC `docs/runtime-data-integration-plan.md`。
 
 不要只根据当前代码推断设计已经确认。
 
@@ -120,11 +121,50 @@ npm run build
 
 `npm run test` 会先执行 Schema 和引用完整性校验，再运行 Vitest。
 
-当前 ruleset `0.1.0`、schema `0.2.0` 仍属于“配置镜像 + 硬编码漂移检测”的过渡阶段。后续优先让配置直接构建 Card Library、Actor / Equipment Template、Scenario 和初始 GameState。
+当前漂移测试只覆盖部分重复字段；尚未被直接配置驱动的 Card Effect、Environment、Equipment、Turn Phase 和 Scenario 等内容需要逐步补足覆盖。
 
 ---
 
-## 7. 配置更新工作流
+## 7. 配置与 Rule Core 接入顺序
+
+Shared Rule Core 不是后置优化，而是配置接入的前置整理，或配置接入 PR 的第一个独立阶段。
+
+统一顺序：
+
+```text
+0. Shared Rule Core
+1. RuntimeRuleset Loader
+2. Card Library
+3. Actor / Equipment Template
+4. Map Profile
+5. Scenario Definition
+6. Initial GameState Factory
+```
+
+配置定义“是什么”，Shared Rule Core 定义“如何执行”，GameState 保存“现在变成了什么”。
+
+### Map Profile
+
+负责：
+
+- topology；
+- 尺寸、半径或宽高；
+- 有效边界和 Void；
+- 形状；
+- Region 拼接；
+- 山脊、通口、障碍密度等几何生成参数和约束。
+
+不负责具体 Actor、Objective、Resource、Shelter 实例或初始天气；这些属于 Scenario。
+
+### Scenario
+
+负责 Actor 实例与位置、Shelter、Objective、Resource、初始 Cell / Sky / Weather、任务、seed 和测试标签。
+
+纯接入重构且玩法行为不变时不提升 rulesetVersion；Schema 结构变化时独立提升 schemaVersion。
+
+---
+
+## 8. 配置更新工作流
 
 ### 新验证问题
 
@@ -149,7 +189,7 @@ npm run build
 
 ---
 
-## 8. 历史规则文档
+## 9. 历史规则文档
 
 早期 Square4 10×10 规则快照位于：
 
@@ -161,18 +201,18 @@ docs/archive/rules-square4-v0.md
 
 ---
 
-## 9. 当前不做正式跨引擎 spec
+## 10. 当前不做正式跨引擎 spec
 
 当前不会为了 Unity、Unreal 或 Godot 提前建立永久统一数据格式。
 
 本仓库只保持最低迁移友好性：
 
 - 稳定 ID；
-- 配置、规则、GameState 和表现分离；
+- 配置、规则算法、GameState 和表现分离；
 - 相同输入和 seed 产生确定结果；
 - schemaVersion / rulesetVersion；
 - 关卡逻辑与 Three.js、PixiJS、React 解耦；
 - 拓扑、方向、距离和路径使用统一实现；
 - 避免把机制长期散落在 UI 特殊分支中。
 
-正式引擎和规则结构稳定后，再从已验证 ruleset 提取正式内容包和导入方式。
+正式引擎和规则结构稳定后，再从已验证 ruleset、行为测试和 Scenario Fixture 提取正式内容包和导入方式。
