@@ -2,9 +2,9 @@
 
 > 状态：`deprecated as current baseline`
 >
-> 本文件保存 2026-07-13 建立的最初 Square4 10×10 网页规则实验。它只用于历史追溯和可能的 A/B 回归，不代表当前 ProjectC 规则基准。
+> 本文件保存 2026-07-13 建立的最初 Square4 10×10 网页规则实验。它只用于历史追溯和可能的 A/B 回归，不代表当前 WebPrototype ruleset。
 >
-> 当前规则状态见 ProjectC `docs/core-rules-spec.md`；后续精确运行配置由 `agent/rules-config-baseline` 分支的 `config/` 管理。
+> 当前精确运行配置见 `config/core-rules.v0.json`；当前设计意图、规则状态和验证计划分别见 ProjectC `docs/design.md`、`docs/core-rules-spec.md` 与 `docs/core-rules-validation.md`。
 
 ---
 
@@ -23,6 +23,8 @@
 1. 玩家行动后局部反应 → 敌人行动后局部反应 → 一次全局环境；
 2. 玩家 → 全局环境 → 敌人；
 3. 玩家 → 全局环境 → 敌人 → 全局环境。
+
+玩家行动产生的局部反应即时执行，其余阶段可通过按钮单步观察。
 
 ## 当时的环境规则
 
@@ -52,6 +54,13 @@
 
 ## 历史价值
 
-该版本建立了 3 AP + 保留 1、Ground / Sky、最小风云雨、追猎者、精英、失温 NPC、Shelter、十张卡和规则日志。
+该版本建立了：
 
-后续默认验证已经转向 Hex6、World / Room、Travel / Tactical 和 2D / 3D 解耦。本文件不得作为新增机制或数值的更新入口。
+- 3 AP + 保留 1 的第一套标尺；
+- Ground / Sky 双层规则；
+- 风、Cloud、Rain 最小闭环；
+- 追猎者、精英、失温 NPC 和 Shelter；
+- 十张测试卡；
+- 规则日志和阶段推进。
+
+后续默认验证已经转向 Hex6、World / Room、Travel / Tactical 和 2D / 3D 解耦。此文件不得作为新增机制或数值的更新入口。
