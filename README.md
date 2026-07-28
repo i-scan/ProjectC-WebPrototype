@@ -2,59 +2,82 @@
 
 用于验证 ProjectC 核心规则、Hex6 空间、地图尺度、Travel / Tactical、环境信息流与网页表现的实验原型。
 
-本仓库不是正式游戏工程，也不自动决定 ProjectC 正式规则。
+本仓库不是正式游戏工程，也不是 ProjectC 正式规则的唯一来源。
 
 ---
 
 ## 1. 当前目标
 
-当前原型用于验证：
+当前主要验证：
 
-- Square4 初始规则与 Hex6 空间对照；
+- Square4 历史规则与 Hex6 空间对照；
 - Hex6 邻接、Range、射线、击退、风和天气传播；
-- World / Room 地图尺度；
-- Travel / Tactical 共享 GameState；
+- World / Room / 后续 Region 的尺度差异；
+- Travel / Tactical 在同一 GameState 中的切换；
 - 2D / 3D 与规则状态解耦；
 - 3 AP + 最多保留 1 AP；
 - Actor 与 Cell 热交换；
 - Ground / Sky 中的风、Cloud、Rain；
 - 敌人公开 intent；
 - 基础战斗、救援、返程和首批卡牌；
+- 配置驱动、确定性和未来迁移友好性；
 - DOM、PixiJS 与 Three.js 的表现和性能差异。
 
 ---
 
-## 2. 规则权威
+## 2. 权威关系
 
-私有 `i-scan/ProjectC` 文档仓库负责：
+### ProjectC 文档仓库
 
-- `docs/design.md`：产品方向和系统职责；
+`i-scan/ProjectC` 负责：
+
+- `docs/design.md`：产品方向、体验目标和系统职责；
 - `docs/core-rules-spec.md`：所有规则、机制和游戏内容的当前人类可读基准；
 - `docs/core-rules-validation.md`：重要实验的问题、计划、证据和阶段结论；
-- `docs/sync-status.md`：原型、规则和未来正式工程的差异。
+- `docs/ai-decisions.md`：重要取舍；
+- `docs/task-log.md`：当前优先级；
+- `docs/sync-status.md`：规则、ruleset 和未来正式工程差异。
 
-当前分支中的代码和硬编码表示：
+### 本仓库
 
-> 当前网页原型实现了什么。
+本仓库负责：
 
-它们不表示：
+- `config/core-rules.v0.json`：当前网页实验 ruleset 的精确配置；
+- `config/core-rules.schema.json`：配置结构约束；
+- `config/CHANGELOG.md`：每次影响玩法结果的机制、数值和地图变化；
+- 代码：当前规则的参考实现；
+- 测试：配置、拓扑和规则回归；
+- 页面：体验和信息表达验证。
 
-> ProjectC 已经正式接受了什么。
+必须区分：
 
-配置、Schema 和 ruleset Changelog 将由后续 `agent/rules-config-baseline` 分支引入。
+```text
+ProjectC/design.md
+= 游戏为何如此设计、应提供怎样的体验
+
+ProjectC/core-rules-spec.md
+= ProjectC 当前如何判断一项规则及其状态
+
+WebPrototype/config
+= 当前网页版本精确运行什么
+```
+
+WebPrototype 可以为了实验暂时偏离规则基准，但必须记录目的、版本、validation ID 和验证状态。原型实现不会自动成为正式规则。
 
 ---
 
 ## 3. 默认读取顺序
 
-修改规则、机制、数值、Card、Actor、地图、环境或 Session 前，先阅读：
+修改规则、机制、数值、Card、Actor、地图、环境、Objective 或 Session 前，先阅读：
 
 1. 本仓库 `AGENTS.md`；
-2. ProjectC `docs/core-rules-spec.md`；
-3. ProjectC `docs/core-rules-validation.md`；
-4. 相关 ProjectC Changelog。
+2. 本仓库 `config/README.md`；
+3. ProjectC `docs/design.md` 当前快照与相关章节；
+4. ProjectC `docs/core-rules-spec.md`；
+5. ProjectC `docs/core-rules-validation.md` 中相关条目；
+6. 与任务相关的 `config/CHANGELOG.md` 和 ProjectC Changelog。
 
-若无法访问 ProjectC 私有仓库，必须明确说明，不得只依据当前代码宣布规则已确认。
+不要只根据当前代码推断设计已经确认。
 
 ---
 
@@ -62,17 +85,17 @@
 
 当前原型包含：
 
-- 早期 Square4 Rules Lab；
-- Graphics Lab；
-- Three.js / PixiJS Player View；
-- Hex6 Tactical；
-- Hex6 Travel；
-- 2D / 3D 视图；
-- World 与 R2～R7 Room；
+- Square4 历史 Rules Lab；
+- Hex6 规则与视觉原型；
+- 2D / 3D Travel / Tactical；
+- World 与可调 R2～R7 Room；
 - Mountain、BlocksSight 和 A*；
+- Graphics Lab；
+- Debug / Regression View；
+- Three.js / PixiJS Player View；
 - intent、悔棋、重开、阶段推进、速度控制和状态导出。
 
-Three.js 是当前主要可玩视觉验证方向；2D / PixiJS 保留为对照、总览和潜在低配置表现。正式引擎尚未决定。
+Three.js 是当前主可玩视觉验证方向；PixiJS / 2D 保留为地图总览、对照和潜在低配置表现。正式引擎尚未决定。
 
 ---
 
@@ -90,35 +113,66 @@ npm run dev
 ## 6. 构建与测试
 
 ```bash
+npm run validate:rules
 npm run test
 npm run build
 ```
 
+`npm run test` 会先执行 Schema 和引用完整性校验，再运行 Vitest。
+
+当前 ruleset `0.1.0`、schema `0.2.0` 仍属于“配置镜像 + 硬编码漂移检测”的过渡阶段。后续优先让配置直接构建 Card Library、Actor / Equipment Template、Scenario 和初始 GameState。
+
 ---
 
-## 7. 当前迁移边界
+## 7. 配置更新工作流
 
-当前不为 Unity、Unreal、Godot 提前建立永久统一格式。
+### 新验证问题
 
-原型仍应保持：
+当修改改变“正在验证什么”时：
 
-- 稳定 ID；
-- 规则、GameState 和表现分离；
-- 相同输入和 seed 产生确定结果；
-- 逻辑地图不依赖 Three.js、PixiJS 或 React；
-- Hex6 拓扑、方向、距离和路径使用统一实现；
-- 避免让 UI 条件分支成为唯一规则实现。
+1. 对照 ProjectC `design.md` 的体验目标和系统职责；
+2. 在 `core-rules-validation.md` 建立或更新验证条目；
+3. 再修改本仓库配置、代码、测试和场景；
+4. 更新 `config/CHANGELOG.md`；
+5. 完成自动测试和试玩；
+6. 将阶段结论回写 ProjectC。
 
-未来规则稳定、目标引擎明确后，再从已验证原型版本提取正式内容和迁移工具。
+### 已登记实验中的调参
+
+同一验证问题内的小幅调参可以直接在本仓库发起，但必须：
+
+- 修改配置；
+- 提升合适的 ruleset 版本；
+- 更新 Changelog；
+- 更新测试；
+- 标记保留、继续实验或回滚。
 
 ---
 
 ## 8. 历史规则文档
 
-早期 Square4 10×10 规则说明将归档至：
+早期 Square4 10×10 规则快照位于：
 
 ```text
 docs/archive/rules-square4-v0.md
 ```
 
 归档文件只用于历史追溯和 A/B 回归，不作为活动规则来源。
+
+---
+
+## 9. 当前不做正式跨引擎 spec
+
+当前不会为了 Unity、Unreal 或 Godot 提前建立永久统一数据格式。
+
+本仓库只保持最低迁移友好性：
+
+- 稳定 ID；
+- 配置、规则、GameState 和表现分离；
+- 相同输入和 seed 产生确定结果；
+- schemaVersion / rulesetVersion；
+- 关卡逻辑与 Three.js、PixiJS、React 解耦；
+- 拓扑、方向、距离和路径使用统一实现；
+- 避免把机制长期散落在 UI 特殊分支中。
+
+正式引擎和规则结构稳定后，再从已验证 ruleset 提取正式内容包和导入方式。
