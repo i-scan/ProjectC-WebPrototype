@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "vitest run",
+    "validate:rules": "node scripts/validate-rules.mjs",
+    "test": "npm run validate:rules && vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "@types/react-dom": "^19.2.2",
     "@types/three": "^0.185.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "ajv": "^8.17.1",
     "typescript": "^5.9.3",
     "vite": "^8.1.4",
     "vitest": "^4.1.9"
