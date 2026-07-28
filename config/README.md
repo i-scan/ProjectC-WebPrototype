@@ -21,7 +21,7 @@
 - `docs/design.md`：设计总纲、体验目标和系统职责；
 - `docs/core-rules-spec.md`：规则、机制和游戏内容的当前人类可读基准；
 - `docs/core-rules-validation.md`：重要实验的问题、候选、计划、证据和阶段判断；
-- `docs/runtime-data-integration-plan.md`：Shared Rule Core 与配置接入计划；
+- `docs/runtime-data-integration-plan.md`：目标 Shared Rule Core 与配置接入计划；
 - `docs/sync-status.md`：ruleset、规则基准和未来正式工程的差异。
 
 本目录回答：
@@ -48,11 +48,14 @@ ProjectC `core-rules-spec.md` 回答：
 本目录
 = 声明配置、目标值和内容数据权威
 
-TypeScript Shared Rule Core
-= 当前实际执行的规则算法语义
+TypeScript Reference Implementation
+= 当前实际执行的规则算法与参考行为
 
 GameState
 = 当前运行过程中的可变状态权威
+
+目标 Shared Rule Core
+= 下一阶段需要从 Square4 / Hex6 重复逻辑中提取的统一算法层，当前尚未完成
 ```
 
 ruleset `0.1.0` 尚未被全部运行模块直接消费，因此本目录暂时不能被描述为完整运行时的唯一来源。
@@ -89,7 +92,7 @@ Map profile 内部的 `implemented` 只描述该 profile 已在网页原型实�
 - Ruleset Major：AP、牌堆、拓扑、Session、时序或内容结构出现不兼容变化；
 - Schema 版本独立提升，纯元数据或字段结构变化不强制改变 rulesetVersion。
 
-只修改文档、测试描述、权威引用或进行不改变行为的 Shared Rule Core / 配置接入重构时，不提升 rulesetVersion。
+只修改文档、测试描述、权威引用或进行不改变行为的目标 Shared Rule Core / 配置接入重构时，不提升 rulesetVersion。
 
 ---
 
@@ -173,19 +176,22 @@ ruleset `0.1.0` 当前属于：
 
 ## 8. Shared Rule Core 与配置接入
 
+当前 TypeScript Reference Implementation 是实际行为来源；Shared Rule Core 尚未实现。
+
 统一顺序：
 
 ```text
-0. Shared Rule Core
-1. RuntimeRuleset Loader
-2. Card Library
-3. Actor / Equipment Template
-4. Map Profile
-5. Scenario Definition
-6. Initial GameState Factory
+0. 从当前 Reference Implementation 提取 Shared Rule Core
+1. 直接重构 core-rules.schema.json
+2. 拆分 Map Profile / Scenario
+3. 更新 core-rules.v0.json
+4. 更新引用校验、结构测试和现有行为基线
+5. 建立 RuntimeRuleset Loader
+6. 依次接入 Card Library、Actor / Equipment、Map Profile、Scenario
+7. 建立 Initial GameState Factory
 ```
 
-Shared Rule Core 必须先合并 Square4 / Hex6 共用的费用、伤害、Card Effect、温度、环境反应和 Objective 语义；拓扑差异通过 Adapter 注入。
+当前 ruleset 没有外部正式依赖，不制作旧 Schema 迁移表、兼容加载器或长期 deprecated 字段层。
 
 ### Map Profile
 
@@ -214,14 +220,6 @@ Shared Rule Core 必须先合并 Square4 / Hex6 共用的费用、伤害、Card 
 ### Initial GameState
 
 由 RuntimeRuleset + Map Profile + Scenario + seed 构建，不直接把运行中的完整 GameState 保存为配置。
-
-迁移时要求：
-
-- 不改变现有规则结果；
-- 为每一步保留回归测试；
-- 避免一次性重写全部运行时；
-- 仍允许实验专用覆盖和固定 seed；
-- 逻辑配置不依赖 Three.js、PixiJS 或 React。
 
 某类数据完成直接配置驱动后，应删除对应 TypeScript 数据副本，并用 Factory、行为和确定性测试替代漂移测试。
 
