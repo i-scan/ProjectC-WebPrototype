@@ -1,0 +1,86 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches:
+      - agent/bootstrap-web-prototype
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Test
+        run: npm run test
+      - name: Build
+        run: npm run build
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ./dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Verify published site
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+
+          html=""
+          for attempt in {1..12}; do
+            if html="$(curl --fail --silent --show-error --location "$PAGE_URL")"; then
+              break
+            fi
+            echo "Site is not available yet; retrying ($attempt/12)..."
+            sleep 5
+          done
+
+          test -n "$html"
+
+          if printf '%s' "$html" | grep -q '/src/main.tsx'; then
+            echo 'Published page still references the Vite development entry.' >&2
+            exit 1
+          fi
+
+          script_path="$(printf '%s' "$html" | grep -oE 'src="[^"]+\.js"' | head -n 1 | cut -d '"' -f 2)"
+          test -n "$script_path"
+
+          case "$script_path" in
+            http://*|https://*) script_url="$script_path" ;;
+            /*)
+              origin="$(printf '%s' "$PAGE_URL" | sed -E 's#(https?://[^/]+).*#\1#')"
+              script_url="${origin}${script_path}"
+              ;;
+            *) script_url="${PAGE_URL%/}/${script_path}" ;;
+          esac
+
+          curl --fail --silent --show-error --location "$script_url" >/dev/null
+          echo "Verified page and JavaScript asset: $script_url"

@@ -1,0 +1,211 @@
+.hex-prototype .visual-hud {
+  gap: 10px;
+}
+
+.hex-topology-summary {
+  min-width: 150px;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 8px;
+  align-items: center;
+  padding: 7px 10px;
+  border: 1px solid rgba(117, 199, 239, .28);
+  border-radius: 11px;
+  background: linear-gradient(145deg, rgba(38, 84, 111, .7), rgba(16, 35, 54, .78));
+}
+
+.hex-topology-summary span {
+  margin: 0;
+  color: #8ca6c2;
+  font-size: 8px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.hex-topology-summary strong {
+  color: #e0f6ff;
+  font-size: 14px;
+  text-align: right;
+}
+
+.hex-topology-summary small {
+  grid-column: 1 / 3;
+  color: #8eb4c8;
+  font-size: 8px;
+}
+
+.hex-portrait {
+  clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%);
+  border-radius: 0;
+}
+
+.hex-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+.hex-metrics > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 7px 5px;
+  text-align: center;
+  border: 1px solid rgba(116, 169, 202, .15);
+  border-radius: 8px;
+  background: rgba(7, 15, 25, .48);
+}
+
+.hex-metrics span {
+  color: #758da7;
+  font-size: 7px;
+  line-height: 1.25;
+}
+
+.hex-metrics strong {
+  color: #dff6ff;
+  font-size: 15px;
+}
+
+.hex-board-column {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.hex-comparison-strip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  border: 1px solid rgba(126, 164, 211, .2);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, rgba(25, 42, 61, .98), rgba(15, 26, 40, .98));
+}
+
+.hex-comparison-strip strong {
+  color: #dff4ff;
+  font-size: 10px;
+}
+
+.hex-comparison-strip span {
+  min-width: 0;
+  overflow: hidden;
+  color: #8098b2;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hex-comparison-strip + .visual-board-toolbar {
+  border-radius: 0;
+}
+
+.hex-board-frame {
+  background:
+    radial-gradient(ellipse at 50% 26%, rgba(74, 129, 170, .3), transparent 45%),
+    linear-gradient(180deg, #172c43 0%, #0e1b2c 63%, #09121e 100%);
+}
+
+.hex-board-host {
+  position: absolute;
+  inset: 0;
+}
+
+.hex-board-host canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+  touch-action: none;
+}
+
+.hex-board-host canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(115, 205, 245, .75);
+}
+
+.hex-direction-legend {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 8;
+  width: 95px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-areas:
+    "nw . ne"
+    "w center e"
+    "sw . se";
+  gap: 1px;
+  padding: 7px;
+  border-radius: 10px;
+  color: #8db1c8;
+  background: rgba(5, 10, 18, .72);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.hex-direction-legend span,
+.hex-direction-legend i {
+  display: grid;
+  place-items: center;
+  min-height: 17px;
+  font-size: 7px;
+  font-style: normal;
+}
+
+.hex-direction-legend span:nth-child(1) { grid-area: nw; }
+.hex-direction-legend span:nth-child(2) { grid-area: ne; }
+.hex-direction-legend span:nth-child(3) { grid-area: w; }
+.hex-direction-legend i { grid-area: center; color: #e8d278; font-size: 18px; }
+.hex-direction-legend span:nth-child(5) { grid-area: e; }
+.hex-direction-legend span:nth-child(6) { grid-area: sw; }
+.hex-direction-legend span:nth-child(7) { grid-area: se; }
+
+.hex-prototype .visual-board-legend {
+  max-width: calc(100% - 125px);
+}
+
+@media (max-height: 800px) {
+  .hex-comparison-strip {
+    padding: 4px 8px;
+  }
+
+  .hex-comparison-strip span:last-child,
+  .hex-topology-summary small {
+    display: none;
+  }
+}
+
+@media (max-width: 1280px) {
+  .hex-topology-summary {
+    display: none;
+  }
+
+  .hex-comparison-strip {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .hex-comparison-strip span:last-child {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .hex-comparison-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .hex-comparison-strip span {
+    white-space: normal;
+  }
+
+  .hex-direction-legend {
+    display: none;
+  }
+
+  .hex-prototype .visual-board-legend {
+    max-width: calc(100% - 24px);
+  }
+}
