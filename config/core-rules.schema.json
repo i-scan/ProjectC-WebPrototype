@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://projectc.local/schemas/core-rules.schema.json",
+  "title": "ProjectC Web Prototype Core Rules",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "rulesetVersion",
+    "updatedAt",
+    "status",
+    "designReference",
+    "rulesReference",
+    "validationReference",
+    "implementationCommit",
+    "turn",
+    "temperature",
+    "deck",
+    "basicActions",
+    "equipment",
+    "actors",
+    "cards",
+    "environment",
+    "mapProfiles",
+    "terrainRules"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "$ref": "#/$defs/version" },
+    "rulesetVersion": { "$ref": "#/$defs/version" },
+    "updatedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "status": { "$ref": "#/$defs/ruleStatus" },
+    "designReference": { "$ref": "#/$defs/nonEmptyString" },
+    "rulesReference": { "$ref": "#/$defs/nonEmptyString" },
+    "validationReference": { "$ref": "#/$defs/nonEmptyString" },
+    "implementationCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "turn": { "$ref": "#/$defs/turn" },
+    "temperature": { "$ref": "#/$defs/temperature" },
+    "deck": { "$ref": "#/$defs/deck" },
+    "basicActions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/basicAction" }
+    },
+    "equipment": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/equipment" }
+    },
+    "actors": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/actor" }
+    },
+    "cards": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/card" }
+    },
+    "environment": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "mapProfiles": {
+      "type": "object",
+      "required": ["room", "world"],
+      "properties": {
+        "room": { "$ref": "#/$defs/mapProfile" },
+        "world": { "$ref": "#/$defs/mapProfile" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/mapProfile" }
+    },
+    "terrainRules": {
+      "type": "object",
+      "minProperties": 1
+    }
+  },
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ruleStatus": {
+      "type": "string",
+      "enum": [
+        "validated",
+        "candidate",
+        "prototype-snapshot",
+        "pending",
+        "deprecated"
+      ]
+    },
+    "turn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "defaultMode",
+        "availableModes",
+        "baseAP",
+        "maxReservedAP",
+        "entropyPerAPSpent",
+        "phasesByMode"
+      ],
+      "properties": {
+        "defaultMode": { "$ref": "#/$defs/nonEmptyString" },
+        "availableModes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "baseAP": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxReservedAP": { "$ref": "#/$defs/nonNegativeInteger" },
+        "entropyPerAPSpent": { "$ref": "#/$defs/nonNegativeInteger" },
+        "phasesByMode": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        }
+      }
+    },
+    "temperature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum",
+        "maximum",
+        "directMinimum",
+        "directMaximum",
+        "extremeValues",
+        "extremeActorDamage"
+      ],
+      "properties": {
+        "minimum": { "type": "integer" },
+        "maximum": { "type": "integer" },
+        "directMinimum": { "type": "integer" },
+        "directMaximum": { "type": "integer" },
+        "extremeValues": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "integer" }
+        },
+        "extremeActorDamage": { "$ref": "#/$defs/nonNegativeInteger" }
+      }
+    },
+    "deck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "drawTo",
+        "discardHandAtEndTurn",
+        "shuffleInitialDeck",
+        "shuffleDiscardIntoDeck",
+        "initialOrder"
+      ],
+      "properties": {
+        "drawTo": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "discardHandAtEndTurn": { "type": "boolean" },
+        "shuffleInitialDeck": { "type": "boolean" },
+        "shuffleDiscardIntoDeck": { "type": "boolean" },
+        "initialOrder": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        }
+      }
+    },
+    "basicAction": {
+      "type": "object",
+      "required": ["cost", "range", "target"],
+      "properties": {
+        "cost": { "$ref": "#/$defs/nonNegativeInteger" },
+        "range": { "$ref": "#/$defs/nonNegativeInteger" },
+        "target": { "$ref": "#/$defs/nonEmptyString" },
+        "damageSource": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": true
+    },
+    "equipment": {
+      "type": "object",
+      "required": ["slot"],
+      "properties": {
+        "slot": {
+          "type": "string",
+          "enum": ["weapon", "armor", "shoes"]
+        },
+        "damage": { "$ref": "#/$defs/nonNegativeInteger" },
+        "shieldBonus": { "$ref": "#/$defs/nonNegativeInteger" },
+        "thermalInsulation": { "$ref": "#/$defs/nonNegativeInteger" }
+      },
+      "additionalProperties": true
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "hp",
+        "maxHp",
+        "shield",
+        "bodyTemperature",
+        "balanceTemperature",
+        "thermalRegulation",
+        "thermalInsulation",
+        "mass",
+        "attackPower"
+      ],
+      "properties": {
+        "hp": { "$ref": "#/$defs/nonNegativeInteger" },
+        "maxHp": { "$ref": "#/$defs/nonNegativeInteger" },
+        "shield": { "$ref": "#/$defs/nonNegativeInteger" },
+        "bodyTemperature": { "type": "integer" },
+        "balanceTemperature": { "type": "integer" },
+        "thermalRegulation": { "$ref": "#/$defs/nonNegativeInteger" },
+        "thermalInsulation": { "$ref": "#/$defs/nonNegativeInteger" },
+        "mass": {
+          "type": "string",
+          "enum": ["light", "normal", "heavy"]
+        },
+        "attackPower": { "$ref": "#/$defs/nonNegativeInteger" },
+        "equipment": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "recoveryTemperature": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "cost", "range", "target", "effect"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "cost": { "$ref": "#/$defs/nonNegativeInteger" },
+        "range": { "$ref": "#/$defs/nonNegativeInteger" },
+        "target": {
+          "type": "string",
+          "enum": ["cell", "actor", "self"]
+        },
+        "layer": {
+          "type": "string",
+          "enum": ["ground", "sky", "either"]
+        },
+        "effect": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "mapProfile": {
+      "type": "object",
+      "required": ["status", "topology"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["implemented", "prototype-snapshot", "deprecated"]
+        },
+        "topology": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": true
+    }
+  }
+}
