@@ -176,22 +176,28 @@ ruleset `0.1.0` 当前属于：
 
 ## 8. Shared Rule Core 与配置接入
 
-当前 TypeScript Reference Implementation 是实际行为来源；Shared Rule Core 尚未实现。
-
-统一顺序：
+当前 TypeScript Reference Implementation 是实际行为来源；Shared Rule Core 尚未实现。ProjectC `docs/runtime-data-integration-plan.md` 是正式阶段编号与完成标准的唯一来源；本文件只保留依赖摘要：
 
 ```text
-0. 从当前 Reference Implementation 提取 Shared Rule Core
-1. 直接重构 core-rules.schema.json
-2. 拆分 Map Profile / Scenario
-3. 更新 core-rules.v0.json
-4. 更新引用校验、结构测试和现有行为基线
-5. 建立 RuntimeRuleset Loader
-6. 依次接入 Card Library、Actor / Equipment、Map Profile、Scenario
-7. 建立 Initial GameState Factory
+提取目标 Shared Rule Core
+→ 直接采用新 Schema 与 Map Profile / Scenario 结构
+→ 更新 core-rules.v0.json、校验、测试与行为基线
+→ 建立 RuntimeRuleset Loader
+→ 分模块接入 Card、Actor / Equipment、Map Profile 与 Scenario
+→ 建立 Initial GameState Factory
 ```
 
 当前 ruleset 没有外部正式依赖，不制作旧 Schema 迁移表、兼容加载器或长期 deprecated 字段层。
+
+### 配置接入要求
+
+- 默认不改变现有规则结果；若确需改变，拆分为独立玩法修改并更新 ruleset、Validation ID 和 Changelog；
+- 每一步保留并扩充回归测试，不允许先删除旧路径再补测试；
+- 避免一次性重写全部运行时，按可独立验收的阶段推进；
+- 允许实验专用覆盖、固定 seed 和 Fixture，但必须显式声明，不能成为隐性默认值；
+- 逻辑配置、Map Profile、Scenario 和规则算法不得依赖 Three.js、PixiJS、React 或 DOM；
+- 新增可调内容优先进入配置，但在目标 Shared Rule Core 完成前不得分别绑定到两套有差异的执行语义；
+- 某类数据完成直接接入后，删除对应 TypeScript 数据副本，并以 Factory、行为和确定性测试替代漂移测试。
 
 ### Map Profile
 

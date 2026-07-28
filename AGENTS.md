@@ -99,16 +99,15 @@ Range、Room 半径、警戒距离、热交换阈值等同一 VAL 内的小幅�
 
 当前 TypeScript Reference Implementation 是实际行为来源；Shared Rule Core 尚未实现，必须作为配置正式接入运行时的前置独立阶段，或配置接入 PR 的第一个阶段。
 
-统一顺序：
+ProjectC `docs/runtime-data-integration-plan.md` 是正式阶段编号与完成标准的唯一来源。本文件只保留依赖摘要：
 
 ```text
-0. 从当前 Reference Implementation 提取 Shared Rule Core
-1. 直接重构 Schema
-2. 拆分 Map Profile / Scenario 并更新 JSON
-3. 更新引用校验、结构测试和行为基线
-4. RuntimeRuleset Loader
-5. Card / Actor / Equipment / Map / Scenario 运行时接入
-6. Initial GameState Factory
+提取目标 Shared Rule Core
+→ 新 Schema 与 Map Profile / Scenario 数据结构
+→ JSON、校验、测试与行为基线
+→ RuntimeRuleset Loader
+→ 分模块运行时接入
+→ Initial GameState Factory
 ```
 
 ### 目标 Shared Rule Core
@@ -157,7 +156,11 @@ Scenario 保存 Actor 实例与位置、Shelter、Objective、Resource、初始 
 - 相同 ruleset、Scenario、Action 序列和 seed 应得到相同结果；
 - 逻辑地图和 Scenario 不依赖具体渲染器；
 - 避免按 Card ID 在 UI 中长期堆叠特殊逻辑；
-- 某类数据完成直接配置驱动后，删除对应 TypeScript 数据副本，并用 Factory、行为和确定性测试替代漂移测试。
+- 某类数据完成直接配置驱动后，删除对应 TypeScript 数据副本，并用 Factory、行为和确定性测试替代漂移测试；
+- 默认不改变现有规则结果；行为变化必须拆为独立 ruleset / Validation 修改；
+- 每一步保留回归测试，避免一次性重写全部运行时；
+- 固定 seed 与实验专用覆盖必须显式声明，不能成为隐性默认值；
+- 运行时接入阶段编号只在 ProjectC `runtime-data-integration-plan.md` 维护。
 
 ---
 

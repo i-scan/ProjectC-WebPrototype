@@ -128,20 +128,17 @@ npm run build
 
 ---
 
-## 7. 配置与 Rule Core 接入顺序
+## 7. 配置接入摘要
 
-当前实际行为来源是 TypeScript Reference Implementation；Shared Rule Core 是尚未完成的目标层。
-
-统一顺序：
+当前实际行为来源是 TypeScript Reference Implementation；Shared Rule Core 是尚未完成的目标层。ProjectC `docs/runtime-data-integration-plan.md` 是正式阶段编号与完成标准的唯一来源；本 README 只保留依赖摘要：
 
 ```text
-0. 从当前 TypeScript Reference Implementation 提取 Shared Rule Core
-1. 直接重构 Schema，不保留旧结构兼容层
-2. 拆分 Map Profile / Scenario 并更新 core-rules.v0.json
-3. 更新引用校验、结构测试和现有行为基线
-4. 建立 RuntimeRuleset Loader
-5. 依次接入 Card Library、Actor / Equipment、Map Profile、Scenario
-6. 建立 Initial GameState Factory
+提取目标 Shared Rule Core
+→ 直接采用新 Schema 与 Map Profile / Scenario 结构
+→ 更新 JSON、校验、测试与行为基线
+→ 建立 RuntimeRuleset Loader
+→ 分模块接入 Card、Actor / Equipment、Map Profile 与 Scenario
+→ 建立 Initial GameState Factory
 ```
 
 配置定义“是什么”，目标 Shared Rule Core 定义“如何执行”，GameState 保存“现在变成了什么”。
