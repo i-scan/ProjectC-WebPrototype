@@ -30,7 +30,7 @@
 6. ProjectC `docs/core-rules-validation.md` 中相关 VAL 条目；
 7. 相关 `config/CHANGELOG.md` 和 ProjectC Changelog。
 
-涉及 Shared Rule Core、配置接入、Map Profile、Scenario 或 Initial GameState Factory 时，还必须阅读 ProjectC `docs/runtime-data-integration-plan.md`。
+涉及目标 Shared Rule Core、配置接入、Map Profile、Scenario 或 Initial GameState Factory 时，还必须阅读 ProjectC `docs/runtime-data-integration-plan.md`。
 
 三份 ProjectC 核心文档职责不同：
 
@@ -50,11 +50,14 @@
 config/core-rules.v0.json
 = 当前实验的声明配置、目标值和内容数据权威
 
-TypeScript Shared Rule Core
-= 当前实际执行的费用、目标、效果、时序、环境与 Objective 算法语义
+TypeScript Reference Implementation
+= 当前实际执行的费用、目标、效果、时序、环境与 Objective 参考行为
 
 GameState
 = 当前运行过程中的可变状态权威
+
+目标 Shared Rule Core
+= 下一阶段需要从 Square4 / Hex6 重复逻辑中提取的统一算法层，当前尚未完成
 ```
 
 其他文档：
@@ -94,21 +97,20 @@ Range、Room 半径、警戒距离、热交换阈值等同一 VAL 内的小幅�
 
 ## 5. Shared Rule Core 与配置接入
 
-Shared Rule Core 不是后置优化，而是配置接入的前置技术整理，或配置接入 PR 的第一个独立阶段。
+当前 TypeScript Reference Implementation 是实际行为来源；Shared Rule Core 尚未实现，必须作为配置正式接入运行时的前置独立阶段，或配置接入 PR 的第一个阶段。
 
-统一顺序：
+ProjectC `docs/runtime-data-integration-plan.md` 是正式阶段编号与完成标准的唯一来源。本文件只保留依赖摘要：
 
 ```text
-0. Shared Rule Core
-1. RuntimeRuleset Loader
-2. Card Library
-3. Actor / Equipment Template
-4. Map Profile
-5. Scenario Definition
-6. Initial GameState Factory
+提取目标 Shared Rule Core
+→ 新 Schema 与 Map Profile / Scenario 数据结构
+→ JSON、校验、测试与行为基线
+→ RuntimeRuleset Loader
+→ 分模块运行时接入
+→ Initial GameState Factory
 ```
 
-### Shared Rule Core
+### 目标 Shared Rule Core
 
 Square4 / Hex6 应共用：
 
@@ -122,7 +124,7 @@ Square4 / Hex6 应共用：
 
 ### RuntimeRuleset
 
-业务模块通过统一 Loader 获取校验和 normalize 后的 RuntimeRuleset，不在组件中散落读取原始 JSON。
+业务模块通过统一 Loader 获取校验和 normalize 后的 RuntimeRuleset，不在组件中散落读取原始 JSON。当前无需为旧 Schema 增加兼容处理。
 
 ### Map Profile
 
@@ -141,20 +143,24 @@ Map Profile 不保存具体 Actor、Objective、Resource、Shelter 实例或初�
 
 Scenario 保存 Actor 实例与位置、Shelter、Objective、Resource、初始 Cell / Sky / Weather、任务、seed 和测试标签。
 
-配置定义“是什么”，Shared Rule Core 定义“如何执行”，GameState 保存“现在变成了什么”。
+当前 ruleset 没有外部正式依赖，不建立旧格式迁移表或兼容层。
 
 ---
 
 ## 6. 实现原则
 
-- 新增可调内容优先进入配置，但不得绕过 Shared Rule Core；
+- 新增可调内容优先进入配置，但在目标 Shared Rule Core 完成前不得分别绑定到两套有差异的执行语义；
 - 稳定 ID 不依赖中文名称、数组下标或画面对象引用；
 - 规则层输出 GameState 和 Event，表现层只消费结果；
 - Three.js、PixiJS 和 React 不得各自实现一份 Range、路径、风向或规则判定；
 - 相同 ruleset、Scenario、Action 序列和 seed 应得到相同结果；
 - 逻辑地图和 Scenario 不依赖具体渲染器；
 - 避免按 Card ID 在 UI 中长期堆叠特殊逻辑；
-- 某类数据完成直接配置驱动后，删除对应 TypeScript 数据副本，并用 Factory、行为和确定性测试替代漂移测试。
+- 某类数据完成直接配置驱动后，删除对应 TypeScript 数据副本，并用 Factory、行为和确定性测试替代漂移测试；
+- 默认不改变现有规则结果；行为变化必须拆为独立 ruleset / Validation 修改；
+- 每一步保留回归测试，避免一次性重写全部运行时；
+- 固定 seed 与实验专用覆盖必须显式声明，不能成为隐性默认值；
+- 运行时接入阶段编号只在 ProjectC `runtime-data-integration-plan.md` 维护。
 
 ---
 

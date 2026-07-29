@@ -20,7 +20,7 @@
 - Ground / Sky 中的风、Cloud、Rain；
 - 敌人公开 intent；
 - 基础战斗、救援、返程和首批卡牌；
-- Shared Rule Core、配置驱动、确定性和未来迁移友好性；
+- 提取目标 Shared Rule Core、推进配置驱动、确定性和未来迁移友好性；
 - DOM、PixiJS 与 Three.js 的表现和性能差异。
 
 ---
@@ -34,7 +34,7 @@
 - `docs/design.md`：产品方向、体验目标和系统职责；
 - `docs/core-rules-spec.md`：所有规则、机制和游戏内容的当前人类可读基准；
 - `docs/core-rules-validation.md`：重要实验的问题、计划、证据和阶段结论；
-- `docs/runtime-data-integration-plan.md`：Shared Rule Core 与配置接入顺序；
+- `docs/runtime-data-integration-plan.md`：目标 Shared Rule Core 与配置接入顺序；
 - `docs/ai-decisions.md`：重要取舍；
 - `docs/task-log.md`：当前优先级；
 - `docs/sync-status.md`：规则、ruleset 和未来正式工程差异。
@@ -47,11 +47,14 @@
 config/core-rules.v0.json
 = 当前实验的声明配置、目标值和内容数据权威
 
-TypeScript Shared Rule Core
-= 当前实际执行的费用、目标、效果、时序、环境和 Objective 算法语义
+TypeScript Reference Implementation
+= 当前实际执行的费用、目标、效果、时序、环境和 Objective 参考行为
 
 GameState
 = 当前运行过程中的可变状态权威
+
+目标 Shared Rule Core
+= 下一阶段需要从 Square4 / Hex6 重复逻辑中提取的统一算法层，当前尚未完成
 ```
 
 其他职责：
@@ -76,7 +79,7 @@ ruleset `0.1.0` 仍属于“配置镜像 + TypeScript 硬编码 + 漂移测试�
 5. ProjectC `docs/core-rules-validation.md` 中相关条目；
 6. 与任务相关的 `config/CHANGELOG.md` 和 ProjectC Changelog。
 
-配置接入、Shared Rule Core、Map Profile、Scenario 或 Initial GameState Factory 任务还必须阅读 ProjectC `docs/runtime-data-integration-plan.md`。
+配置接入、目标 Shared Rule Core、Map Profile、Scenario 或 Initial GameState Factory 任务还必须阅读 ProjectC `docs/runtime-data-integration-plan.md`。
 
 不要只根据当前代码推断设计已经确认。
 
@@ -125,40 +128,32 @@ npm run build
 
 ---
 
-## 7. 配置与 Rule Core 接入顺序
+## 7. 配置接入摘要
 
-Shared Rule Core 不是后置优化，而是配置接入的前置整理，或配置接入 PR 的第一个独立阶段。
-
-统一顺序：
+当前实际行为来源是 TypeScript Reference Implementation；Shared Rule Core 是尚未完成的目标层。ProjectC `docs/runtime-data-integration-plan.md` 是正式阶段编号与完成标准的唯一来源；本 README 只保留依赖摘要：
 
 ```text
-0. Shared Rule Core
-1. RuntimeRuleset Loader
-2. Card Library
-3. Actor / Equipment Template
-4. Map Profile
-5. Scenario Definition
-6. Initial GameState Factory
+提取目标 Shared Rule Core
+→ 直接采用新 Schema 与 Map Profile / Scenario 结构
+→ 更新 JSON、校验、测试与行为基线
+→ 建立 RuntimeRuleset Loader
+→ 分模块接入 Card、Actor / Equipment、Map Profile 与 Scenario
+→ 建立 Initial GameState Factory
 ```
 
-配置定义“是什么”，Shared Rule Core 定义“如何执行”，GameState 保存“现在变成了什么”。
+配置定义“是什么”，目标 Shared Rule Core 定义“如何执行”，GameState 保存“现在变成了什么”。
 
 ### Map Profile
 
-负责：
-
-- topology；
-- 尺寸、半径或宽高；
-- 有效边界和 Void；
-- 形状；
-- Region 拼接；
-- 山脊、通口、障碍密度等几何生成参数和约束。
+负责 topology、尺寸、边界、Void、形状、Region 拼接和山脊、通口、障碍密度等几何生成参数和约束。
 
 不负责具体 Actor、Objective、Resource、Shelter 实例或初始天气；这些属于 Scenario。
 
 ### Scenario
 
 负责 Actor 实例与位置、Shelter、Objective、Resource、初始 Cell / Sky / Weather、任务、seed 和测试标签。
+
+当前 ruleset 没有外部正式依赖；开始接入时直接使用新 Schema 和新 JSON 结构，不制作旧格式迁移表或兼容层。
 
 纯接入重构且玩法行为不变时不提升 rulesetVersion；Schema 结构变化时独立提升 schemaVersion。
 
