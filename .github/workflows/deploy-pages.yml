@@ -3,7 +3,7 @@ name: Deploy GitHub Pages
 on:
   push:
     branches:
-      - agent/bootstrap-web-prototype
+      - main
   workflow_dispatch:
 
 permissions:
@@ -82,5 +82,6 @@ jobs:
             *) script_url="${PAGE_URL%/}/${script_path}" ;;
           esac
 
-          curl --fail --silent --show-error --location "$script_url" >/dev/null
-          echo "Verified page and JavaScript asset: $script_url"
+          curl --fail --silent --show-error --location "$script_url" --output published-app.js
+          grep -q 'THERMAL PENDULUM' published-app.js
+          echo "Verified page, JavaScript asset, and thermal pendulum bundle: $script_url"
