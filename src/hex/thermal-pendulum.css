@@ -1,0 +1,281 @@
+.thermal-pendulum {
+  --thermal-cold-extreme: #3b5bb8;
+  --thermal-cold-3: #4d78d9;
+  --thermal-cold-2: #559be2;
+  --thermal-cold-1: #63bddc;
+  --thermal-neutral: #95a7a8;
+  --thermal-hot-1: #d8ba62;
+  --thermal-hot-2: #dc8d4c;
+  --thermal-hot-3: #d85b44;
+  --thermal-hot-extreme: #9e3340;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(160, 197, 204, 0.18);
+  min-width: 0;
+}
+
+.thermal-pendulum-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.thermal-pendulum-heading > div:first-child {
+  display: grid;
+  gap: 1px;
+}
+
+.thermal-pendulum-heading span {
+  color: rgba(194, 216, 220, 0.62);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.thermal-pendulum-heading strong {
+  color: #e8f1ef;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.thermal-direction {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 70px;
+  justify-content: flex-end;
+}
+
+.thermal-direction b {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(204, 222, 223, 0.18);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 13px;
+}
+
+.thermal-direction.is-cold b,
+.thermal-direction.is-cold span {
+  color: #70b9e3;
+}
+
+.thermal-direction.is-hot b,
+.thermal-direction.is-hot span {
+  color: #e58c55;
+}
+
+.thermal-direction.is-still b,
+.thermal-direction.is-still span {
+  color: rgba(210, 222, 222, 0.7);
+}
+
+.thermal-pendulum-dial {
+  overflow: hidden;
+  margin: 2px -4px -1px;
+}
+
+.thermal-pendulum-dial svg {
+  display: block;
+  width: 100%;
+  min-width: 220px;
+  height: auto;
+  overflow: visible;
+}
+
+.thermal-zone {
+  fill: none;
+  stroke-width: 13;
+  stroke-linecap: butt;
+  opacity: 0.88;
+}
+
+.thermal-zone.extreme-cold,
+.thermal-bob.extreme-cold { stroke: var(--thermal-cold-extreme); fill: var(--thermal-cold-extreme); }
+.thermal-zone.cold-3,
+.thermal-bob.cold-3 { stroke: var(--thermal-cold-3); fill: var(--thermal-cold-3); }
+.thermal-zone.cold-2,
+.thermal-bob.cold-2 { stroke: var(--thermal-cold-2); fill: var(--thermal-cold-2); }
+.thermal-zone.cold-1,
+.thermal-bob.cold-1 { stroke: var(--thermal-cold-1); fill: var(--thermal-cold-1); }
+.thermal-zone.neutral,
+.thermal-bob.neutral { stroke: var(--thermal-neutral); fill: var(--thermal-neutral); }
+.thermal-zone.hot-1,
+.thermal-bob.hot-1 { stroke: var(--thermal-hot-1); fill: var(--thermal-hot-1); }
+.thermal-zone.hot-2,
+.thermal-bob.hot-2 { stroke: var(--thermal-hot-2); fill: var(--thermal-hot-2); }
+.thermal-zone.hot-3,
+.thermal-bob.hot-3 { stroke: var(--thermal-hot-3); fill: var(--thermal-hot-3); }
+.thermal-zone.extreme-hot,
+.thermal-bob.extreme-hot { stroke: var(--thermal-hot-extreme); fill: var(--thermal-hot-extreme); }
+
+.thermal-zone-labels text {
+  fill: rgba(220, 232, 232, 0.66);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.thermal-setpoint-line {
+  stroke: rgba(228, 237, 231, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+.thermal-setpoint-marker {
+  fill: #e5e0bd;
+  filter: drop-shadow(0 0 4px rgba(229, 224, 189, 0.35));
+}
+
+.thermal-setpoint-caption {
+  fill: rgba(230, 232, 213, 0.78);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8px;
+  text-anchor: middle;
+  letter-spacing: 0.06em;
+}
+
+.thermal-pivot-outer {
+  fill: #162226;
+  stroke: rgba(226, 236, 233, 0.54);
+  stroke-width: 1.5;
+}
+
+.thermal-pivot-inner {
+  fill: #dce7e2;
+}
+
+.thermal-pendulum-arm {
+  transition: transform 280ms cubic-bezier(0.2, 0.75, 0.25, 1);
+  transform-box: view-box;
+}
+
+.thermal-pendulum-arm line {
+  stroke: rgba(225, 235, 232, 0.82);
+  stroke-width: 2;
+}
+
+.thermal-bob {
+  stroke-width: 1.5;
+  filter: drop-shadow(0 5px 5px rgba(0, 0, 0, 0.34));
+}
+
+.thermal-bob-core {
+  fill: rgba(20, 29, 31, 0.9);
+  stroke: rgba(255, 255, 255, 0.5);
+  stroke-width: 1;
+}
+
+.thermal-readout {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.thermal-readout > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 6px 6px;
+  border: 1px solid rgba(166, 200, 204, 0.12);
+  border-radius: 5px;
+  background: rgba(7, 17, 19, 0.28);
+}
+
+.thermal-readout span {
+  overflow: hidden;
+  color: rgba(184, 205, 207, 0.55);
+  font-size: 9px;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thermal-readout strong {
+  color: #ecf2ef;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.thermal-prototype-note {
+  margin: 7px 0 0;
+  color: rgba(178, 199, 201, 0.52);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.thermal-pendulum-lab {
+  margin-top: 8px;
+  border: 1px solid rgba(168, 200, 203, 0.12);
+  border-radius: 5px;
+  background: rgba(6, 14, 16, 0.2);
+}
+
+.thermal-pendulum-lab summary {
+  padding: 7px 8px;
+  color: rgba(200, 216, 216, 0.66);
+  font-size: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.thermal-pendulum-lab[open] summary {
+  border-bottom: 1px solid rgba(168, 200, 203, 0.1);
+}
+
+.thermal-pendulum-lab label {
+  display: grid;
+  grid-template-columns: 54px minmax(70px, 1fr) 38px;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px 0;
+}
+
+.thermal-pendulum-lab label > span {
+  color: rgba(194, 211, 212, 0.64);
+  font-size: 9px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.thermal-pendulum-lab input[type='range'] {
+  width: 100%;
+  accent-color: #b4c8c7;
+}
+
+.thermal-pendulum-lab output {
+  color: #e7eeee;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  text-align: right;
+}
+
+.thermal-pendulum-lab button {
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(188, 211, 211, 0.16);
+  border-radius: 4px;
+  color: rgba(220, 231, 230, 0.76);
+  background: rgba(185, 208, 207, 0.06);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.thermal-pendulum-lab button:hover {
+  border-color: rgba(210, 228, 226, 0.3);
+  background: rgba(185, 208, 207, 0.1);
+}
+
+@media (max-width: 1180px) {
+  .thermal-pendulum-dial svg {
+    min-width: 200px;
+  }
+}
