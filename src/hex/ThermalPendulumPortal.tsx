@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { createPortal } from 'react-dom'
 import {
   THERMAL_DISPLAY_MAX,
@@ -180,7 +180,7 @@ function ThermalPendulum() {
             max={THERMAL_DISPLAY_MAX}
             step="1"
             value={temperature}
-            onChange={(event) => setPreviewTemperature(Number(event.target.value))}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => setPreviewTemperature(Number(event.target.value))}
           />
           <output>{formatThermalValue(temperature)}</output>
         </label>
@@ -192,7 +192,7 @@ function ThermalPendulum() {
             max="3"
             step="1"
             value={setPoint}
-            onChange={(event) => setSetPoint(Number(event.target.value))}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => setSetPoint(Number(event.target.value))}
           />
           <output>{formatThermalValue(setPoint)}</output>
         </label>
@@ -204,7 +204,7 @@ function ThermalPendulum() {
             max="3"
             step="0.25"
             value={momentum}
-            onChange={(event) => setMomentum(Number(event.target.value))}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => setMomentum(Number(event.target.value))}
           />
           <output>{formatThermalValue(momentum, 2)}</output>
         </label>
