@@ -147,7 +147,7 @@ function ThermalPendulum() {
 
           <line className="thermal-setpoint-line" x1={pivot.x} y1={pivot.y + 6} x2={pivot.x} y2={pivot.y + arcRadius - 8} />
           <path className="thermal-setpoint-marker" d={`M ${pivot.x - 6} ${pivot.y + arcRadius - 2} L ${pivot.x + 6} ${pivot.y + arcRadius - 2} L ${pivot.x} ${pivot.y + arcRadius + 8} Z`} />
-          <text className="thermal-setpoint-caption" x={pivot.x} y={138}>SET {formatThermalValue(setPoint)}</text>
+          <text className="thermal-setpoint-caption" x={pivot.x + 24} y={pivot.y + arcRadius + 7}>SET {formatThermalValue(setPoint)}</text>
 
           <circle className="thermal-pivot-outer" cx={pivot.x} cy={pivot.y} r="8" />
           <circle className="thermal-pivot-inner" cx={pivot.x} cy={pivot.y} r="3" />
