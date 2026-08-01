@@ -1,3 +1,67 @@
+.hex-prototype .visual-left-panel {
+  position: relative;
+  top: auto;
+  max-height: none;
+  overflow: visible;
+  min-width: 0;
+}
+
+.hex-prototype .visual-actor-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-auto-rows: auto;
+  gap: 3px 9px;
+  align-items: center;
+}
+
+.hex-prototype .visual-actor-card > .visual-portrait {
+  grid-column: 1;
+  grid-row: 3;
+  width: 34px;
+  height: 34px;
+  align-self: center;
+  border-width: 1px;
+  border-radius: 9px;
+  font-size: 17px;
+  box-shadow: 0 0 14px rgba(88, 185, 235, .18);
+}
+
+.hex-prototype .visual-actor-card > div:nth-child(2) {
+  display: contents;
+}
+
+.hex-prototype .visual-actor-card > div:nth-child(2) > p {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.hex-prototype .visual-actor-card > div:nth-child(2) > h2 {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  margin: 0 0 4px;
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hex-prototype .visual-actor-card .visual-bars {
+  grid-column: 2;
+  grid-row: 3;
+  min-width: 0;
+  width: 100%;
+  gap: 6px;
+}
+
+.hex-prototype .visual-actor-card .visual-bars > div {
+  min-width: 0;
+  grid-template-columns: 26px minmax(0, 1fr) 34px;
+}
+
 .thermal-pendulum {
   --thermal-cold-extreme: #3b5bb8;
   --thermal-cold-3: #4d78d9;
@@ -8,55 +72,61 @@
   --thermal-hot-2: #dc8d4c;
   --thermal-hot-3: #d85b44;
   --thermal-hot-extreme: #9e3340;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(160, 197, 204, 0.18);
+  grid-column: 1 / -1;
+  grid-row: 4;
   min-width: 0;
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 8px;
+  overflow: hidden;
+  border-top: 1px solid rgba(160, 197, 204, .14);
 }
 
 .thermal-pendulum-heading {
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 2px;
+  gap: 8px;
 }
 
 .thermal-pendulum-heading > div:first-child {
-  display: grid;
-  gap: 1px;
+  min-width: 0;
 }
 
-.thermal-pendulum-heading span {
-  color: rgba(194, 216, 220, 0.62);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+.thermal-pendulum-heading > div:first-child > span {
+  display: none;
 }
 
 .thermal-pendulum-heading strong {
-  color: #e8f1ef;
-  font-size: 13px;
+  color: #dce8e6;
+  font-size: 11px;
   font-weight: 650;
 }
 
 .thermal-direction {
+  min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-width: 70px;
   justify-content: flex-end;
+  gap: 4px;
 }
 
 .thermal-direction b {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid rgba(204, 222, 223, 0.18);
+  width: 17px;
+  height: 17px;
+  border: 1px solid rgba(204, 222, 223, .14);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.035);
-  font-size: 13px;
+  background: rgba(255, 255, 255, .025);
+  font-size: 11px;
+}
+
+.thermal-direction span {
+  color: rgba(194, 216, 220, .62);
+  font-size: 8px;
+  white-space: nowrap;
 }
 
 .thermal-direction.is-cold b,
@@ -71,27 +141,29 @@
 
 .thermal-direction.is-still b,
 .thermal-direction.is-still span {
-  color: rgba(210, 222, 222, 0.7);
+  color: rgba(210, 222, 222, .62);
 }
 
 .thermal-pendulum-dial {
+  min-width: 0;
+  margin: -2px 0 -8px;
   overflow: hidden;
-  margin: 2px -4px -1px;
 }
 
 .thermal-pendulum-dial svg {
   display: block;
   width: 100%;
-  min-width: 220px;
+  min-width: 0;
   height: auto;
+  max-height: 116px;
   overflow: visible;
 }
 
 .thermal-zone {
   fill: none;
-  stroke-width: 13;
+  stroke-width: 8;
   stroke-linecap: butt;
-  opacity: 0.88;
+  opacity: .74;
 }
 
 .thermal-zone.extreme-cold,
@@ -114,36 +186,35 @@
 .thermal-bob.extreme-hot { stroke: var(--thermal-hot-extreme); fill: var(--thermal-hot-extreme); }
 
 .thermal-zone-labels text {
-  fill: rgba(220, 232, 232, 0.66);
+  fill: rgba(220, 232, 232, .56);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 8px;
+  font-size: 6.5px;
   text-anchor: middle;
   dominant-baseline: middle;
 }
 
 .thermal-setpoint-line {
-  stroke: rgba(228, 237, 231, 0.28);
+  stroke: rgba(228, 237, 231, .22);
   stroke-width: 1;
-  stroke-dasharray: 3 4;
+  stroke-dasharray: 2 4;
 }
 
 .thermal-setpoint-marker {
-  fill: #e5e0bd;
-  filter: drop-shadow(0 0 4px rgba(229, 224, 189, 0.35));
+  fill: #ded9b8;
 }
 
 .thermal-setpoint-caption {
-  fill: rgba(230, 232, 213, 0.78);
+  fill: rgba(230, 232, 213, .66);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 8px;
+  font-size: 7px;
   text-anchor: middle;
-  letter-spacing: 0.06em;
+  letter-spacing: .03em;
 }
 
 .thermal-pivot-outer {
   fill: #162226;
-  stroke: rgba(226, 236, 233, 0.54);
-  stroke-width: 1.5;
+  stroke: rgba(226, 236, 233, .42);
+  stroke-width: 1;
 }
 
 .thermal-pivot-inner {
@@ -151,131 +222,141 @@
 }
 
 .thermal-pendulum-arm {
-  transition: transform 280ms cubic-bezier(0.2, 0.75, 0.25, 1);
+  transition: transform 240ms cubic-bezier(.2, .75, .25, 1);
   transform-box: view-box;
 }
 
 .thermal-pendulum-arm line {
-  stroke: rgba(225, 235, 232, 0.82);
-  stroke-width: 2;
+  stroke: rgba(225, 235, 232, .7);
+  stroke-width: 1.5;
 }
 
 .thermal-bob {
-  stroke-width: 1.5;
-  filter: drop-shadow(0 5px 5px rgba(0, 0, 0, 0.34));
+  stroke-width: 1;
+  transform: scale(.72);
+  transform-box: fill-box;
+  transform-origin: center;
+  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, .25));
 }
 
 .thermal-bob-core {
-  fill: rgba(20, 29, 31, 0.9);
-  stroke: rgba(255, 255, 255, 0.5);
+  fill: rgba(20, 29, 31, .9);
+  stroke: rgba(255, 255, 255, .45);
   stroke-width: 1;
+  transform: scale(.8);
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 .thermal-readout {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 5px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   margin-top: 2px;
+  padding: 5px 0 0;
+  border-top: 1px solid rgba(166, 200, 204, .08);
 }
 
 .thermal-readout > div {
-  display: grid;
-  gap: 2px;
   min-width: 0;
-  padding: 7px 6px 6px;
-  border: 1px solid rgba(166, 200, 204, 0.12);
-  border-radius: 5px;
-  background: rgba(7, 17, 19, 0.28);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
 }
 
 .thermal-readout span {
   overflow: hidden;
-  color: rgba(184, 205, 207, 0.55);
-  font-size: 9px;
-  letter-spacing: 0;
+  color: rgba(184, 205, 207, .48);
+  font-size: 7px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .thermal-readout strong {
-  color: #ecf2ef;
+  color: #e8efec;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: 9px;
   font-variant-numeric: tabular-nums;
 }
 
 .thermal-prototype-note {
-  margin: 7px 0 0;
-  color: rgba(178, 199, 201, 0.52);
-  font-size: 9px;
-  line-height: 1.45;
+  display: none;
 }
 
 .thermal-pendulum-lab {
-  margin-top: 8px;
-  border: 1px solid rgba(168, 200, 203, 0.12);
-  border-radius: 5px;
-  background: rgba(6, 14, 16, 0.2);
+  margin-top: 6px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(6, 14, 16, .16);
 }
 
 .thermal-pendulum-lab summary {
-  padding: 7px 8px;
-  color: rgba(200, 216, 216, 0.66);
-  font-size: 10px;
+  padding: 5px 6px;
+  color: rgba(190, 208, 208, .55);
+  font-size: 8px;
   cursor: pointer;
   user-select: none;
 }
 
 .thermal-pendulum-lab[open] summary {
-  border-bottom: 1px solid rgba(168, 200, 203, 0.1);
+  border-bottom: 1px solid rgba(168, 200, 203, .08);
 }
 
 .thermal-pendulum-lab label {
+  min-width: 0;
   display: grid;
-  grid-template-columns: 54px minmax(70px, 1fr) 38px;
+  grid-template-columns: 46px minmax(0, 1fr) 30px;
   align-items: center;
-  gap: 7px;
-  padding: 5px 8px 0;
+  gap: 5px;
+  padding: 4px 6px 0;
 }
 
 .thermal-pendulum-lab label > span {
-  color: rgba(194, 211, 212, 0.64);
-  font-size: 9px;
+  color: rgba(194, 211, 212, .58);
+  font-size: 8px;
   letter-spacing: 0;
   text-transform: none;
 }
 
 .thermal-pendulum-lab input[type='range'] {
+  min-width: 0;
   width: 100%;
-  accent-color: #b4c8c7;
+  accent-color: #a9bfbd;
 }
 
 .thermal-pendulum-lab output {
-  color: #e7eeee;
+  color: #e2e9e7;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10px;
+  font-size: 8px;
   text-align: right;
 }
 
 .thermal-pendulum-lab button {
-  width: calc(100% - 16px);
-  margin: 8px;
-  padding: 6px 8px;
-  border: 1px solid rgba(188, 211, 211, 0.16);
+  width: calc(100% - 12px);
+  margin: 6px;
+  padding: 5px 7px;
+  border: 1px solid rgba(188, 211, 211, .12);
   border-radius: 4px;
-  color: rgba(220, 231, 230, 0.76);
-  background: rgba(185, 208, 207, 0.06);
-  font-size: 10px;
+  color: rgba(220, 231, 230, .68);
+  background: rgba(185, 208, 207, .04);
+  font-size: 8px;
   cursor: pointer;
 }
 
-.thermal-pendulum-lab button:hover {
-  border-color: rgba(210, 228, 226, 0.3);
-  background: rgba(185, 208, 207, 0.1);
-}
-
 @media (max-width: 1180px) {
-  .thermal-pendulum-dial svg {
-    min-width: 200px;
+  .hex-prototype .visual-actor-card {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .hex-prototype .visual-actor-card > .visual-portrait {
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+  }
+
+  .thermal-readout span {
+    display: none;
   }
 }
