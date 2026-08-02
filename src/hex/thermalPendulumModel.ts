@@ -31,6 +31,15 @@ export function thermalAngleFor(value: number, setPoint: number): number {
 }
 
 /**
+ * CSS/SVG transforms rotate a downward arm in the opposite visual direction
+ * from the dial's sampled coordinate mapping, so the rendered arm must invert
+ * the model angle: hot values move right and cold values move left.
+ */
+export function thermalVisualRotationFor(value: number, setPoint: number): number {
+  return -thermalAngleFor(value, setPoint)
+}
+
+/**
  * Continuous mapping used only to draw zone boundaries. Unlike the bob, zone
  * edges may sit at half-step values so every segment keeps the same width.
  */
