@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  THERMAL_DISPLAY_MAX,
-  THERMAL_DISPLAY_MIN,
   formatThermalValue,
   thermalAngleFor,
   thermalDirectionFor,
   thermalZoneClass,
+  THERMAL_DISPLAY_MAX,
+  THERMAL_DISPLAY_MIN,
 } from './thermalPendulumModel'
 import './thermal-pendulum.css'
 
@@ -16,11 +16,11 @@ type ThermalPendulumPortalProps = {
 
 type ThermalZone = {
   value: number
-  label: string
+  label?: string
 }
 
 const zones: ThermalZone[] = [
-  { value: -4, label: '极' },
+  { value: -4 },
   { value: -3, label: '−3' },
   { value: -2, label: '−2' },
   { value: -1, label: '−1' },
@@ -28,12 +28,12 @@ const zones: ThermalZone[] = [
   { value: 1, label: '+1' },
   { value: 2, label: '+2' },
   { value: 3, label: '+3' },
-  { value: 4, label: '极' },
+  { value: 4 },
 ]
 
-const pivot = { x: 130, y: 26 }
-const arcRadius = 92
-const armLength = 77
+const pivot = { x: 130, y: 23 }
+const arcRadius = 91
+const armLength = 74
 
 function parseTemperature(value: string | null | undefined): number | null {
   if (!value) return null
@@ -64,7 +64,7 @@ function pointOnArc(angle: number, radius: number) {
 }
 
 function sampledArcPath(startAngle: number, endAngle: number): string {
-  const steps = Math.max(3, Math.ceil(Math.abs(endAngle - startAngle) / 4))
+  const steps = Math.max(3, Math.ceil(Math.abs(endAngle - startAngle) / 3))
   const points = Array.from({ length: steps + 1 }, (_, index) => {
     const progress = index / steps
     return pointOnArc(startAngle + (endAngle - startAngle) * progress, arcRadius)
@@ -72,11 +72,25 @@ function sampledArcPath(startAngle: number, endAngle: number): string {
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ')
 }
 
-function directionLabel(momentum: number) {
+function DirectionGlyph({ momentum }: { momentum: number }) {
   const direction = thermalDirectionFor(momentum)
-  if (direction === 'hot') return { icon: '→', label: '向热侧' }
-  if (direction === 'cold') return { icon: '←', label: '向冷侧' }
-  return { icon: '•', label: '静止' }
+  if (direction === 'still') {
+    return <circle className="thermal-direction-dot" cx={pivot.x} cy="10" r="2.4" />
+  }
+
+  const hot = direction === 'hot'
+  const startX = hot ? pivot.x - 8 : pivot.x + 8
+  const endX = hot ? pivot.x + 8 : pivot.x - 8
+  const arrow = hot
+    ? `M ${endX - 4} 6 L ${endX} 10 L ${endX - 4} 14`
+    : `M ${endX + 4} 6 L ${endX} 10 L ${endX + 4} 14`
+
+  return (
+    <g className={`thermal-direction-glyph is-${direction}`} aria-hidden="true">
+      <line x1={startX} y1="10" x2={endX} y2="10" />
+      <path d={arrow} />
+    </g>
+  )
 }
 
 function ThermalPendulum() {
@@ -104,35 +118,25 @@ function ThermalPendulum() {
 
   const temperature = previewTemperature ?? observedTemperature
   const angle = thermalAngleFor(temperature, setPoint)
-  const direction = directionLabel(momentum)
-  const isPreviewing = previewTemperature !== null || setPoint !== 1
+  const isPreviewing = previewTemperature !== null || setPoint !== 1 || momentum !== 0
 
-  const zonePaths = useMemo(() => zones.map((zone) => {
-    const startValue = Math.max(THERMAL_DISPLAY_MIN, zone.value - 0.5)
-    const endValue = Math.min(THERMAL_DISPLAY_MAX, zone.value + 0.5)
-    return {
-      ...zone,
-      className: thermalZoneClass(zone.value),
-      path: sampledArcPath(thermalAngleFor(startValue, setPoint), thermalAngleFor(endValue, setPoint)),
-      labelPoint: pointOnArc(thermalAngleFor(zone.value, setPoint), arcRadius + 18),
-    }
-  }), [setPoint])
+  const zonePaths = useMemo(() => zones.map((zone) => ({
+    ...zone,
+    className: thermalZoneClass(zone.value),
+    path: sampledArcPath(
+      thermalAngleFor(zone.value - 0.5, setPoint),
+      thermalAngleFor(zone.value + 0.5, setPoint),
+    ),
+    labelPoint: pointOnArc(thermalAngleFor(zone.value, setPoint), arcRadius + 13),
+  })), [setPoint])
 
   return (
-    <section className="thermal-pendulum" aria-label={`热力钟摆，当前体温 ${formatThermalValue(temperature)}，Set Point ${formatThermalValue(setPoint)}，动量 ${formatThermalValue(momentum, 2)}`}>
-      <div className="thermal-pendulum-heading">
-        <div>
-          <span>THERMAL PENDULUM</span>
-          <strong>热力钟摆</strong>
-        </div>
-        <div className={`thermal-direction is-${thermalDirectionFor(momentum)}`}>
-          <b>{direction.icon}</b>
-          <span>{direction.label}</span>
-        </div>
-      </div>
-
+    <section
+      className="thermal-pendulum"
+      aria-label={`当前体温 ${formatThermalValue(temperature)}，平衡温度 ${formatThermalValue(setPoint)}，动量 ${formatThermalValue(momentum, 2)}`}
+    >
       <div className="thermal-pendulum-dial">
-        <svg viewBox="0 0 260 142" role="img" aria-label="体温分区与摆锤位置">
+        <svg viewBox="0 0 260 126" role="img" aria-label="体温钟摆">
           <g className="thermal-zone-ring">
             {zonePaths.map((zone) => (
               <path key={zone.value} className={`thermal-zone ${zone.className}`} d={zone.path} />
@@ -140,38 +144,32 @@ function ThermalPendulum() {
           </g>
 
           <g className="thermal-zone-labels" aria-hidden="true">
-            {zonePaths.map((zone) => (
+            {zonePaths.filter((zone) => zone.label).map((zone) => (
               <text key={zone.value} x={zone.labelPoint.x} y={zone.labelPoint.y}>{zone.label}</text>
             ))}
           </g>
 
-          <line className="thermal-setpoint-line" x1={pivot.x} y1={pivot.y + 6} x2={pivot.x} y2={pivot.y + arcRadius - 8} />
-          <path className="thermal-setpoint-marker" d={`M ${pivot.x - 6} ${pivot.y + arcRadius - 2} L ${pivot.x + 6} ${pivot.y + arcRadius - 2} L ${pivot.x} ${pivot.y + arcRadius + 8} Z`} />
-          <text className="thermal-setpoint-caption" x={pivot.x + 24} y={pivot.y + arcRadius + 7}>SET {formatThermalValue(setPoint)}</text>
+          <DirectionGlyph momentum={momentum} />
 
-          <circle className="thermal-pivot-outer" cx={pivot.x} cy={pivot.y} r="8" />
-          <circle className="thermal-pivot-inner" cx={pivot.x} cy={pivot.y} r="3" />
+          <line className="thermal-setpoint-line" x1={pivot.x} y1={pivot.y + 5} x2={pivot.x} y2={pivot.y + arcRadius - 7} />
+          <path className="thermal-setpoint-marker" d={`M ${pivot.x - 5} ${pivot.y + arcRadius - 1} L ${pivot.x + 5} ${pivot.y + arcRadius - 1} L ${pivot.x} ${pivot.y + arcRadius + 7} Z`} />
+
+          <circle className="thermal-pivot-outer" cx={pivot.x} cy={pivot.y} r="6" />
+          <circle className="thermal-pivot-inner" cx={pivot.x} cy={pivot.y} r="2.2" />
 
           <g
             className="thermal-pendulum-arm"
             style={{ transform: `rotate(${angle}deg)`, transformOrigin: `${pivot.x}px ${pivot.y}px` }}
           >
-            <line x1={pivot.x} y1={pivot.y + 5} x2={pivot.x} y2={pivot.y + armLength} />
-            <circle className={`thermal-bob ${thermalZoneClass(temperature)}`} cx={pivot.x} cy={pivot.y + armLength} r="13" />
-            <circle className="thermal-bob-core" cx={pivot.x} cy={pivot.y + armLength} r="4" />
+            <line x1={pivot.x} y1={pivot.y + 4} x2={pivot.x} y2={pivot.y + armLength} />
+            <circle className={`thermal-bob ${thermalZoneClass(temperature)}`} cx={pivot.x} cy={pivot.y + armLength} r="10" />
+            <circle className="thermal-bob-core" cx={pivot.x} cy={pivot.y + armLength} r="3" />
           </g>
         </svg>
       </div>
 
-      <div className="thermal-readout" aria-live="polite">
-        <div><span>当前位置</span><strong>{formatThermalValue(temperature)}</strong></div>
-        <div><span>Set Point</span><strong>{formatThermalValue(setPoint)}</strong></div>
-        <div><span>精确动量</span><strong>{formatThermalValue(momentum, 2)}</strong></div>
-      </div>
-      <p className="thermal-prototype-note">摆锤位置跟随体温；动量目前只负责方向显示，尚不参与回合演算。</p>
-
-      <details className="thermal-pendulum-lab">
-        <summary>{isPreviewing ? 'UI 参数测试 · Preview' : 'UI 参数测试'}</summary>
+      <details className={`thermal-pendulum-lab ${isPreviewing ? 'is-previewing' : ''}`}>
+        <summary title="钟摆参数测试" aria-label="打开钟摆参数测试"><span aria-hidden="true">•••</span></summary>
         <label>
           <span>体温</span>
           <input
@@ -212,7 +210,7 @@ function ThermalPendulum() {
           setPreviewTemperature(null)
           setSetPoint(1)
           setMomentum(0)
-        }}>恢复角色数据</button>
+        }}>恢复</button>
       </details>
     </section>
   )
