@@ -63,85 +63,22 @@
 }
 
 .thermal-pendulum {
-  --thermal-cold-extreme: #3b5bb8;
-  --thermal-cold-3: #4d78d9;
-  --thermal-cold-2: #559be2;
-  --thermal-cold-1: #63bddc;
-  --thermal-neutral: #95a7a8;
-  --thermal-hot-1: #d8ba62;
-  --thermal-hot-2: #dc8d4c;
-  --thermal-hot-3: #d85b44;
-  --thermal-hot-extreme: #9e3340;
+  --thermal-extreme: #737982;
+  --thermal-cold-3: #4758e8;
+  --thermal-cold-2: #168edc;
+  --thermal-cold-1: #20c4cc;
+  --thermal-neutral: #b7c5ad;
+  --thermal-hot-1: #f1ca45;
+  --thermal-hot-2: #f28b32;
+  --thermal-hot-3: #e84e48;
   grid-column: 1 / -1;
   grid-row: 4;
   min-width: 0;
   width: 100%;
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 7px;
+  padding-top: 6px;
   overflow: hidden;
-  border-top: 1px solid rgba(160, 197, 204, .14);
-}
-
-.thermal-pendulum-heading {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.thermal-pendulum-heading > div:first-child {
-  min-width: 0;
-}
-
-.thermal-pendulum-heading > div:first-child > span {
-  display: none;
-}
-
-.thermal-pendulum-heading strong {
-  color: #dce8e6;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.thermal-direction {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-}
-
-.thermal-direction b {
-  display: grid;
-  place-items: center;
-  width: 17px;
-  height: 17px;
-  border: 1px solid rgba(204, 222, 223, .14);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, .025);
-  font-size: 11px;
-}
-
-.thermal-direction span {
-  color: rgba(194, 216, 220, .62);
-  font-size: 8px;
-  white-space: nowrap;
-}
-
-.thermal-direction.is-cold b,
-.thermal-direction.is-cold span {
-  color: #70b9e3;
-}
-
-.thermal-direction.is-hot b,
-.thermal-direction.is-hot span {
-  color: #e58c55;
-}
-
-.thermal-direction.is-still b,
-.thermal-direction.is-still span {
-  color: rgba(210, 222, 222, .62);
+  border-top: 1px solid rgba(160, 197, 204, .12);
 }
 
 .thermal-pendulum-dial {
@@ -155,38 +92,67 @@
   width: 100%;
   min-width: 0;
   height: auto;
-  max-height: 116px;
+  max-height: 108px;
   overflow: visible;
 }
 
 .thermal-zone {
   fill: none;
-  stroke-width: 8;
+  stroke-width: 9;
   stroke-linecap: butt;
-  opacity: .74;
+  opacity: .92;
 }
 
-.thermal-zone.extreme-cold,
-.thermal-bob.extreme-cold { stroke: var(--thermal-cold-extreme); fill: var(--thermal-cold-extreme); }
+.thermal-zone.extreme,
+.thermal-bob.extreme {
+  stroke: var(--thermal-extreme);
+  fill: var(--thermal-extreme);
+}
+
 .thermal-zone.cold-3,
-.thermal-bob.cold-3 { stroke: var(--thermal-cold-3); fill: var(--thermal-cold-3); }
+.thermal-bob.cold-3 {
+  stroke: var(--thermal-cold-3);
+  fill: var(--thermal-cold-3);
+}
+
 .thermal-zone.cold-2,
-.thermal-bob.cold-2 { stroke: var(--thermal-cold-2); fill: var(--thermal-cold-2); }
+.thermal-bob.cold-2 {
+  stroke: var(--thermal-cold-2);
+  fill: var(--thermal-cold-2);
+}
+
 .thermal-zone.cold-1,
-.thermal-bob.cold-1 { stroke: var(--thermal-cold-1); fill: var(--thermal-cold-1); }
+.thermal-bob.cold-1 {
+  stroke: var(--thermal-cold-1);
+  fill: var(--thermal-cold-1);
+}
+
 .thermal-zone.neutral,
-.thermal-bob.neutral { stroke: var(--thermal-neutral); fill: var(--thermal-neutral); }
+.thermal-bob.neutral {
+  stroke: var(--thermal-neutral);
+  fill: var(--thermal-neutral);
+}
+
 .thermal-zone.hot-1,
-.thermal-bob.hot-1 { stroke: var(--thermal-hot-1); fill: var(--thermal-hot-1); }
+.thermal-bob.hot-1 {
+  stroke: var(--thermal-hot-1);
+  fill: var(--thermal-hot-1);
+}
+
 .thermal-zone.hot-2,
-.thermal-bob.hot-2 { stroke: var(--thermal-hot-2); fill: var(--thermal-hot-2); }
+.thermal-bob.hot-2 {
+  stroke: var(--thermal-hot-2);
+  fill: var(--thermal-hot-2);
+}
+
 .thermal-zone.hot-3,
-.thermal-bob.hot-3 { stroke: var(--thermal-hot-3); fill: var(--thermal-hot-3); }
-.thermal-zone.extreme-hot,
-.thermal-bob.extreme-hot { stroke: var(--thermal-hot-extreme); fill: var(--thermal-hot-extreme); }
+.thermal-bob.hot-3 {
+  stroke: var(--thermal-hot-3);
+  fill: var(--thermal-hot-3);
+}
 
 .thermal-zone-labels text {
-  fill: rgba(220, 232, 232, .56);
+  fill: rgba(225, 235, 234, .66);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 6.5px;
   text-anchor: middle;
@@ -194,26 +160,18 @@
 }
 
 .thermal-setpoint-line {
-  stroke: rgba(228, 237, 231, .22);
+  stroke: rgba(230, 237, 231, .2);
   stroke-width: 1;
   stroke-dasharray: 2 4;
 }
 
 .thermal-setpoint-marker {
-  fill: #ded9b8;
-}
-
-.thermal-setpoint-caption {
-  fill: rgba(230, 232, 213, .66);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 7px;
-  text-anchor: middle;
-  letter-spacing: .03em;
+  fill: rgba(230, 226, 196, .82);
 }
 
 .thermal-pivot-outer {
   fill: #162226;
-  stroke: rgba(226, 236, 233, .42);
+  stroke: rgba(226, 236, 233, .38);
   stroke-width: 1;
 }
 
@@ -227,77 +185,70 @@
 }
 
 .thermal-pendulum-arm line {
-  stroke: rgba(225, 235, 232, .7);
-  stroke-width: 1.5;
+  stroke: rgba(225, 235, 232, .72);
+  stroke-width: 1.4;
 }
 
 .thermal-bob {
   stroke-width: 1;
-  transform: scale(.72);
-  transform-box: fill-box;
-  transform-origin: center;
-  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, .25));
+  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, .24));
 }
 
 .thermal-bob-core {
   fill: rgba(20, 29, 31, .9);
-  stroke: rgba(255, 255, 255, .45);
+  stroke: rgba(255, 255, 255, .42);
   stroke-width: 1;
-  transform: scale(.8);
-  transform-box: fill-box;
-  transform-origin: center;
 }
 
-.thermal-readout {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-top: 2px;
-  padding: 5px 0 0;
-  border-top: 1px solid rgba(166, 200, 204, .08);
+.thermal-direction-glyph line,
+.thermal-direction-glyph path {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.thermal-readout > div {
-  min-width: 0;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
+.thermal-direction-glyph.is-cold line,
+.thermal-direction-glyph.is-cold path {
+  stroke: var(--thermal-cold-2);
 }
 
-.thermal-readout span {
-  overflow: hidden;
-  color: rgba(184, 205, 207, .48);
-  font-size: 7px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.thermal-direction-glyph.is-hot line,
+.thermal-direction-glyph.is-hot path {
+  stroke: var(--thermal-hot-2);
 }
 
-.thermal-readout strong {
-  color: #e8efec;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-}
-
-.thermal-prototype-note {
-  display: none;
+.thermal-direction-dot {
+  fill: rgba(220, 230, 228, .56);
 }
 
 .thermal-pendulum-lab {
-  margin-top: 6px;
+  margin-top: 2px;
   border: 0;
   border-radius: 4px;
-  background: rgba(6, 14, 16, .16);
+  background: rgba(6, 14, 16, .14);
 }
 
 .thermal-pendulum-lab summary {
-  padding: 5px 6px;
-  color: rgba(190, 208, 208, .55);
+  width: 100%;
+  min-height: 16px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: rgba(190, 208, 208, .42);
   font-size: 8px;
+  letter-spacing: .16em;
   cursor: pointer;
   user-select: none;
+  list-style: none;
+}
+
+.thermal-pendulum-lab summary::-webkit-details-marker {
+  display: none;
+}
+
+.thermal-pendulum-lab.is-previewing summary {
+  color: rgba(240, 202, 84, .74);
 }
 
 .thermal-pendulum-lab[open] summary {
@@ -316,8 +267,6 @@
 .thermal-pendulum-lab label > span {
   color: rgba(194, 211, 212, .58);
   font-size: 8px;
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 .thermal-pendulum-lab input[type='range'] {
@@ -354,9 +303,5 @@
     width: 30px;
     height: 30px;
     font-size: 15px;
-  }
-
-  .thermal-readout span {
-    display: none;
   }
 }
