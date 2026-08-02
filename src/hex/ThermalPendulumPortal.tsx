@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  discreteThermalValue,
   formatThermalValue,
   thermalDialAngleFor,
   thermalDirectionFor,
-  thermalVisualRotationFor,
+  thermalSlotFor,
   thermalZoneClass,
   THERMAL_DISPLAY_MAX,
   THERMAL_DISPLAY_MIN,
@@ -104,8 +103,9 @@ function ThermalPendulum() {
   }, [])
 
   const rawTemperature = previewTemperature ?? observedTemperature
-  const temperature = discreteThermalValue(rawTemperature)
-  const visualRotation = thermalVisualRotationFor(temperature, setPoint)
+  const slot = thermalSlotFor(rawTemperature, setPoint)
+  const temperature = slot.temperature
+  const bobPoint = pointOnArc(slot.angle, armLength)
   const direction = directionLabel(momentum)
   const isPreviewing = previewTemperature !== null || setPoint !== 1
 
@@ -145,13 +145,10 @@ function ThermalPendulum() {
           <circle className="thermal-pivot-outer" cx={pivot.x} cy={pivot.y} r="6" />
           <circle className="thermal-pivot-inner" cx={pivot.x} cy={pivot.y} r="2.2" />
 
-          <g
-            className="thermal-pendulum-arm"
-            style={{ transform: `rotate(${visualRotation}deg)`, transformOrigin: `${pivot.x}px ${pivot.y}px` }}
-          >
-            <line x1={pivot.x} y1={pivot.y + 4} x2={pivot.x} y2={pivot.y + armLength} />
-            <circle className={`thermal-bob ${thermalZoneClass(temperature)}`} cx={pivot.x} cy={pivot.y + armLength} r="10" />
-            <circle className="thermal-bob-core" cx={pivot.x} cy={pivot.y + armLength} r="3" />
+          <g className="thermal-pendulum-arm">
+            <line x1={pivot.x} y1={pivot.y + 4} x2={bobPoint.x} y2={bobPoint.y} />
+            <circle className={`thermal-bob ${slot.zoneClass}`} cx={bobPoint.x} cy={bobPoint.y} r="10" />
+            <circle className="thermal-bob-core" cx={bobPoint.x} cy={bobPoint.y} r="3" />
           </g>
         </svg>
       </div>
