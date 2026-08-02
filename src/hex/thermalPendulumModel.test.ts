@@ -5,8 +5,9 @@ import {
   discreteThermalValue,
   formatThermalValue,
   thermalAngleFor,
+  thermalDialAngleFor,
   thermalDirectionFor,
-  thermalVisualRotationFor,
+  thermalSlotFor,
   thermalZoneClass,
 } from './thermalPendulumModel'
 
@@ -37,10 +38,34 @@ describe('thermal pendulum model', () => {
     expect(thermalAngleFor(99, -3)).toBe(THERMAL_SWING_ANGLE)
   })
 
-  it('inverts CSS rotation so hot renders right and cold renders left', () => {
-    expect(thermalVisualRotationFor(2, 0)).toBe(-THERMAL_ANGLE_STEP * 2)
-    expect(thermalVisualRotationFor(-2, 0)).toBe(THERMAL_ANGLE_STEP * 2)
-    expect(thermalVisualRotationFor(1, 1)).toBe(0)
+  it('uses one slot for both dial position and bob colour', () => {
+    for (let setPoint = -3; setPoint <= 3; setPoint += 1) {
+      for (let temperature = -4; temperature <= 4; temperature += 1) {
+        const slot = thermalSlotFor(temperature, setPoint)
+        expect(slot.temperature).toBe(temperature)
+        expect(slot.angle).toBe(thermalDialAngleFor(temperature, setPoint))
+        expect(slot.zoneClass).toBe(thermalZoneClass(temperature))
+      }
+    }
+  })
+
+  it('preserves asymmetric reachable slots when set point is not zero', () => {
+    const warmSetPointColdExtreme = thermalSlotFor(-4, 2)
+    const warmSetPointHotExtreme = thermalSlotFor(4, 2)
+    expect(warmSetPointColdExtreme.angle).toBe(-THERMAL_ANGLE_STEP * 6)
+    expect(warmSetPointHotExtreme.angle).toBe(THERMAL_ANGLE_STEP * 2)
+
+    const coldSetPointColdExtreme = thermalSlotFor(-4, -2)
+    const coldSetPointHotExtreme = thermalSlotFor(4, -2)
+    expect(coldSetPointColdExtreme.angle).toBe(-THERMAL_ANGLE_STEP * 2)
+    expect(coldSetPointHotExtreme.angle).toBe(THERMAL_ANGLE_STEP * 6)
+  })
+
+  it('keeps cold slots left and hot slots right of the set point', () => {
+    expect(thermalSlotFor(-2, 1).angle).toBeLessThan(0)
+    expect(thermalSlotFor(2, 1).angle).toBeGreaterThan(0)
+    expect(thermalSlotFor(-2, 1).zoneClass).toBe('cold-2')
+    expect(thermalSlotFor(2, 1).zoneClass).toBe('hot-2')
   })
 
   it('uses momentum sign only for the visible direction', () => {
