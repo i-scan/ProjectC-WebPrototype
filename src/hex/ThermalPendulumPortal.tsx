@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom'
 import {
   discreteThermalValue,
   formatThermalValue,
-  thermalAngleFor,
   thermalDialAngleFor,
   thermalDirectionFor,
+  thermalVisualRotationFor,
   thermalZoneClass,
   THERMAL_DISPLAY_MAX,
   THERMAL_DISPLAY_MIN,
@@ -105,7 +105,7 @@ function ThermalPendulum() {
 
   const rawTemperature = previewTemperature ?? observedTemperature
   const temperature = discreteThermalValue(rawTemperature)
-  const angle = thermalAngleFor(temperature, setPoint)
+  const visualRotation = thermalVisualRotationFor(temperature, setPoint)
   const direction = directionLabel(momentum)
   const isPreviewing = previewTemperature !== null || setPoint !== 1
 
@@ -147,7 +147,7 @@ function ThermalPendulum() {
 
           <g
             className="thermal-pendulum-arm"
-            style={{ transform: `rotate(${angle}deg)`, transformOrigin: `${pivot.x}px ${pivot.y}px` }}
+            style={{ transform: `rotate(${visualRotation}deg)`, transformOrigin: `${pivot.x}px ${pivot.y}px` }}
           >
             <line x1={pivot.x} y1={pivot.y + 4} x2={pivot.x} y2={pivot.y + armLength} />
             <circle className={`thermal-bob ${thermalZoneClass(temperature)}`} cx={pivot.x} cy={pivot.y + armLength} r="10" />
