@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   THERMAL_ANGLE_STEP,
+  THERMAL_SWING_ANGLE,
+  discreteThermalValue,
   formatThermalValue,
   thermalAngleFor,
   thermalDirectionFor,
@@ -18,6 +20,20 @@ describe('thermal pendulum model', () => {
       expect(thermalAngleFor(value + 1, 1) - thermalAngleFor(value, 1)).toBe(THERMAL_ANGLE_STEP)
       expect(thermalAngleFor(value + 1, -2) - thermalAngleFor(value, -2)).toBe(THERMAL_ANGLE_STEP)
     }
+  })
+
+  it('snaps body temperature to discrete tick centers', () => {
+    expect(discreteThermalValue(1.49)).toBe(1)
+    expect(discreteThermalValue(1.5)).toBe(2)
+    expect(thermalAngleFor(1.49, 0)).toBe(THERMAL_ANGLE_STEP)
+    expect(thermalAngleFor(1.5, 0)).toBe(THERMAL_ANGLE_STEP * 2)
+  })
+
+  it('cannot move beyond the two grey extreme segments', () => {
+    expect(discreteThermalValue(-99)).toBe(-4)
+    expect(discreteThermalValue(99)).toBe(4)
+    expect(thermalAngleFor(-99, 3)).toBe(-THERMAL_SWING_ANGLE)
+    expect(thermalAngleFor(99, -3)).toBe(THERMAL_SWING_ANGLE)
   })
 
   it('uses momentum sign only for the visible direction', () => {
