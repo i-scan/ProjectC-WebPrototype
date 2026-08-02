@@ -83,5 +83,5 @@ jobs:
           esac
 
           curl --fail --silent --show-error --location "$script_url" --output published-app.js
-          grep -q 'THERMAL PENDULUM' published-app.js
+          grep -q 'thermal-pendulum' published-app.js
           echo "Verified page, JavaScript asset, and thermal pendulum bundle: $script_url"
