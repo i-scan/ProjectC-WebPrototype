@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  discreteThermalValue,
   formatThermalValue,
   thermalAngleFor,
+  thermalDialAngleFor,
   thermalDirectionFor,
   thermalZoneClass,
   THERMAL_DISPLAY_MAX,
@@ -16,24 +18,23 @@ type ThermalPendulumPortalProps = {
 
 type ThermalZone = {
   value: number
-  label?: string
 }
 
 const zones: ThermalZone[] = [
   { value: -4 },
-  { value: -3, label: '−3' },
-  { value: -2, label: '−2' },
-  { value: -1, label: '−1' },
-  { value: 0, label: '0' },
-  { value: 1, label: '+1' },
-  { value: 2, label: '+2' },
-  { value: 3, label: '+3' },
+  { value: -3 },
+  { value: -2 },
+  { value: -1 },
+  { value: 0 },
+  { value: 1 },
+  { value: 2 },
+  { value: 3 },
   { value: 4 },
 ]
 
-const pivot = { x: 130, y: 23 }
-const arcRadius = 91
-const armLength = 74
+const pivot = { x: 130, y: 28 }
+const arcRadius = 88
+const armLength = 72
 
 function parseTemperature(value: string | null | undefined): number | null {
   if (!value) return null
@@ -72,25 +73,11 @@ function sampledArcPath(startAngle: number, endAngle: number): string {
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ')
 }
 
-function DirectionGlyph({ momentum }: { momentum: number }) {
+function directionLabel(momentum: number) {
   const direction = thermalDirectionFor(momentum)
-  if (direction === 'still') {
-    return <circle className="thermal-direction-dot" cx={pivot.x} cy="10" r="2.4" />
-  }
-
-  const hot = direction === 'hot'
-  const startX = hot ? pivot.x - 8 : pivot.x + 8
-  const endX = hot ? pivot.x + 8 : pivot.x - 8
-  const arrow = hot
-    ? `M ${endX - 4} 6 L ${endX} 10 L ${endX - 4} 14`
-    : `M ${endX + 4} 6 L ${endX} 10 L ${endX + 4} 14`
-
-  return (
-    <g className={`thermal-direction-glyph is-${direction}`} aria-hidden="true">
-      <line x1={startX} y1="10" x2={endX} y2="10" />
-      <path d={arrow} />
-    </g>
-  )
+  if (direction === 'hot') return { direction, icon: '→', label: '向热' }
+  if (direction === 'cold') return { direction, icon: '←', label: '向冷' }
+  return { direction, icon: '•', label: '静止' }
 }
 
 function ThermalPendulum() {
@@ -116,40 +103,41 @@ function ThermalPendulum() {
     return () => observer.disconnect()
   }, [])
 
-  const temperature = previewTemperature ?? observedTemperature
+  const rawTemperature = previewTemperature ?? observedTemperature
+  const temperature = discreteThermalValue(rawTemperature)
   const angle = thermalAngleFor(temperature, setPoint)
-  const isPreviewing = previewTemperature !== null || setPoint !== 1 || momentum !== 0
+  const direction = directionLabel(momentum)
+  const isPreviewing = previewTemperature !== null || setPoint !== 1
 
   const zonePaths = useMemo(() => zones.map((zone) => ({
     ...zone,
     className: thermalZoneClass(zone.value),
     path: sampledArcPath(
-      thermalAngleFor(zone.value - 0.5, setPoint),
-      thermalAngleFor(zone.value + 0.5, setPoint),
+      thermalDialAngleFor(zone.value - 0.5, setPoint),
+      thermalDialAngleFor(zone.value + 0.5, setPoint),
     ),
-    labelPoint: pointOnArc(thermalAngleFor(zone.value, setPoint), arcRadius + 13),
   })), [setPoint])
 
   return (
     <section
       className="thermal-pendulum"
-      aria-label={`当前体温 ${formatThermalValue(temperature)}，平衡温度 ${formatThermalValue(setPoint)}，动量 ${formatThermalValue(momentum, 2)}`}
+      aria-label={`热力钟摆，当前体温 ${formatThermalValue(temperature)}，平衡温度 ${formatThermalValue(setPoint)}，动量 ${formatThermalValue(momentum, 2)}`}
     >
+      <div className="thermal-pendulum-heading">
+        <strong>热力钟摆</strong>
+        <div className={`thermal-direction is-${direction.direction}`}>
+          <b aria-hidden="true">{direction.icon}</b>
+          <span>{direction.label}</span>
+        </div>
+      </div>
+
       <div className="thermal-pendulum-dial">
-        <svg viewBox="0 0 260 126" role="img" aria-label="体温钟摆">
+        <svg viewBox="0 0 260 124" role="img" aria-label="离散体温钟摆">
           <g className="thermal-zone-ring">
             {zonePaths.map((zone) => (
               <path key={zone.value} className={`thermal-zone ${zone.className}`} d={zone.path} />
             ))}
           </g>
-
-          <g className="thermal-zone-labels" aria-hidden="true">
-            {zonePaths.filter((zone) => zone.label).map((zone) => (
-              <text key={zone.value} x={zone.labelPoint.x} y={zone.labelPoint.y}>{zone.label}</text>
-            ))}
-          </g>
-
-          <DirectionGlyph momentum={momentum} />
 
           <line className="thermal-setpoint-line" x1={pivot.x} y1={pivot.y + 5} x2={pivot.x} y2={pivot.y + arcRadius - 7} />
           <path className="thermal-setpoint-marker" d={`M ${pivot.x - 5} ${pivot.y + arcRadius - 1} L ${pivot.x + 5} ${pivot.y + arcRadius - 1} L ${pivot.x} ${pivot.y + arcRadius + 7} Z`} />
@@ -169,7 +157,7 @@ function ThermalPendulum() {
       </div>
 
       <details className={`thermal-pendulum-lab ${isPreviewing ? 'is-previewing' : ''}`}>
-        <summary title="钟摆参数测试" aria-label="打开钟摆参数测试"><span aria-hidden="true">•••</span></summary>
+        <summary>{isPreviewing ? '参数测试 · Preview' : '参数测试'}</summary>
         <label>
           <span>体温</span>
           <input
@@ -210,7 +198,7 @@ function ThermalPendulum() {
           setPreviewTemperature(null)
           setSetPoint(1)
           setMomentum(0)
-        }}>恢复</button>
+        }}>恢复角色数据</button>
       </details>
     </section>
   )
