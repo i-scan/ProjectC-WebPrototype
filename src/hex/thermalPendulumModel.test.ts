@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  THERMAL_SWING_ANGLE,
+  THERMAL_ANGLE_STEP,
   formatThermalValue,
   thermalAngleFor,
   thermalDirectionFor,
@@ -13,9 +13,11 @@ describe('thermal pendulum model', () => {
     expect(thermalAngleFor(-2, -2)).toBe(0)
   })
 
-  it('maps cold and hot extremes to opposite sides', () => {
-    expect(thermalAngleFor(-4, 1)).toBe(-THERMAL_SWING_ANGLE)
-    expect(thermalAngleFor(4, 1)).toBe(THERMAL_SWING_ANGLE)
+  it('uses the same angle for every adjacent temperature interval', () => {
+    for (let value = -4; value < 4; value += 1) {
+      expect(thermalAngleFor(value + 1, 1) - thermalAngleFor(value, 1)).toBe(THERMAL_ANGLE_STEP)
+      expect(thermalAngleFor(value + 1, -2) - thermalAngleFor(value, -2)).toBe(THERMAL_ANGLE_STEP)
+    }
   })
 
   it('uses momentum sign only for the visible direction', () => {
@@ -24,11 +26,11 @@ describe('thermal pendulum model', () => {
     expect(thermalDirectionFor(1.5)).toBe('hot')
   })
 
-  it('keeps discrete thermal zones and signed readouts', () => {
-    expect(thermalZoneClass(-4)).toBe('extreme-cold')
+  it('uses one neutral extreme style outside the effective range', () => {
+    expect(thermalZoneClass(-4)).toBe('extreme')
+    expect(thermalZoneClass(4)).toBe('extreme')
     expect(thermalZoneClass(-1)).toBe('cold-1')
     expect(thermalZoneClass(1)).toBe('hot-1')
-    expect(thermalZoneClass(4)).toBe('extreme-hot')
     expect(formatThermalValue(1)).toBe('+1')
     expect(formatThermalValue(-1.25, 2)).toBe('-1.25')
   })
