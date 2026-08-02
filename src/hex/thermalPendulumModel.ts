@@ -7,6 +7,12 @@ export const THERMAL_SWING_ANGLE = 84
 
 export type ThermalDirection = 'cold' | 'still' | 'hot'
 
+export type ThermalSlot = {
+  temperature: number
+  angle: number
+  zoneClass: string
+}
+
 export function clampThermalDisplay(value: number): number {
   return Math.max(THERMAL_DISPLAY_MIN, Math.min(THERMAL_DISPLAY_MAX, value))
 }
@@ -20,23 +26,15 @@ function discreteSetPoint(value: number): number {
 }
 
 /**
- * The visible bob always lands on the center of a discrete dial segment.
- * Values beyond the supported range clamp to the two grey extreme segments.
+ * Discrete center angle for one absolute body-temperature slot. Set Point is
+ * always at the physical lowest position (0 degrees). Every adjacent absolute
+ * temperature occupies the same angular step.
  */
 export function thermalAngleFor(value: number, setPoint: number): number {
   const thermalStep = discreteThermalValue(value)
   const setPointStep = discreteSetPoint(setPoint)
   const angle = (thermalStep - setPointStep) * THERMAL_ANGLE_STEP
   return Math.max(-THERMAL_SWING_ANGLE, Math.min(THERMAL_SWING_ANGLE, angle))
-}
-
-/**
- * CSS/SVG transforms rotate a downward arm in the opposite visual direction
- * from the dial's sampled coordinate mapping, so the rendered arm must invert
- * the model angle: hot values move right and cold values move left.
- */
-export function thermalVisualRotationFor(value: number, setPoint: number): number {
-  return -thermalAngleFor(value, setPoint)
 }
 
 /**
@@ -47,6 +45,19 @@ export function thermalDialAngleFor(value: number, setPoint: number): number {
   const dialValue = Math.max(THERMAL_DIAL_MIN, Math.min(THERMAL_DIAL_MAX, value))
   const setPointStep = discreteSetPoint(setPoint)
   return (dialValue - setPointStep) * THERMAL_ANGLE_STEP
+}
+
+/**
+ * Single source of truth for the visible bob. Geometry and colour must both be
+ * taken from this slot so a Set Point shift cannot mirror one without the other.
+ */
+export function thermalSlotFor(value: number, setPoint: number): ThermalSlot {
+  const temperature = discreteThermalValue(value)
+  return {
+    temperature,
+    angle: thermalAngleFor(temperature, setPoint),
+    zoneClass: thermalZoneClass(temperature),
+  }
 }
 
 export function thermalDirectionFor(momentum: number): ThermalDirection {
