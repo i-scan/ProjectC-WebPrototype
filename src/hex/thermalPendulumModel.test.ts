@@ -6,6 +6,7 @@ import {
   formatThermalValue,
   thermalAngleFor,
   thermalDirectionFor,
+  thermalVisualRotationFor,
   thermalZoneClass,
 } from './thermalPendulumModel'
 
@@ -34,6 +35,12 @@ describe('thermal pendulum model', () => {
     expect(discreteThermalValue(99)).toBe(4)
     expect(thermalAngleFor(-99, 3)).toBe(-THERMAL_SWING_ANGLE)
     expect(thermalAngleFor(99, -3)).toBe(THERMAL_SWING_ANGLE)
+  })
+
+  it('inverts CSS rotation so hot renders right and cold renders left', () => {
+    expect(thermalVisualRotationFor(2, 0)).toBe(-THERMAL_ANGLE_STEP * 2)
+    expect(thermalVisualRotationFor(-2, 0)).toBe(THERMAL_ANGLE_STEP * 2)
+    expect(thermalVisualRotationFor(1, 1)).toBe(0)
   })
 
   it('uses momentum sign only for the visible direction', () => {
