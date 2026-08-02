@@ -81,9 +81,68 @@
   border-top: 1px solid rgba(160, 197, 204, .12);
 }
 
+.thermal-pendulum-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.thermal-pendulum-heading > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #dce8e6;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thermal-direction {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.thermal-direction b {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid rgba(204, 222, 223, .14);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .025);
+  font-size: 11px;
+}
+
+.thermal-direction span {
+  color: rgba(194, 216, 220, .66);
+  font-size: 8px;
+}
+
+.thermal-direction.is-cold b,
+.thermal-direction.is-cold span {
+  color: var(--thermal-cold-2);
+}
+
+.thermal-direction.is-hot b,
+.thermal-direction.is-hot span {
+  color: var(--thermal-hot-2);
+}
+
+.thermal-direction.is-still b,
+.thermal-direction.is-still span {
+  color: rgba(210, 222, 222, .62);
+}
+
 .thermal-pendulum-dial {
   min-width: 0;
-  margin: -2px 0 -8px;
+  margin: -1px 0 -8px;
   overflow: hidden;
 }
 
@@ -92,7 +151,7 @@
   width: 100%;
   min-width: 0;
   height: auto;
-  max-height: 108px;
+  max-height: 106px;
   overflow: visible;
 }
 
@@ -151,14 +210,6 @@
   fill: var(--thermal-hot-3);
 }
 
-.thermal-zone-labels text {
-  fill: rgba(225, 235, 234, .66);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 6.5px;
-  text-anchor: middle;
-  dominant-baseline: middle;
-}
-
 .thermal-setpoint-line {
   stroke: rgba(230, 237, 231, .2);
   stroke-width: 1;
@@ -200,28 +251,6 @@
   stroke-width: 1;
 }
 
-.thermal-direction-glyph line,
-.thermal-direction-glyph path {
-  fill: none;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.thermal-direction-glyph.is-cold line,
-.thermal-direction-glyph.is-cold path {
-  stroke: var(--thermal-cold-2);
-}
-
-.thermal-direction-glyph.is-hot line,
-.thermal-direction-glyph.is-hot path {
-  stroke: var(--thermal-hot-2);
-}
-
-.thermal-direction-dot {
-  fill: rgba(220, 230, 228, .56);
-}
-
 .thermal-pendulum-lab {
   margin-top: 2px;
   border: 0;
@@ -230,17 +259,25 @@
 }
 
 .thermal-pendulum-lab summary {
-  width: 100%;
-  min-height: 16px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  color: rgba(190, 208, 208, .42);
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  color: rgba(190, 208, 208, .58);
   font-size: 8px;
-  letter-spacing: .16em;
   cursor: pointer;
   user-select: none;
   list-style: none;
+}
+
+.thermal-pendulum-lab summary::after {
+  content: '＋';
+  color: rgba(190, 208, 208, .4);
+}
+
+.thermal-pendulum-lab[open] summary::after {
+  content: '−';
 }
 
 .thermal-pendulum-lab summary::-webkit-details-marker {
@@ -248,7 +285,7 @@
 }
 
 .thermal-pendulum-lab.is-previewing summary {
-  color: rgba(240, 202, 84, .74);
+  color: rgba(240, 202, 84, .78);
 }
 
 .thermal-pendulum-lab[open] summary {
