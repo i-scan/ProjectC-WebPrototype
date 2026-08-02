@@ -11,16 +11,33 @@ export function clampThermalDisplay(value: number): number {
   return Math.max(THERMAL_DISPLAY_MIN, Math.min(THERMAL_DISPLAY_MAX, value))
 }
 
+export function discreteThermalValue(value: number): number {
+  return Math.round(clampThermalDisplay(value))
+}
+
+function discreteSetPoint(value: number): number {
+  return Math.round(clampThermalDisplay(value))
+}
+
 /**
- * Every discrete temperature step occupies the same angular width. The
- * configurable set point remains at the physical lowest position (0 degrees),
- * so the absolute-temperature dial shifts around that point without stretching
- * either side.
+ * The visible bob always lands on the center of a discrete dial segment.
+ * Values beyond the supported range clamp to the two grey extreme segments.
  */
 export function thermalAngleFor(value: number, setPoint: number): number {
-  const clampedSetPoint = clampThermalDisplay(setPoint)
+  const thermalStep = discreteThermalValue(value)
+  const setPointStep = discreteSetPoint(setPoint)
+  const angle = (thermalStep - setPointStep) * THERMAL_ANGLE_STEP
+  return Math.max(-THERMAL_SWING_ANGLE, Math.min(THERMAL_SWING_ANGLE, angle))
+}
+
+/**
+ * Continuous mapping used only to draw zone boundaries. Unlike the bob, zone
+ * edges may sit at half-step values so every segment keeps the same width.
+ */
+export function thermalDialAngleFor(value: number, setPoint: number): number {
   const dialValue = Math.max(THERMAL_DIAL_MIN, Math.min(THERMAL_DIAL_MAX, value))
-  return (dialValue - clampedSetPoint) * THERMAL_ANGLE_STEP
+  const setPointStep = discreteSetPoint(setPoint)
+  return (dialValue - setPointStep) * THERMAL_ANGLE_STEP
 }
 
 export function thermalDirectionFor(momentum: number): ThermalDirection {
@@ -35,12 +52,13 @@ export function formatThermalValue(value: number, digits = 0): string {
 }
 
 export function thermalZoneClass(value: number): string {
-  if (value <= -3.5 || value >= 3.5) return 'extreme'
-  if (value <= -2.5) return 'cold-3'
-  if (value <= -1.5) return 'cold-2'
-  if (value <= -0.5) return 'cold-1'
-  if (value < 0.5) return 'neutral'
-  if (value < 1.5) return 'hot-1'
-  if (value < 2.5) return 'hot-2'
+  const step = discreteThermalValue(value)
+  if (step <= -4 || step >= 4) return 'extreme'
+  if (step === -3) return 'cold-3'
+  if (step === -2) return 'cold-2'
+  if (step === -1) return 'cold-1'
+  if (step === 0) return 'neutral'
+  if (step === 1) return 'hot-1'
+  if (step === 2) return 'hot-2'
   return 'hot-3'
 }
