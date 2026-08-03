@@ -21,6 +21,13 @@ export type ThermalDriftVector = {
   angle: number
 }
 
+export type ThermalDriftProjection = ThermalDriftVector & {
+  startAngle: number
+  endAngle: number
+  displayedAngle: number
+  clipped: boolean
+}
+
 export function clampThermalDisplay(value: number): number {
   return Math.max(THERMAL_DISPLAY_MIN, Math.min(THERMAL_DISPLAY_MAX, value))
 }
@@ -92,6 +99,32 @@ export function thermalDriftVectorFor(momentum: number): ThermalDriftVector {
     angle: direction === 'still'
       ? 0
       : Math.sign(safeMomentum) * magnitude * THERMAL_DRIFT_ANGLE_PER_UNIT,
+  }
+}
+
+/**
+ * Drift is a projected vector from the current body-temperature slot, not from
+ * Set Point. The visible endpoint is clipped to the reachable absolute display
+ * range so the arrow cannot leave the two extreme slots.
+ */
+export function thermalDriftProjectionFor(
+  value: number,
+  setPoint: number,
+  momentum: number,
+): ThermalDriftProjection {
+  const slot = thermalSlotFor(value, setPoint)
+  const vector = thermalDriftVectorFor(momentum)
+  const minimumAngle = thermalAngleFor(THERMAL_DISPLAY_MIN, setPoint)
+  const maximumAngle = thermalAngleFor(THERMAL_DISPLAY_MAX, setPoint)
+  const desiredEndAngle = slot.angle + vector.angle
+  const endAngle = Math.max(minimumAngle, Math.min(maximumAngle, desiredEndAngle))
+
+  return {
+    ...vector,
+    startAngle: slot.angle,
+    endAngle,
+    displayedAngle: endAngle - slot.angle,
+    clipped: Math.abs(endAngle - desiredEndAngle) > 0.001,
   }
 }
 
