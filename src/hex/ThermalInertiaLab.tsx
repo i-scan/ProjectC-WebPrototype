@@ -203,8 +203,8 @@ export function ThermalInertiaLab({
         <RangeControl
           label="Set Point"
           value={state.setPoint}
-          min={rules.temperatureMin}
-          max={rules.temperatureMax}
+          min={rules.setPointMin}
+          max={rules.setPointMax}
           onChange={(setPoint) => onStateChange({ setPoint, crossingFromSide: null })}
         />
         <RangeControl
