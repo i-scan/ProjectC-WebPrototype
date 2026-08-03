@@ -4,6 +4,8 @@ export const THERMAL_DIAL_MIN = -4.5
 export const THERMAL_DIAL_MAX = 4.5
 export const THERMAL_ANGLE_STEP = 12
 export const THERMAL_SWING_ANGLE = 84
+export const THERMAL_DRIFT_MAX = 3
+export const THERMAL_DRIFT_ANGLE_PER_UNIT = THERMAL_ANGLE_STEP
 
 export type ThermalDirection = 'cold' | 'still' | 'hot'
 
@@ -11,6 +13,12 @@ export type ThermalSlot = {
   temperature: number
   angle: number
   zoneClass: string
+}
+
+export type ThermalDriftVector = {
+  direction: ThermalDirection
+  magnitude: number
+  angle: number
 }
 
 export function clampThermalDisplay(value: number): number {
@@ -64,6 +72,27 @@ export function thermalDirectionFor(momentum: number): ThermalDirection {
   if (momentum > 0.001) return 'hot'
   if (momentum < -0.001) return 'cold'
   return 'still'
+}
+
+/**
+ * The current prototype treats momentum as the visible drift vector. One unit
+ * of drift occupies the same angle as one temperature slot, capped at the
+ * current debug range so the vector stays subordinate to the temperature dial.
+ */
+export function thermalDriftVectorFor(momentum: number): ThermalDriftVector {
+  const safeMomentum = Number.isFinite(momentum) ? momentum : 0
+  const direction = thermalDirectionFor(safeMomentum)
+  const magnitude = direction === 'still'
+    ? 0
+    : Math.min(Math.abs(safeMomentum), THERMAL_DRIFT_MAX)
+
+  return {
+    direction,
+    magnitude,
+    angle: direction === 'still'
+      ? 0
+      : Math.sign(safeMomentum) * magnitude * THERMAL_DRIFT_ANGLE_PER_UNIT,
+  }
 }
 
 export function formatThermalValue(value: number, digits = 0): string {
