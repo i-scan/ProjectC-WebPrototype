@@ -1,0 +1,163 @@
+{
+  "schemaVersion": "0.1.0",
+  "rulesetVersion": "val-012-stage1.0.1",
+  "updatedAt": "2026-08-03",
+  "status": "candidate-experiment",
+  "validationId": "VAL-012",
+  "activeStage": "stage-1-thermal-inertia-natural-oscillation",
+  "topology": "hex6",
+  "designReference": "i-scan/ProjectC:docs/VAL-012-dual-inertia-prototype-plan.md",
+  "defaultRulesetId": "strict",
+  "defaultScenarioId": "T1-natural-oscillation",
+  "rulesets": [
+    {
+      "id": "strict",
+      "label": "Strict Settle",
+      "temperatureMin": -4,
+      "temperatureMax": 4,
+      "driftMin": -2,
+      "driftMax": 2,
+      "restoringForce": 1,
+      "captureWindow": false,
+      "projectionMaxSteps": 32
+    },
+    {
+      "id": "capture-window",
+      "label": "Capture Window",
+      "temperatureMin": -4,
+      "temperatureMax": 4,
+      "driftMin": -2,
+      "driftMax": 2,
+      "restoringForce": 1,
+      "captureWindow": true,
+      "projectionMaxSteps": 32
+    }
+  ],
+  "actions": [
+    {
+      "id": "natural-step",
+      "label": "Natural Step",
+      "shortLabel": "Step",
+      "kind": "impulse",
+      "thermalImpulse": 0,
+      "description": "No external Thermal Impulse; resolve restoring force and one Thermal Step."
+    },
+    {
+      "id": "push-hot",
+      "label": "Thermal Push Hot",
+      "shortLabel": "+ Hot",
+      "kind": "impulse",
+      "thermalImpulse": 1,
+      "description": "Add +1 Thermal Impulse before restoring force."
+    },
+    {
+      "id": "push-cold",
+      "label": "Thermal Push Cold",
+      "shortLabel": "− Cold",
+      "kind": "impulse",
+      "thermalImpulse": -1,
+      "description": "Add -1 Thermal Impulse before restoring force."
+    },
+    {
+      "id": "stabilize",
+      "label": "Stabilizing Step",
+      "shortLabel": "Stabilize",
+      "kind": "stabilize",
+      "stabilizeStrength": 1,
+      "capture": true,
+      "description": "Apply an impulse against current Drift, then resolve restoring force."
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "T1-natural-oscillation",
+      "label": "T1 Natural Oscillation",
+      "group": "T1",
+      "description": "Temperature starts away from Set Point with zero Drift.",
+      "state": {
+        "temperature": 3,
+        "setPoint": 0,
+        "drift": 0
+      }
+    },
+    {
+      "id": "T2-expanding-hot",
+      "label": "T2A Expanding Hot",
+      "group": "T2",
+      "description": "Hot-side expansion before the current-side apex.",
+      "state": {
+        "temperature": 2,
+        "setPoint": 0,
+        "drift": 1
+      }
+    },
+    {
+      "id": "T2-hot-apex",
+      "label": "T2B Hot Apex",
+      "group": "T2",
+      "description": "Hot-side apex with Drift currently stopped.",
+      "state": {
+        "temperature": 3,
+        "setPoint": 0,
+        "drift": 0
+      }
+    },
+    {
+      "id": "T2-returning",
+      "label": "T2C Returning",
+      "group": "T2",
+      "description": "Returning toward Set Point from the Hot side.",
+      "state": {
+        "temperature": 1,
+        "setPoint": 0,
+        "drift": -1
+      }
+    },
+    {
+      "id": "T2-opposite-side",
+      "label": "T2D Cold Side",
+      "group": "T2",
+      "description": "The same impulse is tested after entering the opposite side.",
+      "state": {
+        "temperature": -1,
+        "setPoint": 0,
+        "drift": -1,
+        "crossingFromSide": "hot"
+      }
+    },
+    {
+      "id": "T3-settle-capture",
+      "label": "T3 Settle Capture",
+      "group": "T3",
+      "description": "At Set Point with residual Drift; compare Strict and Capture Window rules.",
+      "state": {
+        "temperature": 0,
+        "setPoint": 0,
+        "drift": -1,
+        "crossingFromSide": "hot"
+      }
+    },
+    {
+      "id": "T4-deep-overshoot",
+      "label": "T4 Deep Overshoot",
+      "group": "T4",
+      "description": "Approaching Set Point with strong Cold Drift to test controllable overshoot depth.",
+      "state": {
+        "temperature": 1,
+        "setPoint": 0,
+        "drift": -2
+      }
+    },
+    {
+      "id": "T1-warm-set-point",
+      "label": "T1 Warm Set Point",
+      "group": "T1",
+      "description": "Natural oscillation using the warm-blooded default Set Point +1.",
+      "state": {
+        "temperature": -2,
+        "setPoint": 1,
+        "drift": 0
+      }
+    }
+  ]
+}
