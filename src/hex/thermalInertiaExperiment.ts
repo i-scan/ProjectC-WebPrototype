@@ -175,7 +175,10 @@ export function externalThermalImpulseFor(
     const strength = Math.max(0, action.stabilizeStrength ?? 1)
     return -Math.sign(state.drift) * strength
   }
-  return Number.isFinite(action.thermalImpulse) ? (action.thermalImpulse ?? 0) : 0
+
+  return typeof action.thermalImpulse === 'number' && Number.isFinite(action.thermalImpulse)
+    ? action.thermalImpulse
+    : 0
 }
 
 function advanceThermalState(
