@@ -14,6 +14,132 @@
 
 ---
 
+## Experiment Ruleset `val-012-stage1.0.1` — 2026-08-03
+
+### 类型
+
+VAL-012 Stage 0 仪表基础与 Stage 1 Thermal Inertia 自然振荡实验；**候选玩法行为，不构成正式规则晋升**。
+
+### 实验来源
+
+- 当前计划：`i-scan/ProjectC:docs/VAL-012-dual-inertia-prototype-plan.md`；
+- 活动阶段：`stage-1-thermal-inertia-natural-oscillation`；
+- 活动拓扑：Hex6-only；
+- 独立配置：`config/experiments/val-012-stage-1-thermal-inertia.v0.json`。
+
+### 新增状态与规则核心
+
+- 建立独立的 `ActorThermalState`：`Temperature / Set Point / Drift`；
+- `Offset`、`Neutral`、side 与 `Projected Apex` 均保持为派生结果，不新增持久资源条；
+- 每个 `Thermal Frame` 按以下顺序确定性结算：
+  1. 读取 Frame 开始时的 `T / S / D`；
+  2. 汇总一个测试动作的外部 `Thermal Impulse`；
+  3. 按 Frame 开始时的 `Offset` 施加朝 Set Point 的 restoring force；
+  4. 将 Drift 限制在 `-2 ～ +2`；
+  5. Drift 非零时，Temperature 沿其方向移动一档；
+  6. 判断 Crossing、Settle、Overshoot、Apex、Capture 和边界截断；
+  7. 通过无新外力的纯函数模拟派生下一次 `Projected Apex`；
+  8. 保存新的 Thermal State；
+- `Temperature` 实验显示范围暂为 `-4 ～ +4`，用于降低边界对自然振荡首轮测试的干扰；
+- 首轮不加入自动 Damping；
+- `Neutral / Settle` 的严格条件为 `Temperature == Set Point && Drift == 0`；
+- `Overshoot` 只有在携带 Crossing 上下文离开 Set Point 进入另一侧时才成立，不把“抵达 Set Point”本身误记为 Overshoot。
+
+### Ruleset 对照
+
+新增两套可切换的实验参数：
+
+- `strict`：严格 Settle，不提供 Capture Window；
+- `capture-window`：当 `Stabilize` 使 Actor 抵达 Set Point 且结算中剩余 `|Drift| == 1` 时，将 Drift 捕获为 `0` 并进入 Settle。
+
+Capture Window 只用于比较“严格条件是否频繁差一档、形成维护税”，不是默认正式规则。
+
+### 固定测试动作
+
+- `Natural Step`：无外部 Thermal Impulse，只执行自然 restoring 与 Thermal Step；
+- `Thermal Push Hot`：在 restoring 前施加 `+1` Thermal Impulse；
+- `Thermal Push Cold`：在 restoring 前施加 `-1` Thermal Impulse；
+- `Stabilizing Step`：先施加一个抵消当前 Drift 的 Impulse，再执行统一 Thermal Step；不直接写入 Settle 或 Overshoot 结果。
+
+### 固定状态快照
+
+- `T1 Natural Oscillation`：偏离 Set Point、Drift 为零；
+- `T2A～T2D Phase Intervention`：当前侧扩张、Apex、回程、另一侧四种 Phase；
+- `T3 Settle Capture`：比较 Strict 与 Capture Window；
+- `T4 Deep Overshoot`：在 crossing 前后继续推拉 Drift，比较 Projected Apex 深度；
+- `T1 Warm Set Point`：使用 `S = +1` 检查系统是否错误地把绝对 `0` 当作身体中心。
+
+### Stage 0 仪表与调试能力
+
+- Thermal Pendulum 不再从 Actor 卡 DOM 反向推导状态，而由独立实验 GameState 驱动；
+- 当前摆锤显示 `Temperature`，弧形箭头显示保存的 `Drift`；
+- 新增当前 `Projected Apex` 菱形标记；
+- 选择测试动作后，同时显示 ghost bob、ghost Drift 与 ghost Apex，确认后才写入状态；
+- Actor 卡保留紧凑钟摆与可开关的 `T / S / Offset / Drift / Apex / Frame` Debug；
+- 新增独立浮层 `Thermal Inertia Lab`，提供：
+  - Ruleset 切换；
+  - T1～T4 固定快照；
+  - 手动 T / S / Drift 输入；
+  - 固定测试动作选择；
+  - Ghost Resolution；
+  - 单步 `Resolve Thermal Frame`；
+  - Crossing / Settle / Overshoot / Apex / Capture / Boundary 事件标签；
+  - Undo、Restart、确定性 Replay；
+  - 完整 Frame 日志与 JSON Snapshot 复制；
+- 实验 Temperature 会同步显示到 Hex6 Actor 卡的体温读数，但尚未接入原有战斗 GameState 的温度规则。
+
+### 自动测试
+
+新增回归用例验证：
+
+- 配置、Ruleset、动作和场景 ID 唯一；
+- restoring force 使用 Frame 开始时 Offset；
+- T1 自然振荡具有确定路径和可预测 Apex；
+- 相同 Temperature、不同 Drift 会产生不同结算和后续 Apex；
+- Strict Settle 与 Capture Window 保持独立；
+- Crossing 与 Overshoot 分两步记录；
+- `T == S` 但 `D != 0` 不被误判为 Neutral；
+- `S = +1` 时不把绝对零当作中心；
+- Drift 与 Temperature 边界限制；
+- 固定动作序列可确定性 Replay。
+
+### 当前边界
+
+- 本轮不加入 Kinetic Inertia、Axis、spatial Momentum、Drive、Redirect、Brake 或 Impact；
+- 不加入敌人、环境、天气、物态网络或旧十张卡；
+- 不把当前测试动作当作正式卡牌；
+- 不实现动态 Set Point、完整极限温区惩罚或跨引擎正式数据包；
+- Square4 不增加对应功能；
+- 当前实验状态尚未替代旧 `core-rules.v0.json` 的全局 prototype-snapshot，也不自动晋升到 ProjectC `core-rules-spec.md`。
+
+### 验证状态
+
+- [x] 独立实验配置、稳定 ID 和固定快照；
+- [x] Thermal Step 纯规则核心与确定性 Projected Apex；
+- [x] Strict / Capture Window 对照；
+- [x] Ghost preview、Frame log、Undo / Restart / Replay / Snapshot；
+- [x] 规则级 Vitest 覆盖；
+- [ ] GitHub Actions 测试与构建结果；
+- [ ] 实际浏览器中浮层布局、ghost 信息层级与窄窗口可读性；
+- [ ] T1～T4 人工试玩记录；
+- [ ] 判断 Strict Settle 是否形成维护税；
+- [ ] 判断相同 Temperature、不同 Drift 是否真实改变玩家选择；
+- [ ] 判断 Projected Apex 是否足以避免玩家手算；
+- [ ] 用户明确接受后的阶段性规则晋升。
+
+对应 Validation：`VAL-012`。
+
+主要实现提交：
+
+- `56af94573f329879792192987ec34c0781338eb8`：独立实验配置与 T1～T4 快照；
+- `f250fdd5e888341cfffd168cde147274f44ec2a6`：Thermal Inertia 规则核心；
+- `25bca7d86bf92f0fac577b051641fec2769fea29`：规则回归测试；
+- `a5302566a0db24b083c6741c053292b0fe3786e9`：钟摆实验状态、ghost 与 Apex 接入；
+- `f37e588fd74d3fa00c88850935acd53fb8414d4d`：Thermal Inertia Lab；
+- `2b6a4269f17d597a1e22d55dccd61835fe6c34cc`：实验面板与预览视觉样式。
+
+---
+
 ## UI Prototype / Ruleset 0.1.0 — 2026-08-03
 
 ### 类型
