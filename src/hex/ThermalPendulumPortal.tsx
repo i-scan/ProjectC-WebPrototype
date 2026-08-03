@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   formatThermalValue,
   thermalDialAngleFor,
-  thermalDriftVectorFor,
+  thermalDriftProjectionFor,
   thermalSlotFor,
   thermalZoneClass,
   THERMAL_DISPLAY_MAX,
@@ -73,6 +73,42 @@ function sampledArcPath(startAngle: number, endAngle: number, radius = arcRadius
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ')
 }
 
+function driftArrowHeadPath(
+  angle: number,
+  direction: 'cold' | 'hot',
+  radius: number,
+): string {
+  const radians = angle * Math.PI / 180
+  const directionSign = direction === 'hot' ? 1 : -1
+  const tangent = {
+    x: Math.cos(radians) * directionSign,
+    y: -Math.sin(radians) * directionSign,
+  }
+  const normal = { x: -tangent.y, y: tangent.x }
+  const tip = pointOnArc(angle, radius)
+  const arrowLength = 8.5
+  const halfWidth = 4.25
+  const base = {
+    x: tip.x - tangent.x * arrowLength,
+    y: tip.y - tangent.y * arrowLength,
+  }
+  const left = {
+    x: base.x + normal.x * halfWidth,
+    y: base.y + normal.y * halfWidth,
+  }
+  const right = {
+    x: base.x - normal.x * halfWidth,
+    y: base.y - normal.y * halfWidth,
+  }
+
+  return [
+    `M ${tip.x.toFixed(2)} ${tip.y.toFixed(2)}`,
+    `L ${left.x.toFixed(2)} ${left.y.toFixed(2)}`,
+    `L ${right.x.toFixed(2)} ${right.y.toFixed(2)}`,
+    'Z',
+  ].join(' ')
+}
+
 function ThermalPendulum() {
   const [observedTemperature, setObservedTemperature] = useState(1)
   const [previewTemperature, setPreviewTemperature] = useState<number | null>(null)
@@ -100,11 +136,14 @@ function ThermalPendulum() {
   const slot = thermalSlotFor(rawTemperature, setPoint)
   const temperature = slot.temperature
   const bobPoint = pointOnArc(slot.angle, armLength)
-  const drift = thermalDriftVectorFor(momentum)
-  const driftIdlePoint = pointOnArc(0, driftRadius)
-  const driftPath = drift.direction === 'still'
+  const drift = thermalDriftProjectionFor(rawTemperature, setPoint, momentum)
+  const driftIdlePoint = pointOnArc(drift.startAngle, driftRadius)
+  const driftPath = Math.abs(drift.displayedAngle) < 0.001
     ? ''
-    : sampledArcPath(0, drift.angle, driftRadius)
+    : sampledArcPath(drift.startAngle, drift.endAngle, driftRadius)
+  const driftArrowPath = drift.direction === 'still'
+    ? ''
+    : driftArrowHeadPath(drift.endAngle, drift.direction, driftRadius)
   const isPreviewing = previewTemperature !== null || setPoint !== 1 || drift.direction !== 'still'
 
   const zonePaths = useMemo(() => zones.map((zone) => ({
@@ -127,15 +166,6 @@ function ThermalPendulum() {
 
       <div className="thermal-pendulum-dial">
         <svg viewBox="0 0 260 140" role="img" aria-label="离散体温钟摆与 Drift 向量">
-          <defs>
-            <marker id="thermal-drift-arrow-hot" markerWidth="7" markerHeight="7" refX="5.6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
-              <path className="thermal-drift-arrow-head is-hot" d="M 0 0 L 6 3.5 L 0 7 Z" />
-            </marker>
-            <marker id="thermal-drift-arrow-cold" markerWidth="7" markerHeight="7" refX="5.6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
-              <path className="thermal-drift-arrow-head is-cold" d="M 0 0 L 6 3.5 L 0 7 Z" />
-            </marker>
-          </defs>
-
           <g className="thermal-zone-ring">
             {zonePaths.map((zone) => (
               <path key={zone.value} className={`thermal-zone ${zone.className}`} d={zone.path} />
@@ -145,11 +175,10 @@ function ThermalPendulum() {
           {drift.direction === 'still' ? (
             <circle className="thermal-drift-idle" cx={driftIdlePoint.x} cy={driftIdlePoint.y} r="3.4" />
           ) : (
-            <path
-              className={`thermal-drift-vector is-${drift.direction}`}
-              d={driftPath}
-              markerEnd={`url(#thermal-drift-arrow-${drift.direction})`}
-            />
+            <g className={`thermal-drift-group is-${drift.direction}${drift.clipped ? ' is-clipped' : ''}`}>
+              {driftPath && <path className={`thermal-drift-vector is-${drift.direction}`} d={driftPath} />}
+              <path className={`thermal-drift-arrow-head is-${drift.direction}`} d={driftArrowPath} />
+            </g>
           )}
 
           <line className="thermal-setpoint-line" x1={pivot.x} y1={pivot.y + 5} x2={pivot.x} y2={pivot.y + arcRadius - 7} />
