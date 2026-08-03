@@ -129,12 +129,11 @@
       "id": "T3-settle-capture",
       "label": "T3 Settle Capture",
       "group": "T3",
-      "description": "At Set Point with residual Drift; compare Strict and Capture Window rules.",
+      "description": "Arrive at Set Point with residual Drift; compare Strict and Capture Window rules using Stabilize.",
       "state": {
-        "temperature": 0,
+        "temperature": 1,
         "setPoint": 0,
-        "drift": -1,
-        "crossingFromSide": "hot"
+        "drift": -1
       }
     },
     {
