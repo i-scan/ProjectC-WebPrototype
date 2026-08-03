@@ -9,6 +9,7 @@ import {
   thermalAngleFor,
   thermalDialAngleFor,
   thermalDirectionFor,
+  thermalDriftProjectionFor,
   thermalDriftVectorFor,
   thermalSlotFor,
   thermalZoneClass,
@@ -88,6 +89,42 @@ describe('thermal pendulum model', () => {
     expect(hot.direction).toBe('hot')
     expect(hot.magnitude).toBe(1.5)
     expect(hot.angle).toBe(THERMAL_DRIFT_ANGLE_PER_UNIT * 1.5)
+  })
+
+  it('anchors drift to the current pendulum slot instead of set point', () => {
+    const hot = thermalDriftProjectionFor(2, 1, 1.5)
+    expect(hot.startAngle).toBe(THERMAL_ANGLE_STEP)
+    expect(hot.endAngle).toBe(THERMAL_ANGLE_STEP * 2.5)
+    expect(hot.displayedAngle).toBe(THERMAL_ANGLE_STEP * 1.5)
+    expect(hot.clipped).toBe(false)
+
+    const cold = thermalDriftProjectionFor(-1, 1, -2)
+    expect(cold.startAngle).toBe(-THERMAL_ANGLE_STEP * 2)
+    expect(cold.endAngle).toBe(-THERMAL_ANGLE_STEP * 4)
+    expect(cold.displayedAngle).toBe(-THERMAL_ANGLE_STEP * 2)
+    expect(cold.clipped).toBe(false)
+  })
+
+  it('keeps the idle drift point under the current pendulum slot', () => {
+    const idle = thermalDriftProjectionFor(3, -1, 0)
+    expect(idle.direction).toBe('still')
+    expect(idle.startAngle).toBe(THERMAL_ANGLE_STEP * 4)
+    expect(idle.endAngle).toBe(idle.startAngle)
+    expect(idle.displayedAngle).toBe(0)
+  })
+
+  it('clips projected drift to reachable absolute temperature extremes', () => {
+    const hot = thermalDriftProjectionFor(3, 1, 3)
+    expect(hot.startAngle).toBe(THERMAL_ANGLE_STEP * 2)
+    expect(hot.endAngle).toBe(THERMAL_ANGLE_STEP * 3)
+    expect(hot.displayedAngle).toBe(THERMAL_ANGLE_STEP)
+    expect(hot.clipped).toBe(true)
+
+    const cold = thermalDriftProjectionFor(-3, -1, -3)
+    expect(cold.startAngle).toBe(-THERMAL_ANGLE_STEP * 2)
+    expect(cold.endAngle).toBe(-THERMAL_ANGLE_STEP * 3)
+    expect(cold.displayedAngle).toBe(-THERMAL_ANGLE_STEP)
+    expect(cold.clipped).toBe(true)
   })
 
   it('renders zero momentum as an idle drift point', () => {
