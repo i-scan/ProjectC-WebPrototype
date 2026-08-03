@@ -173,10 +173,10 @@
 
 .thermal-drift-vector {
   fill: none;
-  stroke-width: 4.5;
+  stroke-width: 3.4;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: .94;
+  opacity: .92;
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .28));
 }
@@ -189,12 +189,24 @@
   stroke: var(--thermal-drift-hot);
 }
 
+.thermal-drift-arrow-head {
+  stroke: rgba(238, 247, 247, .38);
+  stroke-width: .7;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .32));
+}
+
 .thermal-drift-arrow-head.is-cold {
   fill: var(--thermal-drift-cold);
 }
 
 .thermal-drift-arrow-head.is-hot {
   fill: var(--thermal-drift-hot);
+}
+
+.thermal-drift-group.is-clipped .thermal-drift-arrow-head {
+  opacity: .78;
 }
 
 .thermal-drift-idle {
