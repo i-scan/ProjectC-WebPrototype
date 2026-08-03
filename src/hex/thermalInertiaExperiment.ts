@@ -15,6 +15,8 @@ export type ThermalRuleset = {
   label: string
   temperatureMin: number
   temperatureMax: number
+  setPointMin: number
+  setPointMax: number
   driftMin: number
   driftMax: number
   restoringForce: number
@@ -131,8 +133,8 @@ export function normalizeThermalState(
 ): ActorThermalState {
   const setPoint = clamp(
     integerOr(state.setPoint, 0),
-    rules.temperatureMin,
-    rules.temperatureMax,
+    rules.setPointMin,
+    rules.setPointMax,
   )
   const temperature = clamp(
     integerOr(state.temperature, setPoint),
