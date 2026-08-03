@@ -3,6 +3,7 @@ import {
   getThermalAction,
   getThermalRuleset,
   getThermalScenario,
+  normalizeThermalState,
   projectThermalApex,
   replayThermalActions,
   resolveThermalFrame,
@@ -34,6 +35,17 @@ describe('VAL-012 stage 1 thermal inertia experiment', () => {
     expect(thermalSideFor(-1, 0)).toBe('cold')
     expect(thermalSideFor(1, 1)).toBe('neutral')
     expect(thermalSideFor(2, 1)).toBe('hot')
+  })
+
+  it('keeps manual Set Point within the configured pendulum range', () => {
+    expect(normalizeThermalState(
+      { temperature: 0, setPoint: 99, drift: 0 },
+      strict,
+    ).setPoint).toBe(strict.setPointMax)
+    expect(normalizeThermalState(
+      { temperature: 0, setPoint: -99, drift: 0 },
+      strict,
+    ).setPoint).toBe(strict.setPointMin)
   })
 
   it('uses start-of-step Offset to apply restoring force before movement', () => {
