@@ -71,6 +71,9 @@
   --thermal-hot-1: #f1ca45;
   --thermal-hot-2: #f28b32;
   --thermal-hot-3: #e84e48;
+  --thermal-drift-cold: #55b7ee;
+  --thermal-drift-hot: #ff9554;
+  --thermal-drift-idle: #7f8792;
   grid-column: 1 / -1;
   grid-row: 4;
   min-width: 0;
@@ -85,8 +88,6 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   padding: 0 2px;
 }
 
@@ -100,49 +101,9 @@
   white-space: nowrap;
 }
 
-.thermal-direction {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-.thermal-direction b {
-  display: grid;
-  place-items: center;
-  width: 17px;
-  height: 17px;
-  border: 1px solid rgba(204, 222, 223, .14);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, .025);
-  font-size: 11px;
-}
-
-.thermal-direction span {
-  color: rgba(194, 216, 220, .66);
-  font-size: 8px;
-}
-
-.thermal-direction.is-cold b,
-.thermal-direction.is-cold span {
-  color: var(--thermal-cold-2);
-}
-
-.thermal-direction.is-hot b,
-.thermal-direction.is-hot span {
-  color: var(--thermal-hot-2);
-}
-
-.thermal-direction.is-still b,
-.thermal-direction.is-still span {
-  color: rgba(210, 222, 222, .62);
-}
-
 .thermal-pendulum-dial {
   min-width: 0;
-  margin: -1px 0 -8px;
+  margin: -1px 0 -5px;
   overflow: hidden;
 }
 
@@ -151,7 +112,7 @@
   width: 100%;
   min-width: 0;
   height: auto;
-  max-height: 106px;
+  max-height: 118px;
   overflow: visible;
 }
 
@@ -210,6 +171,39 @@
   fill: var(--thermal-hot-3);
 }
 
+.thermal-drift-vector {
+  fill: none;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: .94;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .28));
+}
+
+.thermal-drift-vector.is-cold {
+  stroke: var(--thermal-drift-cold);
+}
+
+.thermal-drift-vector.is-hot {
+  stroke: var(--thermal-drift-hot);
+}
+
+.thermal-drift-arrow-head.is-cold {
+  fill: var(--thermal-drift-cold);
+}
+
+.thermal-drift-arrow-head.is-hot {
+  fill: var(--thermal-drift-hot);
+}
+
+.thermal-drift-idle {
+  fill: var(--thermal-drift-idle);
+  stroke: rgba(226, 235, 233, .34);
+  stroke-width: 1;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .28));
+}
+
 .thermal-setpoint-line {
   stroke: rgba(230, 237, 231, .2);
   stroke-width: 1;
@@ -228,11 +222,6 @@
 
 .thermal-pivot-inner {
   fill: #dce7e2;
-}
-
-.thermal-pendulum-arm {
-  transition: transform 240ms cubic-bezier(.2, .75, .25, 1);
-  transform-box: view-box;
 }
 
 .thermal-pendulum-arm line {
