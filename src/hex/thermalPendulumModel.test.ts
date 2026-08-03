@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   THERMAL_ANGLE_STEP,
+  THERMAL_DRIFT_ANGLE_PER_UNIT,
+  THERMAL_DRIFT_MAX,
   THERMAL_SWING_ANGLE,
   discreteThermalValue,
   formatThermalValue,
   thermalAngleFor,
   thermalDialAngleFor,
   thermalDirectionFor,
+  thermalDriftVectorFor,
   thermalSlotFor,
   thermalZoneClass,
 } from './thermalPendulumModel'
@@ -72,6 +75,43 @@ describe('thermal pendulum model', () => {
     expect(thermalDirectionFor(-0.25)).toBe('cold')
     expect(thermalDirectionFor(0)).toBe('still')
     expect(thermalDirectionFor(1.5)).toBe('hot')
+  })
+
+  it('maps momentum to a signed drift arc with one tick angle per unit', () => {
+    const cold = thermalDriftVectorFor(-2)
+    const hot = thermalDriftVectorFor(1.5)
+
+    expect(cold.direction).toBe('cold')
+    expect(cold.magnitude).toBe(2)
+    expect(cold.angle).toBe(-THERMAL_DRIFT_ANGLE_PER_UNIT * 2)
+
+    expect(hot.direction).toBe('hot')
+    expect(hot.magnitude).toBe(1.5)
+    expect(hot.angle).toBe(THERMAL_DRIFT_ANGLE_PER_UNIT * 1.5)
+  })
+
+  it('renders zero momentum as an idle drift point', () => {
+    expect(thermalDriftVectorFor(0)).toEqual({
+      direction: 'still',
+      magnitude: 0,
+      angle: 0,
+    })
+    expect(thermalDriftVectorFor(Number.NaN)).toEqual({
+      direction: 'still',
+      magnitude: 0,
+      angle: 0,
+    })
+  })
+
+  it('caps drift display length at the debug momentum range', () => {
+    const hot = thermalDriftVectorFor(99)
+    const cold = thermalDriftVectorFor(-99)
+    const maximumAngle = THERMAL_DRIFT_MAX * THERMAL_DRIFT_ANGLE_PER_UNIT
+
+    expect(hot.magnitude).toBe(THERMAL_DRIFT_MAX)
+    expect(hot.angle).toBe(maximumAngle)
+    expect(cold.magnitude).toBe(THERMAL_DRIFT_MAX)
+    expect(cold.angle).toBe(-maximumAngle)
   })
 
   it('uses one neutral extreme style outside the effective range', () => {
