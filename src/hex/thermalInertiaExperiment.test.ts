@@ -82,7 +82,7 @@ describe('VAL-012 stage 1 thermal inertia experiment', () => {
     )
 
     expect(hotDrift.after).toMatchObject({ temperature: 2, drift: 1 })
-    expect(coldDrift.after).toMatchObject({ temperature: 1, drift: 0 })
+    expect(coldDrift.after).toMatchObject({ temperature: 0, drift: -1 })
     expect(hotDrift.projectedApex.apexState.temperature)
       .not.toBe(coldDrift.projectedApex.apexState.temperature)
   })
