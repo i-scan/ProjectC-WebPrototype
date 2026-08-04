@@ -1,0 +1,251 @@
+{
+  "schemaVersion": "0.1.0",
+  "rulesetVersion": "val-012-tc1.0.0",
+  "updatedAt": "2026-08-04",
+  "status": "candidate-experiment",
+  "validationId": "VAL-012",
+  "activeStage": "stage-1-thermal-clock-action-time",
+  "topology": "hex6",
+  "rulesetId": "VAL-012-TC1",
+  "implementationId": "thermal-clock-continuous-v1",
+  "designReference": "i-scan/ProjectC:docs/VAL-012-thermal-clock-action-time-prototype-plan.md",
+  "defaultRulesetId": "baseline-strict",
+  "defaultScenarioId": "T0-hot-apex",
+  "defaultActionId": "flow-1at",
+  "display": {
+    "temperatureMin": -4,
+    "temperatureMax": 4,
+    "setPointMin": -3,
+    "setPointMax": 3,
+    "driftVisualMax": 3
+  },
+  "rulesets": [
+    {
+      "id": "fast-strict",
+      "label": "Fast Clock · 4 AT",
+      "thermalPeriodAt": 4,
+      "positionEpsilon": 0.001,
+      "settleEpsilon": 0.001,
+      "captureThreshold": 0
+    },
+    {
+      "id": "baseline-strict",
+      "label": "Baseline · 8 AT",
+      "thermalPeriodAt": 8,
+      "positionEpsilon": 0.001,
+      "settleEpsilon": 0.001,
+      "captureThreshold": 0
+    },
+    {
+      "id": "slow-strict",
+      "label": "Slow Clock · 12 AT",
+      "thermalPeriodAt": 12,
+      "positionEpsilon": 0.001,
+      "settleEpsilon": 0.001,
+      "captureThreshold": 0
+    },
+    {
+      "id": "baseline-capture",
+      "label": "Baseline · Capture 0.2",
+      "thermalPeriodAt": 8,
+      "positionEpsilon": 0.001,
+      "settleEpsilon": 0.001,
+      "captureThreshold": 0.2
+    }
+  ],
+  "actions": [
+    {
+      "id": "flow-1at",
+      "label": "Flow 1 AT",
+      "shortLabel": "1 AT",
+      "kind": "impulse",
+      "baseApCost": 1,
+      "baseActionTime": 1,
+      "description": "No immediate thermal effect. Advance the Thermal Clock by 1 AT."
+    },
+    {
+      "id": "flow-2at",
+      "label": "Flow 2 AT",
+      "shortLabel": "2 AT",
+      "kind": "impulse",
+      "baseApCost": 2,
+      "baseActionTime": 2,
+      "description": "No immediate thermal effect. Advance by one baseline Base Beat."
+    },
+    {
+      "id": "heat-contact",
+      "label": "Direct Heat",
+      "shortLabel": "+T",
+      "kind": "impulse",
+      "baseApCost": 1,
+      "baseActionTime": 1,
+      "immediateOffsetDelta": 0.75,
+      "description": "Immediately raise Temperature, then advance 1 AT."
+    },
+    {
+      "id": "cool-contact",
+      "label": "Direct Cold",
+      "shortLabel": "−T",
+      "kind": "impulse",
+      "baseApCost": 1,
+      "baseActionTime": 1,
+      "immediateOffsetDelta": -0.75,
+      "description": "Immediately lower Temperature, then advance 1 AT."
+    },
+    {
+      "id": "push-hot",
+      "label": "Drift Hot",
+      "shortLabel": "+D",
+      "kind": "impulse",
+      "baseApCost": 1,
+      "baseActionTime": 1,
+      "immediateDriftDelta": 0.8,
+      "description": "Immediately add Hot-directed Drift, then advance 1 AT."
+    },
+    {
+      "id": "push-cold",
+      "label": "Drift Cold",
+      "shortLabel": "−D",
+      "kind": "impulse",
+      "baseApCost": 1,
+      "baseActionTime": 1,
+      "immediateDriftDelta": -0.8,
+      "description": "Immediately add Cold-directed Drift, then advance 1 AT."
+    },
+    {
+      "id": "stabilize",
+      "label": "Stabilize",
+      "shortLabel": "Stabilize",
+      "kind": "stabilize",
+      "baseApCost": 1,
+      "baseActionTime": 1,
+      "stabilizeStrength": 1.2,
+      "allowCapture": true,
+      "description": "Immediately reduce Drift magnitude, then advance 1 AT."
+    },
+    {
+      "id": "settle-reaction",
+      "label": "Settle Reaction",
+      "shortLabel": "0 AT Stop",
+      "kind": "stabilize",
+      "baseApCost": 0,
+      "baseActionTime": 0,
+      "cancelDrift": true,
+      "allowCapture": true,
+      "description": "Reaction test: cancel current Drift without advancing world time."
+    },
+    {
+      "id": "zero-ap-active",
+      "label": "Zero AP Active",
+      "shortLabel": "0 AP / 1 AT",
+      "kind": "impulse",
+      "baseApCost": 0,
+      "baseActionTime": 1,
+      "immediateDriftDelta": 0.35,
+      "description": "Active zero-cost test. It still advances 1 AT."
+    },
+    {
+      "id": "quick-drive",
+      "label": "Action Haste",
+      "shortLabel": "2 AP / 1 AT",
+      "kind": "impulse",
+      "baseApCost": 2,
+      "baseActionTime": 1,
+      "immediateDriftDelta": 0.45,
+      "description": "AP and AT differ: a costly action completed in only 1 AT."
+    },
+    {
+      "id": "long-impact",
+      "label": "Long Impact",
+      "shortLabel": "3 AT Impact",
+      "kind": "impulse",
+      "baseApCost": 3,
+      "baseActionTime": 3,
+      "immediateDriftDelta": 0.35,
+      "timelineEvents": [
+        {
+          "id": "impact-hit",
+          "label": "Impact Hit",
+          "timeRatio": 0.7,
+          "offsetDelta": 0.8,
+          "driftDelta": -0.25
+        }
+      ],
+      "description": "A long action with an impact event at 70% of its timeline."
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "T0-hot-apex",
+      "label": "T0 Hot Apex",
+      "group": "T0",
+      "description": "Natural clock begins at Hot Apex with amplitude 3.",
+      "setPoint": 0,
+      "amplitude": 3,
+      "phaseBeat": 0
+    },
+    {
+      "id": "T1-hot-returning",
+      "label": "T1 Hot → Cold",
+      "group": "T1",
+      "description": "Midway between Hot Apex and the Cold-directed Set Point crossing.",
+      "setPoint": 0,
+      "amplitude": 3,
+      "phaseBeat": 0.5
+    },
+    {
+      "id": "T1-crossing-cold",
+      "label": "T1 Crossing → Cold",
+      "group": "T1",
+      "description": "Exactly at Set Point with residual Cold-directed Drift.",
+      "setPoint": 0,
+      "amplitude": 3,
+      "phaseBeat": 1
+    },
+    {
+      "id": "T1-cold-returning",
+      "label": "T1 Cold → Hot",
+      "group": "T1",
+      "description": "Midway between Cold Apex and the Hot-directed Set Point crossing.",
+      "setPoint": 0,
+      "amplitude": 3,
+      "phaseBeat": 2.5
+    },
+    {
+      "id": "T4-settle-opportunity",
+      "label": "T4 Settle Opportunity",
+      "group": "T4",
+      "description": "Action starts exactly at Set Point; use an immediate Stabilize or Reaction.",
+      "setPoint": 0,
+      "amplitude": 2.4,
+      "phaseBeat": 1
+    },
+    {
+      "id": "T5-long-crossing",
+      "label": "T5 Long Crossing",
+      "group": "T5",
+      "description": "Use a 2–3 AT action to cross Set Point and possibly reach an Apex mid-action.",
+      "setPoint": 0,
+      "amplitude": 3,
+      "phaseBeat": 0.5
+    },
+    {
+      "id": "T1-warm-set-point",
+      "label": "Warm Set Point +1",
+      "group": "T1",
+      "description": "The same clock centered on a warm-blooded Set Point of +1.",
+      "setPoint": 1,
+      "amplitude": 2.5,
+      "phaseBeat": 2.5
+    },
+    {
+      "id": "T0-neutral",
+      "label": "Neutral",
+      "group": "T0",
+      "description": "No amplitude and no Drift. The Thermal Clock remains settled until disturbed.",
+      "setPoint": 0,
+      "amplitude": 0,
+      "phaseBeat": 0
+    }
+  ]
+}
