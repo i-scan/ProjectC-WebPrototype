@@ -1,28 +1,31 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  getThermalAction,
-  getThermalRuleset,
-  getThermalScenario,
+  deriveThermalState,
+  formatThermalNumber,
+  getThermalClockAction,
+  getThermalClockRuleset,
+  getThermalClockScenario,
   normalizeThermalState,
-  projectThermalApex,
-  replayThermalActions,
-  resolveThermalFrame,
-  thermalExperimentConfig,
+  replayThermalClockActions,
+  resolveThermalAction,
+  sessionFromScenario,
+  temperatureFor,
+  thermalClockExperimentConfig,
   thermalStateEquals,
   type ActorThermalState,
-  type ThermalFrameResolution,
-} from './thermalInertiaExperiment'
-import { ThermalInertiaLab } from './ThermalInertiaLab'
+  type ThermalActionResolution,
+  type ThermalSessionState,
+} from './thermalClockExperiment'
+import { ThermalClockLab } from './ThermalClockLab'
 import {
-  formatThermalValue,
-  thermalAngleFor,
-  thermalDialAngleFor,
-  thermalDriftProjectionFor,
-  thermalSlotFor,
-  thermalZoneClass,
-} from './thermalPendulumModel'
+  thermalClockAngleFor,
+  thermalClockDialAngleFor,
+  thermalClockDriftProjectionFor,
+  thermalClockSlotFor,
+} from './thermalClockPendulumModel'
 import './thermal-pendulum.css'
+import './thermal-clock.css'
 
 type ThermalPendulumPortalProps = {
   enabled: boolean
@@ -32,9 +35,8 @@ const pivot = { x: 130, y: 28 }
 const arcRadius = 88
 const driftRadius = 101
 const previewDriftRadius = 110
-const apexRadius = 116
-const previewApexRadius = 123
 const armLength = 72
+const previewEventRadius = 118
 
 function findActorPanelTarget(): HTMLElement | null {
   const bars = document.querySelector<HTMLElement>('.hex-prototype .visual-actor-card .visual-bars')
@@ -46,7 +48,7 @@ function syncActorTemperatureDisplay(temperature: number) {
   for (const row of rows) {
     if (row.querySelector('span')?.textContent?.trim() !== '体温') continue
     const value = row.querySelector<HTMLElement>('strong')
-    if (value) value.textContent = formatThermalValue(temperature)
+    if (value) value.textContent = formatThermalNumber(temperature, 1)
     return
   }
 }
@@ -65,7 +67,9 @@ function sampledArcPath(startAngle: number, endAngle: number, radius = arcRadius
     const progress = index / steps
     return pointOnArc(startAngle + (endAngle - startAngle) * progress, radius)
   })
-  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ')
+  return points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(' ')
 }
 
 function driftArrowHeadPath(
@@ -105,63 +109,85 @@ function driftArrowHeadPath(
   ].join(' ')
 }
 
-function diamondPath(point: { x: number; y: number }, size: number): string {
-  return [
-    `M ${point.x.toFixed(2)} ${(point.y - size).toFixed(2)}`,
-    `L ${(point.x + size).toFixed(2)} ${point.y.toFixed(2)}`,
-    `L ${point.x.toFixed(2)} ${(point.y + size).toFixed(2)}`,
-    `L ${(point.x - size).toFixed(2)} ${point.y.toFixed(2)}`,
-    'Z',
-  ].join(' ')
+function phaseIndex(phaseBeat: number | null): number | null {
+  if (phaseBeat === null) return null
+  return Math.min(3, Math.max(0, Math.floor(phaseBeat)))
 }
 
 function ThermalPendulum() {
-  const initialRules = getThermalRuleset(thermalExperimentConfig.defaultRulesetId)
-  const initialScenario = getThermalScenario(thermalExperimentConfig.defaultScenarioId)
+  const initialRules = getThermalClockRuleset(thermalClockExperimentConfig.defaultRulesetId)
+  const initialScenario = getThermalClockScenario(thermalClockExperimentConfig.defaultScenarioId)
+  const initialAction = getThermalClockAction(thermalClockExperimentConfig.defaultActionId)
+
   const [rulesetId, setRulesetId] = useState(initialRules.id)
   const [scenarioId, setScenarioId] = useState(initialScenario.id)
-  const [thermalState, setThermalState] = useState<ActorThermalState>(() => (
-    normalizeThermalState(initialScenario.state, initialRules)
+  const [session, setSession] = useState<ThermalSessionState>(() => (
+    sessionFromScenario(initialScenario, initialRules)
   ))
-  const [selectedActionId, setSelectedActionId] = useState('natural-step')
-  const [history, setHistory] = useState<ThermalFrameResolution[]>([])
-  const [labOpen, setLabOpen] = useState(true)
+  const [selectedActionId, setSelectedActionId] = useState(initialAction.id)
+  const [history, setHistory] = useState<ThermalActionResolution[]>([])
+  const [labOpen, setLabOpen] = useState(false)
+  const [activeResolution, setActiveResolution] = useState<ThermalActionResolution | null>(null)
+  const resolveTimerRef = useRef<number | null>(null)
 
-  const rules = getThermalRuleset(rulesetId)
-  const scenario = getThermalScenario(scenarioId)
-  const selectedAction = getThermalAction(selectedActionId)
-  const currentProjection = useMemo(
-    () => projectThermalApex(thermalState, rules),
-    [thermalState, rules],
-  )
+  const rules = getThermalClockRuleset(rulesetId)
+  const scenario = getThermalClockScenario(scenarioId)
+  const selectedAction = getThermalClockAction(selectedActionId)
   const preview = useMemo(
-    () => resolveThermalFrame(thermalState, selectedAction, rules),
-    [thermalState, selectedAction, rules],
+    () => resolveThermalAction(session, selectedAction, rules),
+    [session, selectedAction, rules],
   )
+  const visibleSession = activeResolution?.immediate ?? session
+  const visibleDerived = deriveThermalState(visibleSession.thermal, rules)
+  const previewDerived = deriveThermalState(preview.after.thermal, rules)
+  const resolving = activeResolution !== null
 
   useEffect(() => {
-    syncActorTemperatureDisplay(thermalState.temperature)
-  }, [thermalState.temperature])
+    syncActorTemperatureDisplay(visibleDerived.temperature)
+  }, [visibleDerived.temperature])
+
+  useEffect(() => () => {
+    if (resolveTimerRef.current !== null) window.clearTimeout(resolveTimerRef.current)
+  }, [])
+
+  const cancelPendingResolution = () => {
+    if (resolveTimerRef.current !== null) {
+      window.clearTimeout(resolveTimerRef.current)
+      resolveTimerRef.current = null
+    }
+    setActiveResolution(null)
+  }
 
   const zoneValues = useMemo(() => Array.from(
-    { length: rules.temperatureMax - rules.temperatureMin + 1 },
-    (_, index) => rules.temperatureMin + index,
-  ), [rules])
+    {
+      length: thermalClockExperimentConfig.display.temperatureMax
+        - thermalClockExperimentConfig.display.temperatureMin + 1,
+    },
+    (_, index) => thermalClockExperimentConfig.display.temperatureMin + index,
+  ), [])
   const zonePaths = useMemo(() => zoneValues.map((value) => ({
     value,
-    className: thermalZoneClass(value),
+    className: thermalClockSlotFor(value, visibleSession.thermal.setPoint).zoneClass,
     path: sampledArcPath(
-      thermalDialAngleFor(value - 0.5, thermalState.setPoint),
-      thermalDialAngleFor(value + 0.5, thermalState.setPoint),
+      thermalClockDialAngleFor(value - 0.5, visibleSession.thermal.setPoint),
+      thermalClockDialAngleFor(value + 0.5, visibleSession.thermal.setPoint),
     ),
-  })), [thermalState.setPoint, zoneValues])
+  })), [visibleSession.thermal.setPoint, zoneValues])
 
-  const slot = thermalSlotFor(thermalState.temperature, thermalState.setPoint)
-  const bobPoint = pointOnArc(slot.angle, armLength)
-  const drift = thermalDriftProjectionFor(
-    thermalState.temperature,
-    thermalState.setPoint,
-    thermalState.drift,
+  const currentSlot = thermalClockSlotFor(
+    visibleDerived.temperature,
+    visibleSession.thermal.setPoint,
+    thermalClockExperimentConfig.display.temperatureMin,
+    thermalClockExperimentConfig.display.temperatureMax,
+  )
+  const bobPoint = pointOnArc(currentSlot.angle, armLength)
+  const drift = thermalClockDriftProjectionFor(
+    visibleDerived.temperature,
+    visibleSession.thermal.setPoint,
+    visibleSession.thermal.drift,
+    thermalClockExperimentConfig.display.driftVisualMax,
+    thermalClockExperimentConfig.display.temperatureMin,
+    thermalClockExperimentConfig.display.temperatureMax,
   )
   const driftIdlePoint = pointOnArc(drift.startAngle, driftRadius)
   const driftPath = Math.abs(drift.displayedAngle) < 0.001
@@ -171,12 +197,24 @@ function ThermalPendulum() {
     ? ''
     : driftArrowHeadPath(drift.endAngle, drift.direction, driftRadius)
 
-  const previewSlot = thermalSlotFor(preview.after.temperature, preview.after.setPoint)
+  const showGhost = labOpen && !resolving && (
+    !thermalStateEquals(session.thermal, preview.after.thermal)
+    || Math.abs(session.elapsedAt - preview.after.elapsedAt) > 1e-6
+  )
+  const previewSlot = thermalClockSlotFor(
+    previewDerived.temperature,
+    preview.after.thermal.setPoint,
+    thermalClockExperimentConfig.display.temperatureMin,
+    thermalClockExperimentConfig.display.temperatureMax,
+  )
   const previewBobPoint = pointOnArc(previewSlot.angle, armLength)
-  const previewDrift = thermalDriftProjectionFor(
-    preview.after.temperature,
-    preview.after.setPoint,
-    preview.after.drift,
+  const previewDrift = thermalClockDriftProjectionFor(
+    previewDerived.temperature,
+    preview.after.thermal.setPoint,
+    preview.after.thermal.drift,
+    thermalClockExperimentConfig.display.driftVisualMax,
+    thermalClockExperimentConfig.display.temperatureMin,
+    thermalClockExperimentConfig.display.temperatureMax,
   )
   const previewDriftIdlePoint = pointOnArc(previewDrift.startAngle, previewDriftRadius)
   const previewDriftPath = Math.abs(previewDrift.displayedAngle) < 0.001
@@ -184,95 +222,106 @@ function ThermalPendulum() {
     : sampledArcPath(previewDrift.startAngle, previewDrift.endAngle, previewDriftRadius)
   const previewDriftArrowPath = previewDrift.direction === 'still'
     ? ''
-    : driftArrowHeadPath(previewDrift.endAngle, previewDrift.direction, previewDriftRadius, .82)
-  const hasGhostChange = !thermalStateEquals(thermalState, preview.after)
+    : driftArrowHeadPath(previewDrift.endAngle, previewDrift.direction, previewDriftRadius, 0.82)
+  const previewEventPoints = showGhost
+    ? preview.timeline.map((event) => ({
+      event,
+      point: pointOnArc(
+        thermalClockAngleFor(
+          temperatureFor(event.state),
+          event.state.setPoint,
+          thermalClockExperimentConfig.display.temperatureMin,
+          thermalClockExperimentConfig.display.temperatureMax,
+        ),
+        previewEventRadius,
+      ),
+    }))
+    : []
 
-  const apexAngle = thermalAngleFor(
-    currentProjection.apexState.temperature,
-    thermalState.setPoint,
-  )
-  const currentApexPoint = pointOnArc(apexAngle, apexRadius)
-  const previewApexAngle = thermalAngleFor(
-    preview.projectedApex.apexState.temperature,
-    preview.after.setPoint,
-  )
-  const previewApexPoint = pointOnArc(previewApexAngle, previewApexRadius)
-
-  const resolveSelectedFrame = () => {
-    setHistory((current) => [...current, preview])
-    setThermalState(preview.after)
+  const resolveSelectedAction = () => {
+    if (resolving) return
+    const resolution = preview
+    setActiveResolution(resolution)
+    const animationDelay = Math.min(680, 280 + selectedAction.baseActionTime * 90)
+    resolveTimerRef.current = window.setTimeout(() => {
+      setHistory((current) => [...current, resolution])
+      setSession(resolution.after)
+      setActiveResolution(null)
+      resolveTimerRef.current = null
+    }, animationDelay)
   }
 
-  const undoFrame = () => {
-    setHistory((current) => {
-      const previous = current.at(-1)
-      if (!previous) return current
-      setThermalState(previous.before)
-      return current.slice(0, -1)
-    })
+  const undoAction = () => {
+    cancelPendingResolution()
+    const previous = history.at(-1)
+    if (!previous) return
+    setSession(previous.before)
+    setHistory(history.slice(0, -1))
   }
 
   const restartScenario = () => {
-    setThermalState(normalizeThermalState(scenario.state, rules))
+    cancelPendingResolution()
+    setSession(sessionFromScenario(scenario, rules))
     setHistory([])
   }
 
   const replayHistory = () => {
-    const actionIds = history.map((entry) => entry.trace.actionId)
-    const initialState = normalizeThermalState(scenario.state, rules)
-    const replayed = replayThermalActions(initialState, actionIds, rules)
+    cancelPendingResolution()
+    const actionIds = history.map((entry) => entry.actionId)
+    const initialSession = sessionFromScenario(scenario, rules)
+    const replayed = replayThermalClockActions(initialSession, actionIds, rules)
     setHistory(replayed)
-    setThermalState(replayed.at(-1)?.after ?? initialState)
+    setSession(replayed.at(-1)?.after ?? initialSession)
   }
 
   const changeRuleset = (nextRulesetId: string) => {
-    const nextRules = getThermalRuleset(nextRulesetId)
+    cancelPendingResolution()
+    const nextRules = getThermalClockRuleset(nextRulesetId)
     setRulesetId(nextRules.id)
-    setThermalState(normalizeThermalState(scenario.state, nextRules))
+    setSession(sessionFromScenario(scenario, nextRules))
     setHistory([])
   }
 
   const changeScenario = (nextScenarioId: string) => {
-    const nextScenario = getThermalScenario(nextScenarioId)
+    cancelPendingResolution()
+    const nextScenario = getThermalClockScenario(nextScenarioId)
     setScenarioId(nextScenario.id)
-    setThermalState(normalizeThermalState(nextScenario.state, rules))
+    setSession(sessionFromScenario(nextScenario, rules))
     setHistory([])
   }
 
   const changeManualState = (patch: Partial<ActorThermalState>) => {
-    setThermalState((current) => normalizeThermalState({ ...current, ...patch }, rules))
+    cancelPendingResolution()
+    setSession((current) => ({
+      ...current,
+      thermal: normalizeThermalState({ ...current.thermal, ...patch }, rules),
+    }))
     setHistory([])
   }
+
+  const currentPhaseIndex = phaseIndex(visibleDerived.phaseBeat)
+  const phaseProgress = visibleDerived.phaseBeat === null
+    ? 0
+    : Math.min(100, Math.max(0, visibleDerived.phaseBeat / 4 * 100))
 
   return (
     <>
       <section
-        className="thermal-pendulum"
-        aria-label={`热力钟摆，当前体温 ${formatThermalValue(thermalState.temperature)}，平衡温度 ${formatThermalValue(thermalState.setPoint)}，Drift ${formatThermalValue(thermalState.drift)}，Projected Apex ${formatThermalValue(currentProjection.apexState.temperature)}`}
+        className={`thermal-pendulum thermal-clock-pendulum${resolving ? ' is-resolving' : ''}`}
+        aria-label={`热力钟摆，当前体温 ${formatThermalNumber(visibleDerived.temperature, 1)}，Set Point ${formatThermalNumber(visibleSession.thermal.setPoint, 1)}，Drift ${formatThermalNumber(visibleSession.thermal.drift, 1)}，周期 ${rules.thermalPeriodAt} AT`}
       >
         <div className="thermal-pendulum-heading">
           <strong>热力钟摆</strong>
-          <button type="button" onClick={() => setLabOpen(true)}>Stage 1 Lab</button>
+          <button type="button" onClick={() => setLabOpen(true)}>TC1 Lab</button>
         </div>
 
         <div className="thermal-pendulum-dial">
-          <svg viewBox="0 0 260 158" role="img" aria-label="Thermal Inertia current state, ghost preview and projected apex">
+          <svg viewBox="0 0 260 158" role="img" aria-label="Continuous Thermal Clock current state and selected action preview">
             <g className="thermal-zone-ring">
               {zonePaths.map((zone) => (
                 <path key={zone.value} className={`thermal-zone ${zone.className}`} d={zone.path} />
               ))}
             </g>
-
-            <path
-              className="thermal-apex-marker"
-              d={diamondPath(currentApexPoint, 4.2)}
-              aria-label={`Projected Apex ${formatThermalValue(currentProjection.apexState.temperature)}`}
-            />
-            <path
-              className="thermal-ghost-apex-marker"
-              d={diamondPath(previewApexPoint, 3.5)}
-              aria-label={`Ghost Apex ${formatThermalValue(preview.projectedApex.apexState.temperature)}`}
-            />
 
             {drift.direction === 'still' ? (
               <circle className="thermal-drift-idle" cx={driftIdlePoint.x} cy={driftIdlePoint.y} r="3.4" />
@@ -283,8 +332,17 @@ function ThermalPendulum() {
               </g>
             )}
 
-            {hasGhostChange && (
+            {showGhost && (
               <g className="thermal-ghost-preview">
+                {previewEventPoints.map(({ event, point }, index) => (
+                  <circle
+                    key={`${event.kind}-${event.actionTime}-${index}`}
+                    className={`thermal-clock-event-marker is-${event.kind}${event.overshoot ? ' is-overshoot' : ''}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r={event.kind === 'action-event' ? 3.2 : 2.5}
+                  />
+                ))}
                 {previewDrift.direction === 'still' ? (
                   <circle className="thermal-ghost-drift-idle" cx={previewDriftIdlePoint.x} cy={previewDriftIdlePoint.y} r="3" />
                 ) : (
@@ -306,44 +364,54 @@ function ThermalPendulum() {
 
             <g className="thermal-pendulum-arm">
               <line x1={pivot.x} y1={pivot.y + 4} x2={bobPoint.x} y2={bobPoint.y} />
-              <circle className={`thermal-bob ${slot.zoneClass}`} cx={bobPoint.x} cy={bobPoint.y} r="10" />
+              <circle className={`thermal-bob ${currentSlot.zoneClass}`} cx={bobPoint.x} cy={bobPoint.y} r="10" />
               <circle className="thermal-bob-core" cx={bobPoint.x} cy={bobPoint.y} r="3" />
             </g>
           </svg>
         </div>
 
+        <div className="thermal-clock-mini-phase" aria-label={`Thermal Clock phase ${visibleDerived.phaseBeat === null ? 'Neutral' : visibleDerived.phaseBeat.toFixed(2)}`}>
+          {[0, 1, 2, 3].map((index) => (
+            <span key={index} className={currentPhaseIndex === index ? 'is-active' : ''} />
+          ))}
+          {visibleDerived.phaseBeat !== null && <b style={{ left: `${phaseProgress}%` }} />}
+        </div>
+
         <details className="thermal-pendulum-lab">
-          <summary>Stage 1 Debug</summary>
-          <div className="thermal-pendulum-debug-grid">
-            <span>T <b>{formatThermalValue(thermalState.temperature)}</b></span>
-            <span>S <b>{formatThermalValue(thermalState.setPoint)}</b></span>
-            <span>Offset <b>{formatThermalValue(thermalState.temperature - thermalState.setPoint)}</b></span>
-            <span>Drift <b>{formatThermalValue(thermalState.drift)}</b></span>
-            <span>Apex <b>{formatThermalValue(currentProjection.apexState.temperature)}</b></span>
-            <span>Frame <b>{history.length}</b></span>
+          <summary>TC1 Debug</summary>
+          <div className="thermal-pendulum-debug-grid thermal-clock-debug-grid">
+            <span>T <b>{formatThermalNumber(visibleDerived.temperature)}</b></span>
+            <span>S <b>{formatThermalNumber(visibleSession.thermal.setPoint)}</b></span>
+            <span>Offset <b>{formatThermalNumber(visibleSession.thermal.offset)}</b></span>
+            <span>Drift <b>{formatThermalNumber(visibleSession.thermal.drift)}</b></span>
+            <span>Phase <b>{visibleDerived.phaseBeat === null ? '—' : visibleDerived.phaseBeat.toFixed(2)}</b></span>
+            <span>Period <b>{rules.thermalPeriodAt} AT</b></span>
+            <span>World <b>{visibleSession.elapsedAt.toFixed(2)} AT</b></span>
+            <span>Apex <b>{formatThermalNumber(visibleDerived.projectedApexTemperature)}</b></span>
+            <span>Actions <b>{history.length}</b></span>
           </div>
-          <button type="button" onClick={() => setLabOpen(true)}>打开 Thermal Inertia Lab</button>
+          <button type="button" onClick={() => setLabOpen(true)}>打开 Thermal Clock Lab</button>
         </details>
       </section>
 
       {createPortal(
-        <ThermalInertiaLab
+        <ThermalClockLab
           open={labOpen}
-          config={thermalExperimentConfig}
+          config={thermalClockExperimentConfig}
           rules={rules}
           scenario={scenario}
-          state={thermalState}
+          session={session}
           selectedAction={selectedAction}
           preview={preview}
-          currentProjection={currentProjection}
           history={history}
+          resolving={resolving}
           onClose={() => setLabOpen(false)}
           onRulesetChange={changeRuleset}
           onScenarioChange={changeScenario}
           onStateChange={changeManualState}
           onActionSelect={setSelectedActionId}
-          onResolve={resolveSelectedFrame}
-          onUndo={undoFrame}
+          onResolve={resolveSelectedAction}
+          onUndo={undoAction}
           onRestart={restartScenario}
           onReplay={replayHistory}
         />,
