@@ -14,6 +14,121 @@
 
 ---
 
+## Experiment Ruleset `val-012-tc1.0.0` — 2026-08-04
+
+### 类型
+
+VAL-012 Thermal Clock 与 Action Time 新候选实验；**替换 Hex6 当前活动钟摆实验的执行模型，但不构成正式规则晋升**。
+
+### 实验来源与身份
+
+- 当前计划：`i-scan/ProjectC:docs/VAL-012-thermal-clock-action-time-prototype-plan.md`；
+- Validation：`VAL-012`；
+- Ruleset ID：`VAL-012-TC1`；
+- Implementation ID：`thermal-clock-continuous-v1`；
+- 活动阶段：`stage-1-thermal-clock-action-time`；
+- 活动拓扑：Hex6-only；
+- 独立配置：`config/experiments/val-012-thermal-clock-continuous.v1.json`。
+
+旧离散实验 `val-012-stage1.0.1 / thermal-discrete-step-v1` 的配置、规则核心、测试与 Lab 文件继续保留，作为 `VAL-012-TD1` 历史对照，不在本次修改中静默覆盖或删除。
+
+### 新 Thermal Clock 规则核心
+
+- 持久状态改为连续的 `Set Point / Offset / Drift`；`Temperature = Set Point + Offset` 保持为派生结果；
+- 使用固定周期的解析式振荡器推进状态，周期不随摆幅改变；
+- 一个 Thermal Period 固定包含四个 Base Beat：
+  1. `Hot Apex`；
+  2. `Set Point → Cold`；
+  3. `Cold Apex`；
+  4. `Set Point → Hot`；
+- 基准周期为 `8 AT`，同时提供 `4 AT` 与 `12 AT` 对照；
+- `Projected Apex` 改为当前状态下第一个严格位于未来的 Apex；Actor 已处于 Apex 时，预测另一侧 Apex，而不是重复当前锚点；
+- 长动作通过解析事件检测记录途中所有 Set Point Crossing、Hot / Cold Apex 与 Overshoot；
+- 动作事件可以通过 `timeRatio` 插入动作时间线，并在事件前后继续使用同一 Thermal Clock 推进；
+- 当动作事件恰好落在 Crossing 时，后续仍沿原方向推进会被正确记录为 Overshoot。
+
+### AP、Action Time 与即时响应
+
+- `AP` 与 `AT` 作为独立语义进入本实验；
+- 动作先立即施加 `Delta Offset / Delta Drift / Stabilize`，钟摆即时更新；
+- 随后世界时间按该动作 `baseActionTime` 推进，再得到下一决策点状态；
+- `0 AP` 主动动作仍可以消耗 `1 AT`；
+- Reaction 测试动作可以为 `0 AP / 0 AT`；
+- 长动作可以在自身时间线中触发中途 Impact，而不是把全部结果压到动作末尾；
+- 当前 `Base AT` 使用动作独立配置，不从折扣后的 AP 动态反推。
+
+### Settle、Capture 与 Overshoot
+
+- Strict Settle 只在 `Offset` 与 `Drift` 同时落入技术 epsilon 时成立；
+- 技术 epsilon 只用于浮点稳定，不构成玩家可利用的 Capture Window；
+- 默认规则 `captureThreshold = 0`；
+- `Baseline · Capture 0.2` 仅作为独立可切换实验，不改变默认 Strict 规则；
+- 抵达 Set Point 但仍保有 Drift 时不进入 Neutral；世界时间继续推进并进入另一侧时记录 Overshoot。
+
+### 固定动作与场景
+
+新增：
+
+- `Flow 1 AT / Flow 2 AT`：只推进时间；
+- `Direct Heat / Direct Cold`：立即改变 Offset；
+- `Drift Hot / Drift Cold`：立即改变 Drift；
+- `Stabilize`：立即削弱 Drift，再推进 1 AT；
+- `Settle Reaction`：0 AT 取消 Drift，用于 Set Point 决策窗口；
+- `Zero AP Active`：验证 `0 AP != 0 AT`；
+- `Action Haste`：验证 `2 AP / 1 AT`；
+- `Long Impact`：3 AT 动作，并在 70% 时间点触发 Impact Event；
+- Hot Apex、两种 Crossing 方向、Settle Opportunity、Long Crossing、Warm Set Point 与 Neutral 等固定场景。
+
+### Thermal Pendulum 与 Lab
+
+- Hex6 当前活动钟摆切换到 TC1 连续状态；
+- 摆锤在离散绝对温区内部连续移动，不再吸附到整数格心；
+- Set Point 改变后，绝对温区仍保持等宽，摆锤极端中心继续限制在 `±84°`；
+- 常驻信息保持为 bob、Set Point、Drift 与轻量四相进度；
+- Projected Apex、精确数值、Period 和 World Time 收入折叠 Debug；
+- Lab 默认关闭，只有打开 Lab 并选择动作时显示最终 ghost bob、ghost Drift 与动作途中锚点；
+- Resolve 时先显示 Immediate 状态，短暂分层反馈后再写入 AT 推进后的最终状态；
+- 新 `Thermal Clock Lab` 提供 Ruleset / Scenario、连续手动输入、AP/AT 动作列表、Now → Immediate → After AT 预览、时间线事件、Undo、Restart、Replay 与 Snapshot；
+- 实验 Temperature 继续同步到 Hex6 Actor 卡显示，但尚未接入原有战斗 GameState。
+
+### 自动覆盖与验证状态
+
+新增测试覆盖：
+
+- 固定四相与完整周期锚点；
+- 周期与摆幅解耦；
+- 当前 Apex 预测未来另一侧 Apex；
+- Delta Offset / Delta Drift 的即时生效；
+- AP 与 AT 独立；
+- Strict Settle 与可选 Capture 分离；
+- 长动作 Crossing / Overshoot / Action Event；
+- 动作事件恰好落在 Crossing 时的 Overshoot；
+- Warm Set Point、Neutral 与确定性 Replay；
+- 连续摆锤角度、等宽温区、方向与边界裁切。
+
+- [x] 新配置、规则核心、UI 映射、Lab、Portal 与测试文件已提交；
+- [x] 在隔离 TypeScript 环境完成规则核心与 TSX 静态检查；
+- [x] 在隔离 Node 环境完成四相、未来 Apex、即时响应、Strict / Capture、长动作 Overshoot 和摆锤映射断言；
+- [ ] 仓库内 `npm run validate:rules`；
+- [ ] 仓库内完整 `npm test`；
+- [ ] 仓库内 `npm run build`；
+- [ ] GitHub Actions 与 Pages 发布结果；
+- [ ] 实际浏览器宽屏、窄屏、Immediate → AT 动画与 ghost 层级；
+- [ ] 用户对 4 / 8 / 12 AT、Strict Settle、动作时间和信息密度的试玩反馈。
+
+主要实现提交：
+
+- `b27885ee743f90693702e0550292ae43a0ac69fa`：TC1 独立配置；
+- `3d5020dfaabae95a6836d8a38a1d0fc6cf14eb6e`：连续 Thermal Clock 规则核心；
+- `27d0c7b40b3c751db3942ff3898f88ad4ec67944`：规则与 Action Time 回归测试；
+- `b21e1a045ba09658ea846ecaefe36c7ac932e706`：连续钟摆几何映射；
+- `b7db0647b2133ea0e97d84cc0a96ffbc9e947224`：钟摆映射测试；
+- `d2446484162d997d171bf7d51961008bd73f3dee`：Thermal Clock Lab；
+- `57ff2cfce2f075c398464b1d0d0483197dcf4a3a`：TC1 视觉与响应样式；
+- `0f99fb7c74f53b63cefcd71f06a16eed0e31a032`：Hex6 当前钟摆切换到 TC1。
+
+---
+
 ## Experiment Ruleset `val-012-stage1.0.1` — 2026-08-03
 
 ### 类型
