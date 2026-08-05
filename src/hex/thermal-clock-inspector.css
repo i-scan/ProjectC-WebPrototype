@@ -80,7 +80,7 @@
 }
 
 .thermal-clock-lab.is-embedded .thermal-lab-config,
-.thermal-clock-lab.is-embedded .thermal-lab-state-grid,
+.thermal-clock-lab.is-embedded .thermal-clock-overview,
 .thermal-clock-lab.is-embedded .thermal-clock-phase-card,
 .thermal-clock-lab.is-embedded .thermal-lab-manual,
 .thermal-clock-lab.is-embedded .thermal-lab-actions,
@@ -91,62 +91,207 @@
   padding-left: 0;
 }
 
-.thermal-clock-lab.is-embedded .thermal-lab-state-grid {
+.thermal-clock-lab.is-embedded .thermal-clock-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.thermal-clock-lab.is-embedded .thermal-clock-setup > p {
+  grid-column: 1 / -1;
+  margin: -1px 0 0;
+  color: rgba(170, 197, 199, .52);
+  font-size: 7px;
+  line-height: 1.45;
+}
+
+.thermal-clock-overview {
+  padding-top: 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(151, 193, 198, .12);
+}
+
+.thermal-clock-lab.is-embedded .thermal-clock-overview .thermal-lab-state-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0;
+}
+
+.thermal-clock-state-meta {
+  margin: 7px 1px 0;
+  color: rgba(167, 195, 197, .52);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 7px;
+  line-height: 1.45;
+}
+
+.thermal-clock-lab.is-embedded .thermal-clock-phase-card {
+  padding-top: 10px;
+  padding-bottom: 11px;
+}
+
+.thermal-clock-period-explanation {
+  margin: 5px 0 7px;
+  color: rgba(168, 194, 195, .48);
+  font-size: 7px;
+  line-height: 1.45;
+}
+
+.thermal-clock-lab.is-embedded .thermal-clock-phase-axis {
+  margin-top: 7px;
+}
+
+.thermal-clock-advanced-state,
+.thermal-clock-advanced-actions,
+.thermal-clock-timeline-details,
+.thermal-clock-log {
+  border: 1px solid rgba(145, 184, 188, .1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .018);
+}
+
+.thermal-clock-advanced-state > summary,
+.thermal-clock-advanced-actions > summary,
+.thermal-clock-timeline-details > summary,
+.thermal-clock-log > summary {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  color: rgba(185, 211, 212, .66);
+  font-size: 8px;
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+}
+
+.thermal-clock-advanced-state > summary::after,
+.thermal-clock-advanced-actions > summary::after,
+.thermal-clock-timeline-details > summary::after,
+.thermal-clock-log > summary::after {
+  content: '＋';
+  color: rgba(160, 197, 199, .44);
+  font-weight: 400;
+}
+
+.thermal-clock-advanced-state[open] > summary::after,
+.thermal-clock-advanced-actions[open] > summary::after,
+.thermal-clock-timeline-details[open] > summary::after,
+.thermal-clock-log[open] > summary::after {
+  content: '−';
+}
+
+.thermal-clock-advanced-state > summary::-webkit-details-marker,
+.thermal-clock-advanced-actions > summary::-webkit-details-marker,
+.thermal-clock-timeline-details > summary::-webkit-details-marker,
+.thermal-clock-log > summary::-webkit-details-marker {
+  display: none;
+}
+
+.thermal-clock-lab.is-embedded .thermal-clock-advanced-state {
+  margin: 9px 0 0;
+  padding: 0;
+}
+
+.thermal-clock-lab.is-embedded .thermal-clock-advanced-state[open] {
+  padding-bottom: 8px;
+}
+
+.thermal-clock-diagnostic-grid {
+  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 7px 8px 2px;
+  border-top: 1px solid rgba(145, 184, 188, .08);
+}
+
+.thermal-clock-diagnostic-grid .thermal-lab-state-value {
+  min-width: 0;
+  padding: 5px 4px;
+}
+
+.thermal-clock-lab.is-embedded .thermal-lab-actions {
+  padding-top: 12px;
+  padding-bottom: 10px;
 }
 
 .thermal-clock-lab.is-embedded .thermal-clock-action-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.thermal-clock-period-explanation {
-  margin: 7px 0 9px;
-  color: rgba(174, 201, 202, .62);
-  font-size: 8px;
-  line-height: 1.55;
+.thermal-clock-advanced-actions {
+  margin-top: 7px;
 }
 
-.thermal-clock-anchor-schedule {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 3px;
-  margin: 0 0 8px;
+.thermal-clock-advanced-actions .thermal-clock-action-grid {
+  padding: 7px;
+  border-top: 1px solid rgba(145, 184, 188, .08);
 }
 
-.thermal-clock-anchor-schedule > div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-  align-content: start;
-  padding: 5px 3px;
-  border: 1px solid rgba(145, 184, 188, .1);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, .02);
-  text-align: center;
-}
-
-.thermal-clock-anchor-schedule b {
-  color: rgba(119, 211, 225, .78);
+.thermal-clock-action-summary {
+  margin: 8px 0 0;
+  padding: 5px 7px;
+  border: 1px solid rgba(112, 203, 220, .14);
+  border-radius: 6px;
+  color: rgba(174, 225, 231, .72);
+  background: rgba(64, 157, 177, .045);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 7px;
-}
-
-.thermal-clock-anchor-schedule span {
-  color: rgba(188, 210, 209, .58);
-  font-size: 6px;
-  line-height: 1.25;
-}
-
-.thermal-clock-action-progress {
-  margin-top: 8px;
-  padding: 6px 7px;
-  border: 1px solid rgba(112, 203, 220, .18);
-  border-radius: 6px;
-  color: rgba(174, 225, 231, .82);
-  background: rgba(64, 157, 177, .06);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 8px;
   text-align: center;
+}
+
+.thermal-clock-result-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.thermal-clock-timeline-details {
+  margin-top: 8px;
+}
+
+.thermal-clock-timeline-details .thermal-clock-timeline {
+  margin: 0;
+  padding: 0 7px 5px;
+  border-top: 1px solid rgba(145, 184, 188, .08);
+}
+
+.thermal-clock-lab.is-embedded .thermal-lab-toolbar {
+  padding-top: 8px;
+  padding-bottom: 9px;
+}
+
+.thermal-clock-log {
+  margin-top: 0;
+  padding: 0 !important;
+}
+
+.thermal-clock-log > summary span {
+  color: rgba(185, 211, 212, .66);
+}
+
+.thermal-clock-log > summary strong {
+  color: rgba(121, 205, 218, .78);
+  font-size: 8px;
+}
+
+.thermal-clock-log-body {
+  position: relative;
+  padding: 7px 8px 8px;
+  border-top: 1px solid rgba(145, 184, 188, .08);
+}
+
+.thermal-clock-log-version {
+  display: block;
+  margin-bottom: 6px;
+  color: rgba(149, 181, 184, .38);
+  font-size: 7px;
+  text-align: right;
+}
+
+.thermal-clock-log-body > ol {
+  margin: 0;
 }
 
 @media (max-width: 1360px) {
