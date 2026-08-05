@@ -31,28 +31,39 @@ describe('right inspector component boundaries', () => {
     expect(thermalLabSource).toContain('className="thermal-clock-config-label"')
   })
 
-  it('keeps the shared inspector hierarchy and Thermal type scale', () => {
-    expect(inspectorCssSource).toContain('--inspector-right-width: 520px')
-    expect(inspectorCssSource).toContain('--tc-body: 12px')
-    expect(inspectorCssSource).toContain('--tc-value-emphasis: 20px')
+  it('keeps shared inspector styling available as the non-runtime fallback', () => {
+    expect(inspectorCssSource).toContain('.hex-prototype.inspector-hex')
+    expect(inspectorCssSource).toContain('.hex-prototype.inspector-thermal')
     expect(inspectorCssSource).not.toContain('font-size: 6px')
   })
 
-  it('mounts the final contract after the Hex page instead of relying on CSS bundle order', () => {
+  it('mounts one stable-width final contract after the Hex page', () => {
     expect(mainSource).toContain("import { InspectorLayoutContract } from './hex/InspectorLayoutContract'")
     expect(mainSource).toContain("{view === 'hex' && <InspectorLayoutContract />}")
     expect(mainSource).not.toContain("import './hex/right-inspector-contract.css'")
-    expect(runtimeContractSource).toContain('data-inspector-layout-contract="runtime-v2"')
-    expect(runtimeContractSource).toContain('grid-template-columns: 228px minmax(470px, 1fr) 560px !important')
+    expect(runtimeContractSource).toContain('data-inspector-layout-contract="runtime-v3"')
+    expect(runtimeContractSource).toContain('.inspector-hex > .visual-layout,')
+    expect(runtimeContractSource).toContain('.inspector-thermal > .visual-layout')
+    expect(runtimeContractSource).toContain('grid-template-columns: 228px minmax(510px, 1fr) 460px !important')
+    expect(runtimeContractSource).toContain('grid-template-columns: 220px minmax(470px, 1fr) 430px !important')
     expect(runtimeContractSource).toContain('white-space: nowrap !important')
-    expect(runtimeContractSource).toContain('font-family: inherit !important')
   })
 
-  it('checks computed layout in a real browser instead of CSS text alone', () => {
+  it('uses a compact Thermal hierarchy close to the Hex inspector scale', () => {
+    expect(runtimeContractSource).toContain('--tc-body: 10px')
+    expect(runtimeContractSource).toContain('--tc-title: 10px')
+    expect(runtimeContractSource).toContain('--tc-value: 12px')
+    expect(runtimeContractSource).toContain('--tc-value-emphasis: 14px')
+    expect(runtimeContractSource).toContain('grid-template-columns: repeat(2, minmax(0, 1fr)) !important')
+    expect(runtimeContractSource).not.toContain('--tc-value-emphasis: 20px')
+  })
+
+  it('checks computed stable width and typography in a real browser', () => {
     expect(browserVerificationSource).toContain('for (const width of [1920, 1366])')
     expect(browserVerificationSource).toContain('tab buttons are not on the same row')
-    expect(browserVerificationSource).toContain('Thermal inspector did not become meaningfully wider')
-    expect(browserVerificationSource).toContain("thermal.rootFontSize === '12px'")
+    expect(browserVerificationSource).toContain('inspector width changes when switching tabs')
+    expect(browserVerificationSource).toContain("thermal.rootFontSize === '10px'")
+    expect(browserVerificationSource).toContain('Math.max(...fontSizes) <= 14')
   })
 
   it('does not restore obsolete DOM or CSS patch layers', () => {

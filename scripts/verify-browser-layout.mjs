@@ -116,6 +116,19 @@ const snapshotExpression = `(() => {
   const thermalButton = thermalRoot?.querySelector('.thermal-clock-action-grid button')
   const thermalTitle = thermalRoot?.querySelector('.thermal-clock-config-label > strong')
   const thermalValue = thermalRoot?.querySelector('.thermal-lab-state-value > strong')
+  const typographySelectors = [
+    '.thermal-clock-config-label > strong',
+    '.thermal-clock-config-label > small',
+    'select',
+    '.thermal-lab-state-value > span',
+    '.thermal-lab-state-value > strong',
+    '.thermal-lab-section-heading span',
+    '.thermal-lab-section-heading strong',
+    '.thermal-clock-action-grid button > strong',
+    '.thermal-clock-action-grid button > span',
+    '.thermal-clock-action-grid button > small',
+    '.thermal-clock-preview-steps b',
+  ]
   const rect = (element) => {
     if (!element) return null
     const value = element.getBoundingClientRect()
@@ -162,6 +175,13 @@ const snapshotExpression = `(() => {
       buttonFontFamily: style(thermalButton).fontFamily,
       titleFontSize: style(thermalTitle).fontSize,
       valueFontSize: style(thermalValue).fontSize,
+      typography: typographySelectors.map((selector) => {
+        const element = thermalRoot.querySelector(selector)
+        return {
+          selector,
+          fontSize: element ? style(element).fontSize : null,
+        }
+      }),
     } : null,
   }
 })()`
@@ -186,14 +206,22 @@ function firstFamily(value) {
 function verifyThermal(snapshot, label) {
   assert(snapshot.thermal, `${label}: Thermal inspector content was not rendered`, snapshot)
   const thermal = snapshot.thermal
-  assert(thermal.rootFontSize === '12px', `${label}: Thermal root font size is not 12px`, snapshot)
-  assert(thermal.selectFontSize === '11px', `${label}: Thermal select font size is not 11px`, snapshot)
-  assert(thermal.buttonFontSize === '11px', `${label}: Thermal action font size is not 11px`, snapshot)
-  assert(thermal.titleFontSize === '13px', `${label}: Thermal title font size is not 13px`, snapshot)
-  assert(thermal.valueFontSize === '16px' || thermal.valueFontSize === '20px', `${label}: Thermal value font scale is unexpected`, snapshot)
+  assert(thermal.rootFontSize === '10px', `${label}: Thermal root font size is not 10px`, snapshot)
+  assert(thermal.selectFontSize === '10px', `${label}: Thermal select font size is not 10px`, snapshot)
+  assert(thermal.buttonFontSize === '10px', `${label}: Thermal action control font size is not 10px`, snapshot)
+  assert(thermal.titleFontSize === '10px', `${label}: Thermal title font size is not 10px`, snapshot)
+  assert(thermal.valueFontSize === '12px' || thermal.valueFontSize === '14px', `${label}: Thermal value font scale is unexpected`, snapshot)
   const rootFamily = firstFamily(thermal.rootFontFamily)
   assert(firstFamily(thermal.selectFontFamily) === rootFamily, `${label}: Thermal select uses another font family`, snapshot)
   assert(firstFamily(thermal.buttonFontFamily) === rootFamily, `${label}: Thermal action uses another font family`, snapshot)
+
+  const fontSizes = thermal.typography
+    .map((entry) => Number.parseFloat(entry.fontSize))
+    .filter(Number.isFinite)
+  assert(fontSizes.length >= 8, `${label}: Thermal typography sample is incomplete`, snapshot)
+  assert(Math.min(...fontSizes) >= 8, `${label}: Thermal typography contains text smaller than 8px`, snapshot)
+  assert(Math.max(...fontSizes) <= 14, `${label}: Thermal typography contains text larger than 14px`, snapshot)
+  assert(new Set(fontSizes).size <= 5, `${label}: Thermal typography uses too many unrelated sizes`, snapshot)
 }
 
 async function loadViewport(client, width) {
@@ -208,7 +236,7 @@ async function loadViewport(client, width) {
   await waitFor(`Hex prototype at ${width}px`, async () => {
     const ready = await evaluate(client, `Boolean(document.querySelector('.hex-prototype .hex-inspector-tabs'))`)
     if (!ready) throw new Error('inspector tabs not mounted')
-    const contract = await evaluate(client, `Boolean(document.querySelector('style[data-inspector-layout-contract="runtime-v2"]'))`)
+    const contract = await evaluate(client, `Boolean(document.querySelector('style[data-inspector-layout-contract="runtime-v3"]'))`)
     if (!contract) throw new Error('runtime inspector contract not mounted')
     return true
   })
@@ -237,9 +265,21 @@ async function loadViewport(client, width) {
   const thermalSnapshot = await evaluate(client, snapshotExpression)
   verifyTabs(thermalSnapshot, `${width}px Thermal`)
   verifyThermal(thermalSnapshot, `${width}px Thermal`)
+
+  const expectedPanelWidth = width === 1920 ? 460 : 430
   assert(
-    thermalSnapshot.panel.width >= hexSnapshot.panel.width + 140,
-    `${width}px: Thermal inspector did not become meaningfully wider than Hex inspector`,
+    Math.abs(hexSnapshot.panel.width - expectedPanelWidth) <= 1,
+    `${width}px: Hex inspector width is not ${expectedPanelWidth}px`,
+    { hexSnapshot, thermalSnapshot },
+  )
+  assert(
+    Math.abs(thermalSnapshot.panel.width - expectedPanelWidth) <= 1,
+    `${width}px: Thermal inspector width is not ${expectedPanelWidth}px`,
+    { hexSnapshot, thermalSnapshot },
+  )
+  assert(
+    Math.abs(thermalSnapshot.panel.width - hexSnapshot.panel.width) <= 1,
+    `${width}px: inspector width changes when switching tabs`,
     { hexSnapshot, thermalSnapshot },
   )
 
