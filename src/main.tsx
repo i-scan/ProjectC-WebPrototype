@@ -4,13 +4,13 @@ import { App } from './App'
 import { BuildRevision } from './BuildRevision'
 import { GraphicsLab } from './graphics/GraphicsLab'
 import { HexPrototype } from './hex/HexPrototype'
+import { InspectorLayoutContract } from './hex/InspectorLayoutContract'
 import { VisualFeedbackObserver } from './visual/VisualFeedbackObserver'
 import { VisualPrototype } from './visual/VisualPrototype'
 import './styles.css'
 import './visual/visual-v3.css'
 import './visual/inspector-fix.css'
 import './hex/right-inspector.css'
-import './hex/right-inspector-contract.css'
 
 type View = 'rules' | 'visual' | 'hex' | 'graphics'
 
@@ -69,6 +69,7 @@ function Root() {
       {view === 'hex' && <HexPrototype />}
       {view === 'graphics' && <GraphicsLab />}
       {visualView && <VisualFeedbackObserver />}
+      {view === 'hex' && <InspectorLayoutContract />}
     </>
   )
 }
