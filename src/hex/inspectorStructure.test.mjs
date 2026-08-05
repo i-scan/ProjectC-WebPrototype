@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 const hexPrototypePath = fileURLToPath(new URL('./HexPrototype.tsx', import.meta.url))
 const thermalLabPath = fileURLToPath(new URL('./ThermalClockLab.tsx', import.meta.url))
 const inspectorCssPath = fileURLToPath(new URL('./right-inspector.css', import.meta.url))
+const inspectorContractPath = fileURLToPath(new URL('./right-inspector-contract.css', import.meta.url))
 const observerPath = fileURLToPath(new URL('./RightInspectorChrome.tsx', import.meta.url))
 const obsoleteCssPath = fileURLToPath(new URL('./thermal-clock-inspector.css', import.meta.url))
 const mainPath = fileURLToPath(new URL('../main.tsx', import.meta.url))
@@ -12,6 +13,7 @@ const mainPath = fileURLToPath(new URL('../main.tsx', import.meta.url))
 const hexPrototypeSource = readFileSync(hexPrototypePath, 'utf8')
 const thermalLabSource = readFileSync(thermalLabPath, 'utf8')
 const inspectorCssSource = readFileSync(inspectorCssPath, 'utf8')
+const inspectorContractSource = readFileSync(inspectorContractPath, 'utf8')
 const mainSource = readFileSync(mainPath, 'utf8')
 
 describe('right inspector component boundaries', () => {
@@ -27,13 +29,23 @@ describe('right inspector component boundaries', () => {
     expect(thermalLabSource).toContain('className="thermal-clock-config-label"')
   })
 
-  it('uses one stylesheet for width, tabs, and Thermal typography', () => {
+  it('keeps the shared inspector width and Thermal type scale', () => {
     expect(inspectorCssSource).toContain('--inspector-right-width: 520px')
-    expect(inspectorCssSource).toContain('display: flex !important')
-    expect(inspectorCssSource).toContain('flex-wrap: nowrap !important')
     expect(inspectorCssSource).toContain('--tc-body: 12px')
     expect(inspectorCssSource).toContain('--tc-value-emphasis: 20px')
     expect(inspectorCssSource).not.toContain('font-size: 6px')
+  })
+
+  it('loads the final tab and font contract after the shared stylesheet', () => {
+    const sharedImport = "import './hex/right-inspector.css'"
+    const contractImport = "import './hex/right-inspector-contract.css'"
+
+    expect(mainSource).toContain(sharedImport)
+    expect(mainSource).toContain(contractImport)
+    expect(mainSource.indexOf(contractImport)).toBeGreaterThan(mainSource.indexOf(sharedImport))
+    expect(inspectorContractSource).toContain('grid-template-columns: repeat(2, minmax(0, 1fr)) !important')
+    expect(inspectorContractSource).toContain('min-width: 0 !important')
+    expect(inspectorContractSource).toContain('font-family: inherit !important')
   })
 
   it('does not restore obsolete DOM or CSS patch layers', () => {

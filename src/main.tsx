@@ -10,6 +10,7 @@ import './styles.css'
 import './visual/visual-v3.css'
 import './visual/inspector-fix.css'
 import './hex/right-inspector.css'
+import './hex/right-inspector-contract.css'
 
 type View = 'rules' | 'visual' | 'hex' | 'graphics'
 

@@ -37,13 +37,16 @@ await stat(resolve(distDir, stylePath))
 const style = await readFile(resolve(distDir, stylePath), 'utf8')
 
 // Use whitespace-tolerant checks because Vite may minify declarations differently
-// across versions. These checks verify the intended rules without depending on
-// exact serialized CSS text.
+// across versions. These checks verify the final layout contract rather than the
+// presence of an older declaration that can still be overridden later in the bundle.
 assert(/\.inspector-thermal/.test(style), 'Thermal inspector width mode is missing from CSS')
 assert(/hex-inspector-coordinate/.test(style), 'shared coordinate styling is missing from CSS')
 assert(/--inspector-right-width\s*:\s*520px/.test(style), 'desktop Thermal inspector width is not present in CSS')
-assert(/flex-wrap\s*:\s*nowrap/.test(style), 'inspector tabs are not locked to one line')
+assert(/grid-template-columns\s*:\s*repeat\(2\s*,\s*minmax\(0\s*,\s*1fr\)\)\s*!important/.test(style), 'inspector tabs do not use two shrinkable columns')
+assert(/grid-column\s*:\s*1\s*\/\s*-1/.test(style), 'inspector coordinate is not isolated from the tab row')
 assert(/--tc-body\s*:\s*12px/.test(style), 'Thermal base type scale is missing')
 assert(/--tc-value-emphasis\s*:\s*20px/.test(style), 'Thermal emphasis type scale is missing')
+assert(/font-family\s*:\s*inherit\s*!important/.test(style), 'embedded Thermal controls do not inherit the inspector typeface')
+assert(!/font-size\s*:\s*6px\s*!important/.test(style), 'obsolete 6px Thermal override is still bundled')
 
 console.log(`Verified dist for ${info.branch}@${info.shortCommit}.`)
