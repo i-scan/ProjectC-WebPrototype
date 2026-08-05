@@ -230,36 +230,50 @@ export function ThermalClockLab({
     <div
       className={rootClassName}
       style={embedded ? embeddedRootStyle : undefined}
-      aria-label="VAL-012 Thermal Clock and Action Time Inspector"
+      aria-label={embedded ? 'Thermal Clock content' : 'VAL-012 Thermal Clock and Action Time Inspector'}
     >
-      <header className="thermal-lab-header">
-        <div>
-          <p>VAL-012 · TC1 · Hex6</p>
-          <h2>Thermal Clock Inspector</h2>
-        </div>
-        {!embedded && onClose && (
-          <button type="button" className="thermal-lab-close" onClick={onClose} aria-label="关闭测试面板">×</button>
-        )}
-      </header>
+      {!embedded && (
+        <header className="thermal-lab-header">
+          <div>
+            <p>VAL-012 · TC1 · Hex6</p>
+            <h2>Thermal Clock Inspector</h2>
+          </div>
+          {onClose && (
+            <button type="button" className="thermal-lab-close" onClick={onClose} aria-label="关闭测试面板">×</button>
+          )}
+        </header>
+      )}
 
-      <section className="thermal-lab-config thermal-clock-setup">
-        <label>
-          <span>Clock / Ruleset</span>
+      <section className="thermal-lab-config thermal-clock-setup" aria-label="Thermal Clock configuration">
+        <label className="thermal-clock-config-control">
+          <span className="thermal-clock-config-label">
+            <strong>时钟规则</strong>
+            <small>控制完整周期、相位速度与捕获条件</small>
+          </span>
           <select value={rules.id} disabled={resolving} onChange={(event: ChangeEvent<HTMLSelectElement>) => onRulesetChange(event.target.value)}>
             {config.rulesets.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>{candidate.label}</option>
             ))}
           </select>
+          <span className="thermal-clock-config-meta">
+            Period {formatThermalNumber(rules.thermalPeriodAt, 1)} AT · 每相位 {formatThermalNumber(baseBeatAt, 1)} AT
+          </span>
         </label>
-        <label>
-          <span>Scenario</span>
+        <label className="thermal-clock-config-control">
+          <span className="thermal-clock-config-label">
+            <strong>初始场景</strong>
+            <small>切换初始温度、振幅与相位位置</small>
+          </span>
           <select value={scenario.id} disabled={resolving} onChange={(event: ChangeEvent<HTMLSelectElement>) => onScenarioChange(event.target.value)}>
             {config.scenarios.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>{candidate.label}</option>
             ))}
           </select>
+          <span className="thermal-clock-config-meta">
+            Set Point {formatThermalNumber(scenario.setPoint)} · Amplitude {formatThermalNumber(scenario.amplitude)}
+          </span>
         </label>
-        <p>{scenario.description}</p>
+        <p className="thermal-clock-scenario-description">{scenario.description}</p>
       </section>
 
       <section className="thermal-clock-overview" aria-label="Current thermal clock state">
