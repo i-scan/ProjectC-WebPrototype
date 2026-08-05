@@ -9,7 +9,8 @@
     "validate:rules": "node scripts/validate-rules.mjs",
     "test": "node scripts/validate-rules.mjs && vitest run",
     "test:watch": "vitest",
-    "verify:dist": "node scripts/verify-dist.mjs"
+    "verify:dist": "node scripts/verify-dist.mjs",
+    "verify:browser": "node scripts/verify-browser-layout.mjs"
   },
   "dependencies": {
     "pixi.js": "8.19.0",
