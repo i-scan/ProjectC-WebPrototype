@@ -76,11 +76,11 @@ styleUrl.searchParams.set('verify', cacheBust)
 const style = await fetchText(styleUrl)
 if (!/\.inspector-thermal/.test(style)) throw new Error('Thermal inspector width mode is missing from CSS')
 if (!/hex-inspector-coordinate/.test(style)) throw new Error('shared coordinate styling is missing from CSS')
-if (!/--inspector-right-width\s*:\s*520px/.test(style)) throw new Error('desktop Thermal inspector width is not present in CSS')
-if (!/grid-template-columns\s*:\s*repeat\(2\s*,\s*minmax\(0\s*,\s*1fr\)\)\s*!important/.test(style)) {
-  throw new Error('inspector tabs do not use two shrinkable columns')
+if (!/--inspector-right-width\s*:\s*560px/.test(style)) throw new Error('desktop Thermal inspector target width is not present in CSS')
+if (!/grid-template-columns\s*:\s*minmax\(0\s*,\s*1fr\)\s+minmax\(0\s*,\s*1fr\)\s+max-content\s*!important/.test(style)) {
+  throw new Error('inspector tabs and coordinate are not locked to one row')
 }
-if (!/grid-column\s*:\s*1\s*\/\s*-1/.test(style)) throw new Error('inspector coordinate is not isolated from the tab row')
+if (!/white-space\s*:\s*nowrap\s*!important/.test(style)) throw new Error('inspector tab labels are not locked to one line')
 if (!/--tc-body\s*:\s*12px/.test(style)) throw new Error('Thermal base type scale is missing')
 if (!/--tc-value-emphasis\s*:\s*20px/.test(style)) throw new Error('Thermal emphasis type scale is missing')
 if (!/font-family\s*:\s*inherit\s*!important/.test(style)) {
