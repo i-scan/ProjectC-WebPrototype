@@ -74,13 +74,19 @@ if (!styleMatch) throw new Error('published CSS entry was not found')
 const styleUrl = new URL(styleMatch[1], pageUrl.origin)
 styleUrl.searchParams.set('verify', cacheBust)
 const style = await fetchText(styleUrl)
-if (!style.includes('inspector-thermal')) throw new Error('Thermal inspector width mode is missing from CSS')
-if (!style.includes('hex-inspector-coordinate')) throw new Error('shared coordinate styling is missing from CSS')
-if (!style.includes('520px')) throw new Error('desktop Thermal inspector width is not present in CSS')
-if (!style.includes('flex-wrap:nowrap')) throw new Error('inspector tabs are not locked to one line')
-if (!style.includes('--tc-body:12px')) throw new Error('Thermal base type scale is missing')
-if (!style.includes('--tc-value-emphasis:20px')) throw new Error('Thermal emphasis type scale is missing')
-if (style.includes('font-size:6px!important')) throw new Error('obsolete 6px Thermal override is still deployed')
+if (!/\.inspector-thermal/.test(style)) throw new Error('Thermal inspector width mode is missing from CSS')
+if (!/hex-inspector-coordinate/.test(style)) throw new Error('shared coordinate styling is missing from CSS')
+if (!/--inspector-right-width\s*:\s*520px/.test(style)) throw new Error('desktop Thermal inspector width is not present in CSS')
+if (!/grid-template-columns\s*:\s*repeat\(2\s*,\s*minmax\(0\s*,\s*1fr\)\)\s*!important/.test(style)) {
+  throw new Error('inspector tabs do not use two shrinkable columns')
+}
+if (!/grid-column\s*:\s*1\s*\/\s*-1/.test(style)) throw new Error('inspector coordinate is not isolated from the tab row')
+if (!/--tc-body\s*:\s*12px/.test(style)) throw new Error('Thermal base type scale is missing')
+if (!/--tc-value-emphasis\s*:\s*20px/.test(style)) throw new Error('Thermal emphasis type scale is missing')
+if (!/font-family\s*:\s*inherit\s*!important/.test(style)) {
+  throw new Error('embedded Thermal controls do not inherit the inspector typeface')
+}
+if (/font-size\s*:\s*6px\s*!important/.test(style)) throw new Error('obsolete 6px Thermal override is still deployed')
 
 console.log(`Verified production ${info.branch}@${info.shortCommit}`)
 console.log(`Latest: ${info.latestUrl}`)
