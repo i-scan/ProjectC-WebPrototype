@@ -4,7 +4,6 @@ import { App } from './App'
 import { BuildRevision } from './BuildRevision'
 import { GraphicsLab } from './graphics/GraphicsLab'
 import { HexPrototype } from './hex/HexPrototype'
-import { RightInspectorChrome } from './hex/RightInspectorChrome'
 import { VisualFeedbackObserver } from './visual/VisualFeedbackObserver'
 import { VisualPrototype } from './visual/VisualPrototype'
 import './styles.css'
@@ -67,12 +66,7 @@ function Root() {
       </div>
       {view === 'rules' && <App />}
       {view === 'visual' && <VisualPrototype />}
-      {view === 'hex' && (
-        <>
-          <HexPrototype />
-          <RightInspectorChrome />
-        </>
-      )}
+      {view === 'hex' && <HexPrototype />}
       {view === 'graphics' && <GraphicsLab />}
       {visualView && <VisualFeedbackObserver />}
     </>
