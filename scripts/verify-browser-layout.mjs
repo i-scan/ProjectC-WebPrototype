@@ -203,7 +203,8 @@ async function loadViewport(client, width) {
     deviceScaleFactor: 1,
     mobile: false,
   })
-  await client.send('Page.navigate', { url: `${pageUrl}?viewport=${width}` })
+  const viewportUrl = `${previewOrigin}/ProjectC-WebPrototype/?viewport=${width}#hex-prototype`
+  await client.send('Page.navigate', { url: viewportUrl })
   await waitFor(`Hex prototype at ${width}px`, async () => {
     const ready = await evaluate(client, `Boolean(document.querySelector('.hex-prototype .hex-inspector-tabs'))`)
     if (!ready) throw new Error('inspector tabs not mounted')
