@@ -3,12 +3,14 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { GraphicsLab } from './graphics/GraphicsLab'
 import { HexPrototype } from './hex/HexPrototype'
+import { RightInspectorChrome } from './hex/RightInspectorChrome'
 import { VisualFeedbackObserver } from './visual/VisualFeedbackObserver'
 import { VisualPrototype } from './visual/VisualPrototype'
 import './styles.css'
 import './visual/visual-v3.css'
 import './visual/inspector-fix.css'
 import './hex/thermal-clock-inspector.css'
+import './hex/right-inspector-v5.css'
 
 type View = 'rules' | 'visual' | 'hex' | 'graphics'
 
@@ -61,7 +63,12 @@ function Root() {
       </div>
       {view === 'rules' && <App />}
       {view === 'visual' && <VisualPrototype />}
-      {view === 'hex' && <HexPrototype />}
+      {view === 'hex' && (
+        <>
+          <HexPrototype />
+          <RightInspectorChrome />
+        </>
+      )}
       {view === 'graphics' && <GraphicsLab />}
       {visualView && <VisualFeedbackObserver />}
     </>
