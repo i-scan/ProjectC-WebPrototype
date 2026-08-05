@@ -34,6 +34,15 @@ type ThermalClockLabProps = {
   onReplay: () => void
 }
 
+const PRIMARY_ACTION_IDS = new Set([
+  'flow-1at',
+  'heat-contact',
+  'cool-contact',
+  'push-hot',
+  'push-cold',
+  'stabilize',
+])
+
 function phaseLabel(phaseBeat: number | null): string {
   if (phaseBeat === null) return 'Neutral'
   if (phaseBeat < 1) return 'Hot Apex → Set Point'
@@ -99,6 +108,32 @@ function RangeControl({
   )
 }
 
+function ActionButton({
+  action,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  action: ThermalClockAction
+  selected: boolean
+  disabled: boolean
+  onSelect: (id: string) => void
+}) {
+  return (
+    <button
+      type="button"
+      className={selected ? 'is-selected' : ''}
+      onClick={() => onSelect(action.id)}
+      title={action.description}
+      disabled={disabled}
+    >
+      <strong>{action.shortLabel}</strong>
+      <span>{action.label}</span>
+      <small>{action.baseApCost} AP · {action.baseActionTime} AT</small>
+    </button>
+  )
+}
+
 export function ThermalClockLab({
   open,
   embedded = false,
@@ -132,13 +167,8 @@ export function ThermalClockLab({
   )
   const baseBeatAt = rules.thermalPeriodAt / 4
   const actionBeatAdvance = baseBeatAt <= 0 ? 0 : selectedAction.baseActionTime / baseBeatAt
-  const anchorSchedule = [
-    { label: 'Hot Apex', at: 0 },
-    { label: 'Set Point → Cold', at: baseBeatAt },
-    { label: 'Cold Apex', at: baseBeatAt * 2 },
-    { label: 'Set Point → Hot', at: baseBeatAt * 3 },
-    { label: 'Hot Apex', at: rules.thermalPeriodAt },
-  ]
+  const primaryActions = config.actions.filter((action) => PRIMARY_ACTION_IDS.has(action.id))
+  const advancedActions = config.actions.filter((action) => !PRIMARY_ACTION_IDS.has(action.id))
 
   if (!open) return null
 
@@ -182,7 +212,7 @@ export function ThermalClockLab({
         )}
       </header>
 
-      <section className="thermal-lab-config">
+      <section className="thermal-lab-config thermal-clock-setup">
         <label>
           <span>Clock / Ruleset</span>
           <select value={rules.id} disabled={resolving} onChange={(event: ChangeEvent<HTMLSelectElement>) => onRulesetChange(event.target.value)}>
@@ -202,37 +232,29 @@ export function ThermalClockLab({
         <p>{scenario.description}</p>
       </section>
 
-      <section className="thermal-lab-state-grid" aria-label="Current thermal clock state">
-        <StateValue label="T" value={formatThermalNumber(current.temperature)} emphasis />
-        <StateValue label="Set Point" value={formatThermalNumber(session.thermal.setPoint)} />
-        <StateValue label="Offset" value={formatThermalNumber(session.thermal.offset)} />
-        <StateValue label="Drift" value={formatThermalNumber(session.thermal.drift)} emphasis />
-        <StateValue label="Side" value={sideLabel(current.side, current.neutral)} />
-        <StateValue label="Phase" value={current.phaseBeat === null ? '—' : current.phaseBeat.toFixed(2)} />
-        <StateValue label="Period" value={`${rules.thermalPeriodAt} AT`} />
-        <StateValue label="Base Beat" value={`${formatThermalNumber(baseBeatAt, 1)} AT`} />
-        <StateValue label="World Time" value={`${session.elapsedAt.toFixed(2)} AT`} />
+      <section className="thermal-clock-overview" aria-label="Current thermal clock state">
+        <div className="thermal-lab-state-grid">
+          <StateValue label="Temperature" value={formatThermalNumber(current.temperature)} emphasis />
+          <StateValue label="Drift" value={formatThermalNumber(session.thermal.drift)} emphasis />
+          <StateValue label="Phase" value={current.phaseBeat === null ? '—' : current.phaseBeat.toFixed(2)} />
+          <StateValue label="World Time" value={`${session.elapsedAt.toFixed(2)} AT`} />
+        </div>
+        <p className="thermal-clock-state-meta">
+          Set Point {formatThermalNumber(session.thermal.setPoint)} · Offset {formatThermalNumber(session.thermal.offset)} · {sideLabel(current.side, current.neutral)} · Period {rules.thermalPeriodAt} AT
+        </p>
       </section>
 
       <section className="thermal-clock-phase-card">
         <div className="thermal-lab-section-heading">
           <div>
-            <span>固定四相 · 不是 {rules.thermalPeriodAt} 个相位</span>
+            <span>Current Phase</span>
             <strong>{phaseLabel(current.phaseBeat)}</strong>
           </div>
-          <small>1 Beat = {formatThermalNumber(baseBeatAt, 1)} AT</small>
+          <small>{rules.thermalPeriodAt} AT / Period</small>
         </div>
         <p className="thermal-clock-period-explanation">
-          一个完整 Period 始终只有四个 Base Beat。Period 改为 8 或 12 AT，只会把同样四相分别拉伸为每 Beat 2 或 3 AT。
+          完整 Period 固定分为 4 个等长相位；调整总 AT 只改变每相位持续时间，不改变相位数量。
         </p>
-        <div className="thermal-clock-anchor-schedule" aria-label={`${rules.thermalPeriodAt} AT anchor schedule`}>
-          {anchorSchedule.map((anchor, index) => (
-            <div key={`${anchor.label}-${index}`}>
-              <b>{formatThermalNumber(anchor.at, 1)} AT</b>
-              <span>{anchor.label}</span>
-            </div>
-          ))}
-        </div>
         <div className="thermal-clock-phase-axis" aria-label="Thermal Clock phase">
           {['Hot Apex', '→ Cold', 'Cold Apex', '→ Hot'].map((label, index) => (
             <div key={label} className={current.phaseBeat !== null && Math.floor(current.phaseBeat) === index ? 'is-active' : ''}>
@@ -246,8 +268,16 @@ export function ThermalClockLab({
         </div>
       </section>
 
-      <details className="thermal-lab-manual">
-        <summary>Advanced State Input</summary>
+      <details className="thermal-lab-manual thermal-clock-advanced-state">
+        <summary>状态参数与手动输入</summary>
+        <div className="thermal-clock-diagnostic-grid">
+          <StateValue label="Set Point" value={formatThermalNumber(session.thermal.setPoint)} />
+          <StateValue label="Offset" value={formatThermalNumber(session.thermal.offset)} />
+          <StateValue label="Base Beat" value={`${formatThermalNumber(baseBeatAt, 1)} AT`} />
+          <StateValue label="Amplitude" value={formatThermalNumber(current.amplitude)} />
+          <StateValue label="Next Apex" value={formatThermalNumber(current.projectedApexTemperature)} />
+          <StateValue label="Side" value={sideLabel(current.side, current.neutral)} />
+        </div>
         <RangeControl
           label="Temperature"
           value={currentTemperature}
@@ -277,33 +307,44 @@ export function ThermalClockLab({
       <section className="thermal-lab-actions">
         <div className="thermal-lab-section-heading">
           <div>
-            <span>Debug Actions</span>
-            <strong>真实卡牌与基础行动已自动推进；这里保留对照动作</strong>
+            <span>1 · Select Test Action</span>
+            <strong>真实卡牌、移动和攻击会自动推进；这里用于规则对照</strong>
           </div>
-          <small>AP 与 AT 独立</small>
+          <small>AP / AT independent</small>
         </div>
         <div className="thermal-lab-action-grid thermal-clock-action-grid">
-          {config.actions.map((action) => (
-            <button
+          {primaryActions.map((action) => (
+            <ActionButton
               key={action.id}
-              type="button"
-              className={action.id === selectedAction.id ? 'is-selected' : ''}
-              onClick={() => onActionSelect(action.id)}
-              title={action.description}
+              action={action}
+              selected={action.id === selectedAction.id}
               disabled={resolving}
-            >
-              <strong>{action.shortLabel}</strong>
-              <span>{action.label}</span>
-              <small>{action.baseApCost} AP · {action.baseActionTime} AT</small>
-            </button>
+              onSelect={onActionSelect}
+            />
           ))}
         </div>
+        {advancedActions.length > 0 && (
+          <details className="thermal-clock-advanced-actions">
+            <summary>更多时间与反应测试</summary>
+            <div className="thermal-lab-action-grid thermal-clock-action-grid">
+              {advancedActions.map((action) => (
+                <ActionButton
+                  key={action.id}
+                  action={action}
+                  selected={action.id === selectedAction.id}
+                  disabled={resolving}
+                  onSelect={onActionSelect}
+                />
+              ))}
+            </div>
+          </details>
+        )}
       </section>
 
       <section className={`thermal-lab-preview${resolving ? ' is-resolving' : ''}`} aria-label="Selected action preview">
         <div className="thermal-lab-preview-header">
           <div>
-            <span>Immediate + Timeline Preview</span>
+            <span>2 · Preview and Resolve</span>
             <strong>{selectedAction.label}</strong>
           </div>
           <div className="thermal-lab-event-list">
@@ -313,9 +354,9 @@ export function ThermalClockLab({
           </div>
         </div>
 
-        <div className="thermal-clock-action-progress">
-          +{formatThermalNumber(selectedAction.baseActionTime, 1)} AT = +{formatThermalNumber(actionBeatAdvance, 2)} Base Beat
-        </div>
+        <p className="thermal-clock-action-summary">
+          {selectedAction.baseApCost} AP · {selectedAction.baseActionTime} AT · 推进 {formatThermalNumber(actionBeatAdvance, 2)} Base Beat
+        </p>
 
         <div className="thermal-clock-preview-steps">
           <div>
@@ -337,28 +378,29 @@ export function ThermalClockLab({
           </div>
         </div>
 
-        <div className="thermal-lab-equation thermal-clock-economy">
-          <span>AP {selectedAction.baseApCost}</span>
-          <span>AT {selectedAction.baseActionTime}</span>
-          <span>ΔT {formatThermalNumber(preview.immediateTrace.offsetDelta)}</span>
-          <span>ΔD {formatThermalNumber(preview.immediateTrace.driftDelta)}</span>
-          <span>Apex {formatThermalNumber(final.projectedApexTemperature)}</span>
+        <div className="thermal-lab-equation thermal-clock-result-metrics">
+          <span>Immediate ΔT {formatThermalNumber(preview.immediateTrace.offsetDelta)}</span>
+          <span>Immediate ΔD {formatThermalNumber(preview.immediateTrace.driftDelta)}</span>
+          <span>Next Apex {formatThermalNumber(final.projectedApexTemperature)}</span>
         </div>
 
         {preview.timeline.length > 0 && (
-          <ol className="thermal-clock-timeline">
-            {preview.timeline.map((event, index) => (
-              <li key={`${event.kind}-${event.actionTime}-${index}`}>
-                <b>{event.actionTime.toFixed(2)} AT</b>
-                <span>{event.label}{event.overshoot ? ' · Overshoot' : ''}</span>
-                <small>T {formatThermalNumber(temperatureFor(event.state))} · D {formatThermalNumber(event.state.drift)}</small>
-              </li>
-            ))}
-          </ol>
+          <details className="thermal-clock-timeline-details">
+            <summary>途中事件 · {preview.timeline.length}</summary>
+            <ol className="thermal-clock-timeline">
+              {preview.timeline.map((event, index) => (
+                <li key={`${event.kind}-${event.actionTime}-${index}`}>
+                  <b>{event.actionTime.toFixed(2)} AT</b>
+                  <span>{event.label}{event.overshoot ? ' · Overshoot' : ''}</span>
+                  <small>T {formatThermalNumber(temperatureFor(event.state))} · D {formatThermalNumber(event.state.drift)}</small>
+                </li>
+              ))}
+            </ol>
+          </details>
         )}
 
         <button type="button" className="thermal-lab-resolve" onClick={onResolve} disabled={resolving}>
-          {resolving ? 'Immediate Response → Thermal Clock…' : 'Debug Resolve Action'}
+          {resolving ? 'Immediate Response → Thermal Clock…' : '执行所选测试动作'}
         </button>
       </section>
 
@@ -370,41 +412,41 @@ export function ThermalClockLab({
         {copyStatus && <span>{copyStatus}</span>}
       </section>
 
-      <section className="thermal-lab-log">
-        <div className="thermal-lab-section-heading">
-          <div>
-            <span>Action Timeline Log</span>
-            <strong>{history.length} resolved</strong>
-          </div>
-          <small>{config.rulesetVersion}</small>
+      <details className="thermal-lab-log thermal-clock-log">
+        <summary>
+          <span>3 · Action Log</span>
+          <strong>{history.length} resolved</strong>
+        </summary>
+        <div className="thermal-clock-log-body">
+          <small className="thermal-clock-log-version">{config.rulesetVersion}</small>
+          {history.length === 0 ? (
+            <p className="thermal-lab-empty">打出卡牌、执行移动或攻击，或使用测试动作后，这里会记录即时变化与 AT 推进。</p>
+          ) : (
+            <ol>
+              {[...history].reverse().map((entry, reverseIndex) => {
+                const actionNumber = history.length - reverseIndex
+                const beforeDerived = deriveThermalState(entry.before.thermal, rules)
+                const afterDerived = deriveThermalState(entry.after.thermal, rules)
+                const labels = eventLabelList(entry)
+                return (
+                  <li key={`${actionNumber}-${entry.actionId}`}>
+                    <header>
+                      <strong>#{actionNumber} {entry.actionLabel}</strong>
+                      <span>{labels.join(' · ') || 'Flow'}</span>
+                    </header>
+                    <code>
+                      {entry.before.elapsedAt.toFixed(2)} → {entry.after.elapsedAt.toFixed(2)} AT · T {formatThermalNumber(beforeDerived.temperature)} → {formatThermalNumber(afterDerived.temperature)}
+                    </code>
+                    <small>
+                      Immediate ΔT {formatThermalNumber(entry.immediateTrace.offsetDelta)} · ΔD {formatThermalNumber(entry.immediateTrace.driftDelta)} · {entry.timeline.length} event(s)
+                    </small>
+                  </li>
+                )
+              })}
+            </ol>
+          )}
         </div>
-        {history.length === 0 ? (
-          <p className="thermal-lab-empty">打出卡牌、执行移动或攻击，或使用 Debug Action 后，日志会记录即时变化、AT 推进与途中锚点。</p>
-        ) : (
-          <ol>
-            {[...history].reverse().map((entry, reverseIndex) => {
-              const actionNumber = history.length - reverseIndex
-              const beforeDerived = deriveThermalState(entry.before.thermal, rules)
-              const afterDerived = deriveThermalState(entry.after.thermal, rules)
-              const labels = eventLabelList(entry)
-              return (
-                <li key={`${actionNumber}-${entry.actionId}`}>
-                  <header>
-                    <strong>#{actionNumber} {entry.actionLabel}</strong>
-                    <span>{labels.join(' · ') || 'Flow'}</span>
-                  </header>
-                  <code>
-                    {entry.before.elapsedAt.toFixed(2)} → {entry.after.elapsedAt.toFixed(2)} AT · T {formatThermalNumber(beforeDerived.temperature)} → {formatThermalNumber(afterDerived.temperature)}
-                  </code>
-                  <small>
-                    Immediate ΔT {formatThermalNumber(entry.immediateTrace.offsetDelta)} · ΔD {formatThermalNumber(entry.immediateTrace.driftDelta)} · {entry.timeline.length} timeline event(s)
-                  </small>
-                </li>
-              )
-            })}
-          </ol>
-        )}
-      </section>
+      </details>
     </div>
   )
 }
