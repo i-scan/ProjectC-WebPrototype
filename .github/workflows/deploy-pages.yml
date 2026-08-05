@@ -51,7 +51,7 @@ jobs:
           TEST_RESULT: ${{ steps.tests.outcome }}
           TYPECHECK_RESULT: ${{ steps.typecheck.outcome }}
         run: |
-          printf '{"commit":"%s","builtAt":"%s","uiRevision":"tc1-inspector-tabs-v1","deploymentMode":"prototype-vite","testResult":"%s","typecheckResult":"%s"}\n' \
+          printf '{"commit":"%s","builtAt":"%s","uiRevision":"tc1-inspector-flow-v2","deploymentMode":"prototype-vite","testResult":"%s","typecheckResult":"%s"}\n' \
             "$GITHUB_SHA" \
             "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
             "$TEST_RESULT" \
@@ -62,7 +62,7 @@ jobs:
             echo '## ProjectC Pages build'
             echo
             echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- UI revision: \`tc1-inspector-tabs-v1\`"
+            echo "- UI revision: \`tc1-inspector-flow-v2\`"
             echo "- Vitest / rules diagnostics: **$TEST_RESULT**"
             echo "- TypeScript diagnostics: **$TYPECHECK_RESULT**"
             echo '- Deployment is blocked only when the Vite production build fails.'
@@ -108,7 +108,7 @@ jobs:
 
           test -n "$html"
           printf '%s' "$html" | grep -q 'projectc-ui-revision'
-          printf '%s' "$html" | grep -q 'tc1-inspector-tabs-v1'
+          printf '%s' "$html" | grep -q 'tc1-inspector-flow-v2'
 
           if printf '%s' "$html" | grep -q '/src/main.tsx'; then
             echo 'Published page still references the Vite development entry.' >&2
@@ -132,7 +132,8 @@ jobs:
             "${script_url}?commit=${EXPECTED_COMMIT}" \
             --output published-app.js
           grep -q 'thermal-clock-inspector-slot' published-app.js
-          grep -q 'TC1 Inspector' published-app.js
+          grep -q 'Select Test Action' published-app.js
+          grep -q '完整 Period 固定分为 4 个等长相位' published-app.js
 
           build_info_url="${PAGE_URL%/}/build-info.json?commit=${EXPECTED_COMMIT}"
           curl --fail --silent --show-error --location \
@@ -140,7 +141,7 @@ jobs:
             "$build_info_url" \
             --output published-build-info.json
           grep -q "$EXPECTED_COMMIT" published-build-info.json
-          grep -q 'tc1-inspector-tabs-v1' published-build-info.json
+          grep -q 'tc1-inspector-flow-v2' published-build-info.json
           grep -q 'prototype-vite' published-build-info.json
 
-          echo "Verified current commit, TC1 inspector entry, bundle, and build metadata: $script_url"
+          echo "Verified current commit, TC1 inspector flow, bundle, and build metadata: $script_url"
