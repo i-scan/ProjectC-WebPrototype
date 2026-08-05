@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { GraphicsLab } from './graphics/GraphicsLab'
 import { HexPrototype } from './hex/HexPrototype'
-import { ThermalPendulumPortal } from './hex/ThermalPendulumPortal'
 import { VisualFeedbackObserver } from './visual/VisualFeedbackObserver'
 import { VisualPrototype } from './visual/VisualPrototype'
 import './styles.css'
@@ -64,7 +63,6 @@ function Root() {
       {view === 'hex' && <HexPrototype />}
       {view === 'graphics' && <GraphicsLab />}
       {visualView && <VisualFeedbackObserver />}
-      {view === 'hex' && <ThermalPendulumPortal enabled />}
     </>
   )
 }
