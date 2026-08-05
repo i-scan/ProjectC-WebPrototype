@@ -19,6 +19,10 @@ import {
 } from './thermalClockExperiment'
 import { ThermalClockLab } from './ThermalClockLab'
 import {
+  runtimeActionToThermalClockAction,
+  type ThermalClockRuntimeSignal,
+} from './thermalClockRuntime'
+import {
   thermalClockAngleFor,
   thermalClockDialAngleFor,
   thermalClockDriftProjectionFor,
@@ -29,6 +33,16 @@ import './thermal-clock.css'
 
 type ThermalPendulumPortalProps = {
   enabled: boolean
+  inspectorActive: boolean
+  runtimeSignal?: ThermalClockRuntimeSignal
+  onOpenInspector: () => void
+}
+
+type ThermalPendulumProps = {
+  inspectorTarget: HTMLElement | null
+  inspectorActive: boolean
+  runtimeSignal?: ThermalClockRuntimeSignal
+  onOpenInspector: () => void
 }
 
 const pivot = { x: 130, y: 28 }
@@ -41,6 +55,10 @@ const previewEventRadius = 118
 function findActorPanelTarget(): HTMLElement | null {
   const bars = document.querySelector<HTMLElement>('.hex-prototype .visual-actor-card .visual-bars')
   return bars?.parentElement ?? null
+}
+
+function findInspectorTarget(): HTMLElement | null {
+  return document.getElementById('thermal-clock-inspector-slot')
 }
 
 function syncActorTemperatureDisplay(temperature: number) {
@@ -114,7 +132,12 @@ function phaseIndex(phaseBeat: number | null): number | null {
   return Math.min(3, Math.max(0, Math.floor(phaseBeat)))
 }
 
-function ThermalPendulum() {
+function ThermalPendulum({
+  inspectorTarget,
+  inspectorActive,
+  runtimeSignal,
+  onOpenInspector,
+}: ThermalPendulumProps) {
   const initialRules = getThermalClockRuleset(thermalClockExperimentConfig.defaultRulesetId)
   const initialScenario = getThermalClockScenario(thermalClockExperimentConfig.defaultScenarioId)
   const initialAction = getThermalClockAction(thermalClockExperimentConfig.defaultActionId)
@@ -126,9 +149,11 @@ function ThermalPendulum() {
   ))
   const [selectedActionId, setSelectedActionId] = useState(initialAction.id)
   const [history, setHistory] = useState<ThermalActionResolution[]>([])
-  const [labOpen, setLabOpen] = useState(false)
   const [activeResolution, setActiveResolution] = useState<ThermalActionResolution | null>(null)
   const resolveTimerRef = useRef<number | null>(null)
+  const activeResolutionRef = useRef<ThermalActionResolution | null>(null)
+  const sessionRef = useRef(session)
+  const lastRuntimeSequenceRef = useRef(0)
 
   const rules = getThermalClockRuleset(rulesetId)
   const scenario = getThermalClockScenario(scenarioId)
@@ -143,6 +168,14 @@ function ThermalPendulum() {
   const resolving = activeResolution !== null
 
   useEffect(() => {
+    sessionRef.current = session
+  }, [session])
+
+  useEffect(() => {
+    activeResolutionRef.current = activeResolution
+  }, [activeResolution])
+
+  useEffect(() => {
     syncActorTemperatureDisplay(visibleDerived.temperature)
   }, [visibleDerived.temperature])
 
@@ -150,13 +183,79 @@ function ThermalPendulum() {
     if (resolveTimerRef.current !== null) window.clearTimeout(resolveTimerRef.current)
   }, [])
 
-  const cancelPendingResolution = () => {
+  const clearResolutionTimer = () => {
     if (resolveTimerRef.current !== null) {
       window.clearTimeout(resolveTimerRef.current)
       resolveTimerRef.current = null
     }
-    setActiveResolution(null)
   }
+
+  const commitResolution = (resolution: ThermalActionResolution) => {
+    setHistory((current) => [...current, resolution])
+    setSession(resolution.after)
+    sessionRef.current = resolution.after
+    setActiveResolution(null)
+    activeResolutionRef.current = null
+  }
+
+  const flushPendingResolution = () => {
+    clearResolutionTimer()
+    const pending = activeResolutionRef.current
+    if (pending) commitResolution(pending)
+  }
+
+  const cancelPendingResolution = () => {
+    clearResolutionTimer()
+    setActiveResolution(null)
+    activeResolutionRef.current = null
+  }
+
+  const beginResolution = (resolution: ThermalActionResolution, delay: number) => {
+    clearResolutionTimer()
+    setActiveResolution(resolution)
+    activeResolutionRef.current = resolution
+    resolveTimerRef.current = window.setTimeout(() => {
+      commitResolution(resolution)
+      resolveTimerRef.current = null
+    }, delay)
+  }
+
+  useEffect(() => {
+    if (!runtimeSignal || runtimeSignal.sequence <= lastRuntimeSequenceRef.current) return
+    lastRuntimeSequenceRef.current = runtimeSignal.sequence
+
+    if (runtimeSignal.type === 'restart') {
+      cancelPendingResolution()
+      const resetSession = sessionFromScenario(scenario, rules)
+      setSession(resetSession)
+      sessionRef.current = resetSession
+      setHistory([])
+      return
+    }
+
+    if (runtimeSignal.type === 'undo') {
+      const pending = activeResolutionRef.current
+      cancelPendingResolution()
+      if (pending) {
+        setSession(pending.before)
+        sessionRef.current = pending.before
+        return
+      }
+      setHistory((current) => {
+        const previous = current.at(-1)
+        if (!previous) return current
+        setSession(previous.before)
+        sessionRef.current = previous.before
+        return current.slice(0, -1)
+      })
+      return
+    }
+
+    flushPendingResolution()
+    const runtimeAction = runtimeActionToThermalClockAction(runtimeSignal)
+    const resolution = resolveThermalAction(sessionRef.current, runtimeAction, rules)
+    beginResolution(resolution, 220)
+  }, [runtimeSignal])
 
   const zoneValues = useMemo(() => Array.from(
     {
@@ -197,7 +296,7 @@ function ThermalPendulum() {
     ? ''
     : driftArrowHeadPath(drift.endAngle, drift.direction, driftRadius)
 
-  const showGhost = labOpen && !resolving && (
+  const showGhost = inspectorActive && !resolving && (
     !thermalStateEquals(session.thermal, preview.after.thermal)
     || Math.abs(session.elapsedAt - preview.after.elapsedAt) > 1e-6
   )
@@ -240,62 +339,78 @@ function ThermalPendulum() {
 
   const resolveSelectedAction = () => {
     if (resolving) return
-    const resolution = preview
-    setActiveResolution(resolution)
     const animationDelay = Math.min(680, 280 + selectedAction.baseActionTime * 90)
-    resolveTimerRef.current = window.setTimeout(() => {
-      setHistory((current) => [...current, resolution])
-      setSession(resolution.after)
-      setActiveResolution(null)
-      resolveTimerRef.current = null
-    }, animationDelay)
+    beginResolution(preview, animationDelay)
   }
 
   const undoAction = () => {
+    const pending = activeResolutionRef.current
     cancelPendingResolution()
-    const previous = history.at(-1)
-    if (!previous) return
-    setSession(previous.before)
-    setHistory(history.slice(0, -1))
+    if (pending) {
+      setSession(pending.before)
+      sessionRef.current = pending.before
+      return
+    }
+    setHistory((current) => {
+      const previous = current.at(-1)
+      if (!previous) return current
+      setSession(previous.before)
+      sessionRef.current = previous.before
+      return current.slice(0, -1)
+    })
   }
 
   const restartScenario = () => {
     cancelPendingResolution()
-    setSession(sessionFromScenario(scenario, rules))
+    const resetSession = sessionFromScenario(scenario, rules)
+    setSession(resetSession)
+    sessionRef.current = resetSession
     setHistory([])
   }
 
   const replayHistory = () => {
     cancelPendingResolution()
-    const actionIds = history.map((entry) => entry.actionId)
+    const actionIds = history
+      .map((entry) => entry.actionId)
+      .filter((actionId) => thermalClockExperimentConfig.actions.some((action) => action.id === actionId))
     const initialSession = sessionFromScenario(scenario, rules)
     const replayed = replayThermalClockActions(initialSession, actionIds, rules)
     setHistory(replayed)
-    setSession(replayed.at(-1)?.after ?? initialSession)
+    const replayedSession = replayed.at(-1)?.after ?? initialSession
+    setSession(replayedSession)
+    sessionRef.current = replayedSession
   }
 
   const changeRuleset = (nextRulesetId: string) => {
     cancelPendingResolution()
     const nextRules = getThermalClockRuleset(nextRulesetId)
+    const resetSession = sessionFromScenario(scenario, nextRules)
     setRulesetId(nextRules.id)
-    setSession(sessionFromScenario(scenario, nextRules))
+    setSession(resetSession)
+    sessionRef.current = resetSession
     setHistory([])
   }
 
   const changeScenario = (nextScenarioId: string) => {
     cancelPendingResolution()
     const nextScenario = getThermalClockScenario(nextScenarioId)
+    const resetSession = sessionFromScenario(nextScenario, rules)
     setScenarioId(nextScenario.id)
-    setSession(sessionFromScenario(nextScenario, rules))
+    setSession(resetSession)
+    sessionRef.current = resetSession
     setHistory([])
   }
 
   const changeManualState = (patch: Partial<ActorThermalState>) => {
     cancelPendingResolution()
-    setSession((current) => ({
-      ...current,
-      thermal: normalizeThermalState({ ...current.thermal, ...patch }, rules),
-    }))
+    setSession((current) => {
+      const next = {
+        ...current,
+        thermal: normalizeThermalState({ ...current.thermal, ...patch }, rules),
+      }
+      sessionRef.current = next
+      return next
+    })
     setHistory([])
   }
 
@@ -312,7 +427,7 @@ function ThermalPendulum() {
       >
         <div className="thermal-pendulum-heading">
           <strong>热力钟摆</strong>
-          <button type="button" onClick={() => setLabOpen(true)}>TC1 Lab</button>
+          <button type="button" onClick={onOpenInspector}>TC1 Inspector</button>
         </div>
 
         <div className="thermal-pendulum-dial">
@@ -390,13 +505,14 @@ function ThermalPendulum() {
             <span>Apex <b>{formatThermalNumber(visibleDerived.projectedApexTemperature)}</b></span>
             <span>Actions <b>{history.length}</b></span>
           </div>
-          <button type="button" onClick={() => setLabOpen(true)}>打开 Thermal Clock Lab</button>
+          <button type="button" onClick={onOpenInspector}>打开 Thermal Clock Inspector</button>
         </details>
       </section>
 
-      {createPortal(
+      {inspectorTarget && createPortal(
         <ThermalClockLab
-          open={labOpen}
+          open
+          embedded
           config={thermalClockExperimentConfig}
           rules={rules}
           scenario={scenario}
@@ -405,7 +521,6 @@ function ThermalPendulum() {
           preview={preview}
           history={history}
           resolving={resolving}
-          onClose={() => setLabOpen(false)}
           onRulesetChange={changeRuleset}
           onScenarioChange={changeScenario}
           onStateChange={changeManualState}
@@ -415,32 +530,49 @@ function ThermalPendulum() {
           onRestart={restartScenario}
           onReplay={replayHistory}
         />,
-        document.body,
+        inspectorTarget,
       )}
     </>
   )
 }
 
-export function ThermalPendulumPortal({ enabled }: ThermalPendulumPortalProps) {
-  const [target, setTarget] = useState<HTMLElement | null>(null)
+export function ThermalPendulumPortal({
+  enabled,
+  inspectorActive,
+  runtimeSignal,
+  onOpenInspector,
+}: ThermalPendulumPortalProps) {
+  const [actorTarget, setActorTarget] = useState<HTMLElement | null>(null)
+  const [inspectorTarget, setInspectorTarget] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!enabled) {
-      setTarget(null)
+      setActorTarget(null)
+      setInspectorTarget(null)
       return undefined
     }
 
-    const syncTarget = () => {
-      const next = findActorPanelTarget()
-      setTarget((current) => current === next ? current : next)
+    const syncTargets = () => {
+      const nextActor = findActorPanelTarget()
+      const nextInspector = findInspectorTarget()
+      setActorTarget((current) => current === nextActor ? current : nextActor)
+      setInspectorTarget((current) => current === nextInspector ? current : nextInspector)
     }
 
-    syncTarget()
-    const observer = new MutationObserver(syncTarget)
+    syncTargets()
+    const observer = new MutationObserver(syncTargets)
     observer.observe(document.body, { childList: true, subtree: true })
     return () => observer.disconnect()
   }, [enabled])
 
-  if (!enabled || !target) return null
-  return createPortal(<ThermalPendulum />, target)
+  if (!enabled || !actorTarget) return null
+  return createPortal(
+    <ThermalPendulum
+      inspectorTarget={inspectorTarget}
+      inspectorActive={inspectorActive}
+      runtimeSignal={runtimeSignal}
+      onOpenInspector={onOpenInspector}
+    />,
+    actorTarget,
+  )
 }
