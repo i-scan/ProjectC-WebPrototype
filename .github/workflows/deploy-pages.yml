@@ -60,6 +60,18 @@ jobs:
           EXPECTED_COMMIT: ${{ github.sha }}
         run: pnpm verify:dist
 
+      - name: Verify browser-computed inspector layout
+        run: pnpm verify:browser
+
+      - name: Upload inspector browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inspector-layout-${{ github.sha }}
+          path: ./artifacts/inspector-layout.*
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
@@ -82,7 +94,7 @@ jobs:
           echo >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source: \`main\`" >> "$GITHUB_STEP_SUMMARY"
-          echo '- Rules, tests, TypeScript, Vite build, and artifact verification: **passed**' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Rules, tests, TypeScript, Vite build, artifact verification, and browser-computed inspector layout: **passed**' >> "$GITHUB_STEP_SUMMARY"
           echo "- Revision check: https://i-scan.github.io/ProjectC-WebPrototype/?revision=${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Build metadata: https://i-scan.github.io/ProjectC-WebPrototype/build-info.json?revision=${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
 

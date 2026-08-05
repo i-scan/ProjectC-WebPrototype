@@ -1,0 +1,56 @@
+name: Verify Pull Request
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout proposed commit
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run rules and regression tests
+        run: pnpm test
+
+      - name: Build production site
+        run: pnpm build
+
+      - name: Verify production artifact
+        run: pnpm verify:dist
+
+      - name: Verify browser-computed inspector layout
+        run: pnpm verify:browser
+
+      - name: Upload inspector browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inspector-layout-pr-${{ github.event.pull_request.number || github.run_id }}
+          path: ./artifacts/inspector-layout.*
+          if-no-files-found: warn
+          retention-days: 14

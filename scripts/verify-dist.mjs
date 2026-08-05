@@ -28,6 +28,10 @@ assert(script.includes(expectedCommit), 'app bundle does not contain the expecte
 assert(script.includes('hex-inspector-coordinate'), 'React-owned inspector coordinate is missing')
 assert(script.includes('inspector-panel-'), 'React-owned inspector panel mode is missing')
 assert(script.includes('thermal-clock-config-label'), 'rebuilt Thermal configuration controls are missing')
+assert(script.includes('data-inspector-layout-contract'), 'runtime inspector layout contract marker is missing')
+assert(script.includes('runtime-v2'), 'runtime inspector layout contract version is missing')
+assert(script.includes('560px'), 'runtime Thermal inspector target width is missing')
+assert(script.includes('white-space: nowrap !important'), 'runtime single-line tab contract is missing')
 assert(!script.includes('RightInspectorChrome'), 'obsolete DOM-patching inspector component is still bundled')
 
 const styleMatch = html.match(/<link[^>]+href="([^"]+\.css)"/)
@@ -36,17 +40,11 @@ const stylePath = styleMatch[1].replace(/^\/ProjectC-WebPrototype\//, '')
 await stat(resolve(distDir, stylePath))
 const style = await readFile(resolve(distDir, stylePath), 'utf8')
 
-// Use whitespace-tolerant checks because Vite may minify declarations differently
-// across versions. These checks verify the final layout contract rather than the
-// presence of an older declaration that can still be overridden later in the bundle.
-assert(/\.inspector-thermal/.test(style), 'Thermal inspector width mode is missing from CSS')
+// Shared Inspector styling remains in the bundled stylesheet. The final width,
+// tab row and typography contract is runtime-authored and browser-verified.
+assert(/\.inspector-thermal/.test(style), 'shared Thermal inspector styling is missing from CSS')
 assert(/hex-inspector-coordinate/.test(style), 'shared coordinate styling is missing from CSS')
-assert(/--inspector-right-width\s*:\s*520px/.test(style), 'desktop Thermal inspector width is not present in CSS')
-assert(/grid-template-columns\s*:\s*repeat\(2\s*,\s*minmax\(0\s*,\s*1fr\)\)\s*!important/.test(style), 'inspector tabs do not use two shrinkable columns')
-assert(/grid-column\s*:\s*1\s*\/\s*-1/.test(style), 'inspector coordinate is not isolated from the tab row')
-assert(/--tc-body\s*:\s*12px/.test(style), 'Thermal base type scale is missing')
-assert(/--tc-value-emphasis\s*:\s*20px/.test(style), 'Thermal emphasis type scale is missing')
-assert(/font-family\s*:\s*inherit\s*!important/.test(style), 'embedded Thermal controls do not inherit the inspector typeface')
+assert(/--tc-body\s*:\s*12px/.test(style), 'shared Thermal base type scale is missing')
 assert(!/font-size\s*:\s*6px\s*!important/.test(style), 'obsolete 6px Thermal override is still bundled')
 
 console.log(`Verified dist for ${info.branch}@${info.shortCommit}.`)
