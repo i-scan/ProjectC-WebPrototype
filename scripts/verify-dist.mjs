@@ -29,8 +29,11 @@ assert(script.includes('hex-inspector-coordinate'), 'React-owned inspector coord
 assert(script.includes('inspector-panel-'), 'React-owned inspector panel mode is missing')
 assert(script.includes('thermal-clock-config-label'), 'rebuilt Thermal configuration controls are missing')
 assert(script.includes('data-inspector-layout-contract'), 'runtime inspector layout contract marker is missing')
-assert(script.includes('runtime-v2'), 'runtime inspector layout contract version is missing')
-assert(script.includes('560px'), 'runtime Thermal inspector target width is missing')
+assert(script.includes('runtime-v3'), 'stable-width inspector layout contract version is missing')
+assert(script.includes('460px'), 'desktop unified inspector width is missing')
+assert(script.includes('430px'), 'laptop unified inspector width is missing')
+assert(script.includes('--tc-body: 10px'), 'compact Thermal base type scale is missing')
+assert(script.includes('--tc-value-emphasis: 14px'), 'compact Thermal emphasis scale is missing')
 assert(script.includes('white-space: nowrap !important'), 'runtime single-line tab contract is missing')
 assert(!script.includes('RightInspectorChrome'), 'obsolete DOM-patching inspector component is still bundled')
 
@@ -41,10 +44,9 @@ await stat(resolve(distDir, stylePath))
 const style = await readFile(resolve(distDir, stylePath), 'utf8')
 
 // Shared Inspector styling remains in the bundled stylesheet. The final width,
-// tab row and typography contract is runtime-authored and browser-verified.
+// tab row and compact typography contract is runtime-authored and browser-verified.
 assert(/\.inspector-thermal/.test(style), 'shared Thermal inspector styling is missing from CSS')
 assert(/hex-inspector-coordinate/.test(style), 'shared coordinate styling is missing from CSS')
-assert(/--tc-body\s*:\s*12px/.test(style), 'shared Thermal base type scale is missing')
 assert(!/font-size\s*:\s*6px\s*!important/.test(style), 'obsolete 6px Thermal override is still bundled')
 
 console.log(`Verified dist for ${info.branch}@${info.shortCommit}.`)
