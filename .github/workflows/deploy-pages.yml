@@ -31,6 +31,12 @@ jobs:
         run: npm run test
       - name: Build
         run: npm run build
+      - name: Write build metadata
+        run: |
+          printf '{"commit":"%s","builtAt":"%s","uiRevision":"tc1-inspector-tabs-v1"}\n' \
+            "$GITHUB_SHA" \
+            "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            > dist/build-info.json
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact
@@ -51,6 +57,7 @@ jobs:
       - name: Verify published site
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
 
@@ -83,5 +90,12 @@ jobs:
           esac
 
           curl --fail --silent --show-error --location "$script_url" --output published-app.js
-          grep -q 'thermal-pendulum' published-app.js
-          echo "Verified page, JavaScript asset, and thermal pendulum bundle: $script_url"
+          grep -q 'thermal-clock-inspector-slot' published-app.js
+          grep -q 'TC1 Inspector' published-app.js
+
+          build_info_url="${PAGE_URL%/}/build-info.json"
+          curl --fail --silent --show-error --location "$build_info_url" --output published-build-info.json
+          grep -q "$EXPECTED_COMMIT" published-build-info.json
+          grep -q 'tc1-inspector-tabs-v1' published-build-info.json
+
+          echo "Verified current commit, TC1 inspector bundle, and build metadata: $script_url"
