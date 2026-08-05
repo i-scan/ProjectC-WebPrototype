@@ -8,6 +8,7 @@ import { VisualPrototype } from './visual/VisualPrototype'
 import './styles.css'
 import './visual/visual-v3.css'
 import './visual/inspector-fix.css'
+import './hex/thermal-clock-inspector.css'
 
 type View = 'rules' | 'visual' | 'hex' | 'graphics'
 
