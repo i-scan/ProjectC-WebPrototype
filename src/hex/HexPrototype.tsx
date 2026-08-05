@@ -244,8 +244,6 @@ export function HexPrototype() {
       id: card.id,
       label: `卡牌 · ${card.name}`,
       baseApCost: card.cost,
-      // TC1 first pass: Base AT defaults to Base AP. An active 0 AP card
-      // would still consume 1 AT unless it is explicitly defined as Reaction.
       actionTime: Math.max(1, card.cost),
       offsetDelta: getPlayer(after).bodyTemperature - getPlayer(before).bodyTemperature,
     })
@@ -531,7 +529,7 @@ export function HexPrototype() {
 
   return (
     <>
-      <main className="visual-prototype hex-prototype">
+      <main className={`visual-prototype hex-prototype inspector-${rightInspectorTab}`}>
         <header className="visual-hud">
           <div className="visual-brand">
             <p className="eyebrow">ProjectC · Hex6 Map Structure Lab</p>
@@ -721,11 +719,13 @@ export function HexPrototype() {
             )}
           </section>
 
-          <aside className="visual-panel visual-right-panel">
+          <aside className={`visual-panel visual-right-panel inspector-panel-${rightInspectorTab}`}>
             <div className="hex-inspector-tabs" role="tablist" aria-label="右侧 Inspector">
               <button
+                id="hex-inspector-tab"
                 type="button"
                 role="tab"
+                aria-controls="hex-inspector-content"
                 aria-selected={rightInspectorTab === 'hex'}
                 className={rightInspectorTab === 'hex' ? 'active' : ''}
                 onClick={() => setRightInspectorTab('hex')}
@@ -733,37 +733,45 @@ export function HexPrototype() {
                 Hex Inspector
               </button>
               <button
+                id="thermal-inspector-tab"
                 type="button"
                 role="tab"
+                aria-controls="thermal-inspector-content"
                 aria-selected={rightInspectorTab === 'thermal'}
                 className={rightInspectorTab === 'thermal' ? 'active' : ''}
                 onClick={() => setRightInspectorTab('thermal')}
               >
                 Thermal Clock
               </button>
+              <span className="hex-inspector-coordinate" role="status" aria-live="polite">
+                ({inspectCoord.x},{inspectCoord.y}) · D{selectedDistance}
+              </span>
             </div>
 
-            <section className="hex-inspector-pane" hidden={rightInspectorTab !== 'hex'}>
-              <div className="visual-section-heading"><h3>Hex Inspector</h3><span>({inspectCoord.x},{inspectCoord.y}) · D{selectedDistance}</span></div>
-              {inspectedCell && <div className="visual-inspector-stack"><div className="visual-inspector-block ground"><div className="visual-inspector-title"><span className={`visual-temp-orb temp-${Math.max(-3, Math.min(3, inspectedCell.groundTemp)) + 3}`} /><div><strong>Ground Hex</strong><p>{inspectedCell.tags.includes('Blocked') ? '不可通行山脊' : '连续地图地面层'}</p></div></div><dl><div><dt>Temperature</dt><dd>{formatTemperature(inspectedCell.groundTemp)}</dd></div><div><dt>Fill</dt><dd>{inspectedCell.groundFill}</dd></div><div><dt>Moisture</dt><dd>{inspectedCell.moisture}</dd></div><div><dt>Tags</dt><dd>{inspectedCell.tags.join(', ') || '—'}</dd></div></dl></div><div className={`visual-inspector-block sky ${inspectedCell.skyFill === 'clear' ? 'is-clear' : ''}`}><div className="visual-inspector-title"><span className={`visual-temp-orb temp-${Math.max(-3, Math.min(3, inspectedCell.skyTemp)) + 3}`} /><div><strong>Sky Hex</strong><p>旅行与战术共用的上层状态</p></div></div><dl><div><dt>Temperature</dt><dd>{formatTemperature(inspectedCell.skyTemp)}</dd></div><div><dt>Fill</dt><dd>{inspectedCell.skyFill}</dd></div><div><dt>Cloud Age</dt><dd>{inspectedCell.cloudAge || '—'}</dd></div><div><dt>Wind</dt><dd>{String(inspectedCell.wind ?? '—')}</dd></div><div><dt>Intent</dt><dd>{inspectedCell.intents.map((intent) => `${intent.type} T+${intent.countdown}`).join(', ') || '—'}</dd></div></dl></div></div>}
-              {inspectedActor && <div className="visual-inspector-block actor"><div className="visual-inspector-title"><span className={`visual-faction ${inspectedActor.faction}`} /><div><strong>{inspectedActor.name}</strong><p>{inspectedActor.actorType} · {inspectedActor.intent || '无公开意图'}</p></div></div><dl><div><dt>HP / Shield</dt><dd>{inspectedActor.hp}/{inspectedActor.maxHp} · {inspectedActor.shield}</dd></div><div><dt>体温 / 平衡</dt><dd>{formatTemperature(inspectedActor.bodyTemperature)} / {formatTemperature(inspectedActor.balanceTemperature)}</dd></div><div><dt>Mass</dt><dd>{inspectedActor.mass}</dd></div></dl></div>}
-            </section>
+            {rightInspectorTab === 'hex' ? (
+              <div id="hex-inspector-content" role="tabpanel" aria-labelledby="hex-inspector-tab" className="hex-inspector-content">
+                <section className="hex-inspector-pane">
+                  {inspectedCell && <div className="visual-inspector-stack"><div className="visual-inspector-block ground"><div className="visual-inspector-title"><span className={`visual-temp-orb temp-${Math.max(-3, Math.min(3, inspectedCell.groundTemp)) + 3}`} /><div><strong>Ground Hex</strong><p>{inspectedCell.tags.includes('Blocked') ? '不可通行山脊' : '连续地图地面层'}</p></div></div><dl><div><dt>Temperature</dt><dd>{formatTemperature(inspectedCell.groundTemp)}</dd></div><div><dt>Fill</dt><dd>{inspectedCell.groundFill}</dd></div><div><dt>Moisture</dt><dd>{inspectedCell.moisture}</dd></div><div><dt>Tags</dt><dd>{inspectedCell.tags.join(', ') || '—'}</dd></div></dl></div><div className={`visual-inspector-block sky ${inspectedCell.skyFill === 'clear' ? 'is-clear' : ''}`}><div className="visual-inspector-title"><span className={`visual-temp-orb temp-${Math.max(-3, Math.min(3, inspectedCell.skyTemp)) + 3}`} /><div><strong>Sky Hex</strong><p>旅行与战术共用的上层状态</p></div></div><dl><div><dt>Temperature</dt><dd>{formatTemperature(inspectedCell.skyTemp)}</dd></div><div><dt>Fill</dt><dd>{inspectedCell.skyFill}</dd></div><div><dt>Cloud Age</dt><dd>{inspectedCell.cloudAge || '—'}</dd></div><div><dt>Wind</dt><dd>{String(inspectedCell.wind ?? '—')}</dd></div><div><dt>Intent</dt><dd>{inspectedCell.intents.map((intent) => `${intent.type} T+${intent.countdown}`).join(', ') || '—'}</dd></div></dl></div></div>}
+                  {inspectedActor && <div className="visual-inspector-block actor"><div className="visual-inspector-title"><span className={`visual-faction ${inspectedActor.faction}`} /><div><strong>{inspectedActor.name}</strong><p>{inspectedActor.actorType} · {inspectedActor.intent || '无公开意图'}</p></div></div><dl><div><dt>HP / Shield</dt><dd>{inspectedActor.hp}/{inspectedActor.maxHp} · {inspectedActor.shield}</dd></div><div><dt>体温 / 平衡</dt><dd>{formatTemperature(inspectedActor.bodyTemperature)} / {formatTemperature(inspectedActor.balanceTemperature)}</dd></div><div><dt>Mass</dt><dd>{inspectedActor.mass}</dd></div></dl></div>}
+                </section>
 
-            <section className="thermal-clock-inspector-pane" hidden={rightInspectorTab !== 'thermal'}>
-              <div id="thermal-clock-inspector-slot" />
-            </section>
+                <section>
+                  <div className="visual-section-heading"><h3>地图时间线</h3><span>{playbackActive ? `表现队列 ${eventQueue.length}` : mode === 'travel' ? `Clock ${travelProgress}/${state.config.baseAP}` : autoResolving ? `${speedLabels[simulationSpeed]} 自动演算` : '最近日志'}</span></div>
+                  <div className="visual-causality">{state.logs.slice(0, 9).map((log, index) => <div key={`${index}-${log}`}><span>{index + 1}</span><p>{log}</p></div>)}</div>
+                </section>
 
-            <section>
-              <div className="visual-section-heading"><h3>地图时间线</h3><span>{playbackActive ? `表现队列 ${eventQueue.length}` : mode === 'travel' ? `Clock ${travelProgress}/${state.config.baseAP}` : autoResolving ? `${speedLabels[simulationSpeed]} 自动演算` : '最近日志'}</span></div>
-              <div className="visual-causality">{state.logs.slice(0, 9).map((log, index) => <div key={`${index}-${log}`}><span>{index + 1}</span><p>{log}</p></div>)}</div>
-            </section>
-
-            <section className="visual-slice-note">
-              <h3>本轮验证问题</h3>
-              <p>{mapStructure === 'room' ? '哪一个房间半径能在移动自由、卡牌覆盖和局部拥挤之间形成最佳张力？' : '最快路线是否因为天气与敌人变得不稳定，而安全路线值得额外距离？'}</p>
-              <p>8 / 12 AT 是否提供合适的相位干预密度，而不是把四相误读为八或十二个阶段？</p>
-              <p>卡牌费用映射为 Base AT 后，连续摆动是否能自然影响行动选择？</p>
-            </section>
+                <section className="visual-slice-note">
+                  <h3>本轮验证问题</h3>
+                  <p>{mapStructure === 'room' ? '哪一个房间半径能在移动自由、卡牌覆盖和局部拥挤之间形成最佳张力？' : '最快路线是否因为天气与敌人变得不稳定，而安全路线值得额外距离？'}</p>
+                  <p>8 / 12 AT 是否提供合适的相位干预密度，而不是把四相误读为八或十二个阶段？</p>
+                  <p>卡牌费用映射为 Base AT 后，连续摆动是否能自然影响行动选择？</p>
+                </section>
+              </div>
+            ) : (
+              <section id="thermal-inspector-content" role="tabpanel" aria-labelledby="thermal-inspector-tab" className="thermal-clock-inspector-pane">
+                <div id="thermal-clock-inspector-slot" />
+              </section>
+            )}
           </aside>
         </section>
       </main>
