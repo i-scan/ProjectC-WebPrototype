@@ -4,27 +4,36 @@
 
 .hex-prototype .visual-right-panel {
   min-width: 0;
+  overflow-x: hidden;
+  isolation: isolate;
 }
 
 .hex-inspector-tabs {
+  position: relative;
+  z-index: 3;
+  width: 100%;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
-  margin: -3px -3px 12px;
+  margin: 0 0 10px;
   padding: 4px;
+  box-sizing: border-box;
   border: 1px solid rgba(126, 164, 211, .16);
   border-radius: 10px;
-  background: rgba(5, 12, 20, .42);
+  background: rgba(5, 12, 20, .82);
 }
 
 .hex-inspector-tabs button {
   min-width: 0;
-  padding: 7px 6px;
+  width: 100%;
+  padding: 7px 5px;
+  overflow: hidden;
   border-color: transparent;
   color: rgba(151, 176, 199, .7);
   background: transparent;
   font-size: 9px;
   font-weight: 700;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -40,66 +49,154 @@
   display: none !important;
 }
 
+/* Thermal Clock is a complete alternate inspector, not an overlay over the
+   Hex inspector and its secondary sections. */
+.hex-prototype .visual-right-panel:has(> .thermal-clock-inspector-pane:not([hidden]))
+  > section:not(.thermal-clock-inspector-pane) {
+  display: none !important;
+}
+
 .hex-prototype .visual-right-panel > .hex-inspector-pane,
 .hex-prototype .visual-right-panel > .thermal-clock-inspector-pane {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
+  position: static;
+  z-index: auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  box-sizing: border-box;
 }
 
 #thermal-clock-inspector-slot {
+  position: static;
   min-width: 0;
   width: 100%;
-}
-
-.thermal-inertia-lab.thermal-clock-lab.is-embedded {
-  position: static;
-  top: auto;
-  right: auto;
-  z-index: auto;
-  width: 100%;
-  max-height: none;
+  max-width: 100%;
   overflow: visible;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
+  box-sizing: border-box;
 }
 
-.thermal-clock-lab.is-embedded .thermal-lab-header {
-  position: static;
+/* The Lab started life as a fixed floating panel. Embedded mode must sever
+   every floating-layout property even when component CSS is injected later. */
+.hex-prototype .thermal-inertia-lab.thermal-clock-lab.is-embedded {
+  position: static !important;
+  inset: auto !important;
+  top: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  z-index: auto !important;
+  display: block !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  transform: none !important;
+  box-sizing: border-box;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded,
+.hex-prototype .thermal-clock-lab.is-embedded * {
+  box-sizing: border-box;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-header {
+  position: static !important;
+  inset: auto !important;
+  z-index: auto !important;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
   padding: 0 0 9px;
-  border-bottom-color: rgba(151, 193, 198, .12);
-  background: transparent;
-  backdrop-filter: none;
+  border-bottom: 1px solid rgba(151, 193, 198, .12);
+  background: transparent !important;
+  backdrop-filter: none !important;
 }
 
-.thermal-clock-lab.is-embedded .thermal-lab-header h2 {
-  font-size: 14px;
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-header > div,
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-section-heading > div,
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-preview-header > div:first-child {
+  min-width: 0;
 }
 
-.thermal-clock-lab.is-embedded .thermal-lab-config,
-.thermal-clock-lab.is-embedded .thermal-clock-overview,
-.thermal-clock-lab.is-embedded .thermal-clock-phase-card,
-.thermal-clock-lab.is-embedded .thermal-lab-manual,
-.thermal-clock-lab.is-embedded .thermal-lab-actions,
-.thermal-clock-lab.is-embedded .thermal-lab-preview,
-.thermal-clock-lab.is-embedded .thermal-lab-toolbar,
-.thermal-clock-lab.is-embedded .thermal-lab-log {
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-header h2 {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-config,
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-overview,
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-phase-card,
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-manual,
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-actions,
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-preview,
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-toolbar,
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-log {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
   padding-right: 0;
   padding-left: 0;
+  overflow: hidden;
 }
 
-.thermal-clock-lab.is-embedded .thermal-clock-setup {
+.hex-prototype .thermal-clock-lab.is-embedded select,
+.hex-prototype .thermal-clock-lab.is-embedded input,
+.hex-prototype .thermal-clock-lab.is-embedded button {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded select {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded p,
+.hex-prototype .thermal-clock-lab.is-embedded strong,
+.hex-prototype .thermal-clock-lab.is-embedded span,
+.hex-prototype .thermal-clock-lab.is-embedded small,
+.hex-prototype .thermal-clock-lab.is-embedded code,
+.hex-prototype .thermal-clock-lab.is-embedded summary {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-setup {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding-top: 10px;
   padding-bottom: 10px;
 }
 
-.thermal-clock-lab.is-embedded .thermal-clock-setup > p {
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-setup > label {
+  min-width: 0;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-setup > p {
   grid-column: 1 / -1;
   margin: -1px 0 0;
   color: rgba(170, 197, 199, .52);
@@ -113,9 +210,20 @@
   border-bottom: 1px solid rgba(151, 193, 198, .12);
 }
 
-.thermal-clock-lab.is-embedded .thermal-clock-overview .thermal-lab-state-grid {
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-overview .thermal-lab-state-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 0;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-state-value {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-state-value strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thermal-clock-state-meta {
@@ -126,25 +234,28 @@
   line-height: 1.45;
 }
 
-.thermal-clock-lab.is-embedded .thermal-clock-phase-card {
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-phase-card {
   padding-top: 10px;
-  padding-bottom: 11px;
+  padding-bottom: 10px;
 }
 
-.thermal-clock-period-explanation {
-  margin: 5px 0 7px;
-  color: rgba(168, 194, 195, .48);
-  font-size: 7px;
-  line-height: 1.45;
+/* Intentionally secondary copy: one sentence only, no expanded AT schedule. */
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-period-explanation {
+  display: block;
+  margin: 4px 0 6px;
+  color: rgba(168, 194, 195, .42);
+  font-size: 6px !important;
+  font-weight: 400;
+  line-height: 1.35;
+  letter-spacing: 0;
 }
 
-.thermal-clock-lab.is-embedded .thermal-clock-phase-axis {
-  margin-top: 7px;
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-phase-axis {
+  margin-top: 6px;
 }
 
 .thermal-clock-advanced-state,
 .thermal-clock-advanced-actions,
-.thermal-clock-timeline-details,
 .thermal-clock-log {
   border: 1px solid rgba(145, 184, 188, .1);
   border-radius: 7px;
@@ -153,7 +264,6 @@
 
 .thermal-clock-advanced-state > summary,
 .thermal-clock-advanced-actions > summary,
-.thermal-clock-timeline-details > summary,
 .thermal-clock-log > summary {
   min-height: 28px;
   display: flex;
@@ -170,33 +280,31 @@
 
 .thermal-clock-advanced-state > summary::after,
 .thermal-clock-advanced-actions > summary::after,
-.thermal-clock-timeline-details > summary::after,
 .thermal-clock-log > summary::after {
   content: '＋';
+  flex: none;
   color: rgba(160, 197, 199, .44);
   font-weight: 400;
 }
 
 .thermal-clock-advanced-state[open] > summary::after,
 .thermal-clock-advanced-actions[open] > summary::after,
-.thermal-clock-timeline-details[open] > summary::after,
 .thermal-clock-log[open] > summary::after {
   content: '−';
 }
 
 .thermal-clock-advanced-state > summary::-webkit-details-marker,
 .thermal-clock-advanced-actions > summary::-webkit-details-marker,
-.thermal-clock-timeline-details > summary::-webkit-details-marker,
 .thermal-clock-log > summary::-webkit-details-marker {
   display: none;
 }
 
-.thermal-clock-lab.is-embedded .thermal-clock-advanced-state {
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-advanced-state {
   margin: 9px 0 0;
   padding: 0;
 }
 
-.thermal-clock-lab.is-embedded .thermal-clock-advanced-state[open] {
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-advanced-state[open] {
   padding-bottom: 8px;
 }
 
@@ -213,13 +321,39 @@
   padding: 5px 4px;
 }
 
-.thermal-clock-lab.is-embedded .thermal-lab-actions {
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-actions {
   padding-top: 12px;
   padding-bottom: 10px;
 }
 
-.thermal-clock-lab.is-embedded .thermal-clock-action-grid {
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-action-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-action-grid > button {
+  height: 68px;
+  min-height: 68px;
+  max-height: 68px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: stretch;
+  overflow: hidden;
+  padding: 7px 6px;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-action-grid > button > strong,
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-action-grid > button > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-action-grid > button > span {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .thermal-clock-advanced-actions {
@@ -233,6 +367,7 @@
 
 .thermal-clock-action-summary {
   margin: 8px 0 0;
+  min-height: 25px;
   padding: 5px 7px;
   border: 1px solid rgba(112, 203, 220, .14);
   border-radius: 6px;
@@ -240,24 +375,34 @@
   background: rgba(64, 157, 177, .045);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 7px;
+  line-height: 1.35;
   text-align: center;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-preview-header {
+  align-items: flex-start;
+}
+
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-event-list {
+  flex: none;
+  min-width: 80px;
+  min-height: 18px;
+  max-width: 45%;
+  align-content: start;
+  justify-content: flex-end;
 }
 
 .thermal-clock-result-metrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.thermal-clock-timeline-details {
-  margin-top: 8px;
+/* Detailed timeline was redundant with the stable event chips above and made
+   the preview height vary between actions/turns. */
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-clock-timeline-details {
+  display: none !important;
 }
 
-.thermal-clock-timeline-details .thermal-clock-timeline {
-  margin: 0;
-  padding: 0 7px 5px;
-  border-top: 1px solid rgba(145, 184, 188, .08);
-}
-
-.thermal-clock-lab.is-embedded .thermal-lab-toolbar {
+.hex-prototype .thermal-clock-lab.is-embedded .thermal-lab-toolbar {
   padding-top: 8px;
   padding-bottom: 9px;
 }
