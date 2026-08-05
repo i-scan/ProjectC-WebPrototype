@@ -1,3 +1,4 @@
+[![Deploy GitHub Pages](https://github.com/i-scan/ProjectC-WebPrototype/actions/workflows/deploy-pages.yml/badge.svg?branch=main&event=push)](https://github.com/i-scan/ProjectC-WebPrototype/actions/workflows/deploy-pages.yml)
 # ProjectC Web Prototype
 
 用于验证 ProjectC 核心规则、Hex6 空间、地图尺度、Travel / Tactical、环境信息流与网页表现的实验原型。
