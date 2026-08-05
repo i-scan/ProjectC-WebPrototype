@@ -203,10 +203,19 @@ async function loadViewport(client, width) {
     deviceScaleFactor: 1,
     mobile: false,
   })
-  await client.send('Page.navigate', { url: pageUrl })
+  await client.send('Page.navigate', { url: `${pageUrl}?viewport=${width}` })
   await waitFor(`Hex prototype at ${width}px`, async () => {
     const ready = await evaluate(client, `Boolean(document.querySelector('.hex-prototype .hex-inspector-tabs'))`)
     if (!ready) throw new Error('inspector tabs not mounted')
+    const contract = await evaluate(client, `Boolean(document.querySelector('style[data-inspector-layout-contract="runtime-v2"]'))`)
+    if (!contract) throw new Error('runtime inspector contract not mounted')
+    return true
+  })
+
+  await evaluate(client, `document.querySelector('#hex-inspector-tab').click(); true`)
+  await waitFor(`Hex tab reset at ${width}px`, async () => {
+    const active = await evaluate(client, `document.querySelector('.hex-prototype')?.classList.contains('inspector-hex')`)
+    if (!active) throw new Error('hex root class not active')
     return true
   })
   await sleep(250)
