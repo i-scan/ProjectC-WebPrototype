@@ -5,36 +5,58 @@ if (!pageUrlArgument || !expectedCommit) {
 }
 
 const pageUrl = new URL(pageUrlArgument.endsWith('/') ? pageUrlArgument : `${pageUrlArgument}/`)
-const cacheBust = `${expectedCommit}-${Date.now()}`
+const maxAttempts = Number.parseInt(process.env.DEPLOY_VERIFY_ATTEMPTS || '60', 10)
+const retryDelayMs = Number.parseInt(process.env.DEPLOY_VERIFY_DELAY_MS || '5000', 10)
 
-async function fetchText(url) {
-  const response = await fetch(url, {
+if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+  throw new Error(`DEPLOY_VERIFY_ATTEMPTS must be a positive integer; received ${process.env.DEPLOY_VERIFY_ATTEMPTS}`)
+}
+if (!Number.isInteger(retryDelayMs) || retryDelayMs < 0) {
+  throw new Error(`DEPLOY_VERIFY_DELAY_MS must be a non-negative integer; received ${process.env.DEPLOY_VERIFY_DELAY_MS}`)
+}
+
+function verificationUrl(url, label, attempt) {
+  const requestUrl = new URL(url)
+  requestUrl.searchParams.set(
+    'verify',
+    `${expectedCommit}-${label}-${attempt}-${Date.now()}`,
+  )
+  return requestUrl
+}
+
+async function fetchFreshText(url, label, attempt) {
+  const requestUrl = verificationUrl(url, label, attempt)
+  const response = await fetch(requestUrl, {
     cache: 'no-store',
-    headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
+    },
   })
-  if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`)
+  if (!response.ok) throw new Error(`${requestUrl} returned HTTP ${response.status}`)
   return response.text()
 }
 
-async function retry(label, operation) {
+async function retry(label, operation, attempts = maxAttempts) {
   let lastError
-  for (let attempt = 1; attempt <= 18; attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await operation()
+      return await operation(attempt)
     } catch (error) {
       lastError = error
-      console.log(`${label} is not ready (${attempt}/18): ${error.message}`)
-      if (attempt < 18) await new Promise((resolve) => setTimeout(resolve, 5000))
+      console.log(`${label} is not ready (${attempt}/${attempts}): ${error.message}`)
+      if (attempt < attempts && retryDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
+      }
     }
   }
   throw lastError
 }
 
 const infoUrl = new URL('build-info.json', pageUrl)
-infoUrl.searchParams.set('verify', cacheBust)
-
-const info = await retry('build-info.json', async () => {
-  const candidate = JSON.parse(await fetchText(infoUrl))
+const info = await retry('build-info.json', async (attempt) => {
+  const candidate = JSON.parse(await fetchFreshText(infoUrl, 'build-info', attempt))
   if (candidate.commit !== expectedCommit) {
     throw new Error(`published commit is ${candidate.commit}`)
   }
@@ -45,9 +67,8 @@ const info = await retry('build-info.json', async () => {
 
 const revisionUrl = new URL(info.revisionUrl)
 revisionUrl.searchParams.set('revision', expectedCommit)
-revisionUrl.searchParams.set('verify', cacheBust)
-const html = await retry('revision page', async () => {
-  const candidate = await fetchText(revisionUrl)
+const html = await retry('revision page', async (attempt) => {
+  const candidate = await fetchFreshText(revisionUrl, 'revision-html', attempt)
   if (!candidate.includes(`name="projectc-build-commit" content="${expectedCommit}"`)) {
     throw new Error('HTML commit metadata does not match')
   }
@@ -60,30 +81,34 @@ const html = await retry('revision page', async () => {
 const scriptMatch = html.match(/<script[^>]+src="([^"]+\.js)"/)
 if (!scriptMatch) throw new Error('published JavaScript entry was not found')
 const scriptUrl = new URL(scriptMatch[1], pageUrl.origin)
-scriptUrl.searchParams.set('verify', cacheBust)
-const script = await fetchText(scriptUrl)
-if (!script.includes('data-build-revision')) throw new Error('visible revision marker is missing from the published app')
-if (!script.includes(expectedCommit)) throw new Error('published app bundle does not contain the expected commit')
-if (!script.includes('hex-inspector-coordinate')) throw new Error('React-owned inspector coordinate is missing')
-if (!script.includes('inspector-panel-')) throw new Error('React-owned inspector panel mode is missing')
-if (!script.includes('thermal-clock-config-label')) throw new Error('rebuilt Thermal configuration controls are missing')
-if (!script.includes('data-inspector-layout-contract')) throw new Error('runtime inspector layout contract marker is missing')
-if (!script.includes('runtime-v3')) throw new Error('stable-width inspector layout contract version is missing')
-if (!script.includes('460px')) throw new Error('desktop unified inspector width is missing')
-if (!script.includes('430px')) throw new Error('laptop unified inspector width is missing')
-if (!script.includes('--tc-body: 10px')) throw new Error('compact Thermal base type scale is missing')
-if (!script.includes('--tc-value-emphasis: 14px')) throw new Error('compact Thermal emphasis scale is missing')
-if (!script.includes('white-space: nowrap !important')) throw new Error('runtime single-line tab contract is missing')
-if (script.includes('RightInspectorChrome')) throw new Error('obsolete DOM-patching inspector component is still bundled')
+await retry('published JavaScript bundle', async (attempt) => {
+  const script = await fetchFreshText(scriptUrl, 'javascript', attempt)
+  if (!script.includes('data-build-revision')) throw new Error('visible revision marker is missing from the published app')
+  if (!script.includes(expectedCommit)) throw new Error('published app bundle does not contain the expected commit')
+  if (!script.includes('hex-inspector-coordinate')) throw new Error('React-owned inspector coordinate is missing')
+  if (!script.includes('inspector-panel-')) throw new Error('React-owned inspector panel mode is missing')
+  if (!script.includes('thermal-clock-config-label')) throw new Error('rebuilt Thermal configuration controls are missing')
+  if (!script.includes('data-inspector-layout-contract')) throw new Error('runtime inspector layout contract marker is missing')
+  if (!script.includes('runtime-v3')) throw new Error('stable-width inspector layout contract version is missing')
+  if (!script.includes('460px')) throw new Error('desktop unified inspector width is missing')
+  if (!script.includes('430px')) throw new Error('laptop unified inspector width is missing')
+  if (!script.includes('--tc-body: 10px')) throw new Error('compact Thermal base type scale is missing')
+  if (!script.includes('--tc-value-emphasis: 14px')) throw new Error('compact Thermal emphasis scale is missing')
+  if (!script.includes('white-space: nowrap !important')) throw new Error('runtime single-line tab contract is missing')
+  if (script.includes('RightInspectorChrome')) throw new Error('obsolete DOM-patching inspector component is still bundled')
+  return script
+})
 
 const styleMatch = html.match(/<link[^>]+href="([^"]+\.css)"/)
 if (!styleMatch) throw new Error('published CSS entry was not found')
 const styleUrl = new URL(styleMatch[1], pageUrl.origin)
-styleUrl.searchParams.set('verify', cacheBust)
-const style = await fetchText(styleUrl)
-if (!/\.inspector-thermal/.test(style)) throw new Error('shared Thermal inspector styling is missing from CSS')
-if (!/hex-inspector-coordinate/.test(style)) throw new Error('shared coordinate styling is missing from CSS')
-if (/font-size\s*:\s*6px\s*!important/.test(style)) throw new Error('obsolete 6px Thermal override is still deployed')
+await retry('published stylesheet', async (attempt) => {
+  const style = await fetchFreshText(styleUrl, 'stylesheet', attempt)
+  if (!/\.inspector-thermal/.test(style)) throw new Error('shared Thermal inspector styling is missing from CSS')
+  if (!/hex-inspector-coordinate/.test(style)) throw new Error('shared coordinate styling is missing from CSS')
+  if (/font-size\s*:\s*6px\s*!important/.test(style)) throw new Error('obsolete 6px Thermal override is still deployed')
+  return style
+})
 
 console.log(`Verified production ${info.branch}@${info.shortCommit}`)
 console.log(`Latest: ${info.latestUrl}`)
