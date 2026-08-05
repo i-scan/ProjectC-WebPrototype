@@ -251,6 +251,8 @@ function ThermalPendulum({
       return
     }
 
+    if (runtimeSignal.type !== 'action') return
+
     flushPendingResolution()
     const runtimeAction = runtimeActionToThermalClockAction(runtimeSignal)
     const resolution = resolveThermalAction(sessionRef.current, runtimeAction, rules)

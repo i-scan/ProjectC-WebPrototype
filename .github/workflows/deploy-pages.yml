@@ -12,68 +12,53 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-main
   cancel-in-progress: true
+
+env:
+  VITE_BUILD_COMMIT: ${{ github.sha }}
+  VITE_BUILD_BRANCH: ${{ github.ref_name }}
+  VITE_BUILD_REPOSITORY: ${{ github.repository }}
+  VITE_BUILD_RUN_ID: ${{ github.run_id }}
+  VITE_BUILD_RUN_NUMBER: ${{ github.run_number }}
+  VITE_BUILD_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  VITE_SITE_BASE_URL: https://i-scan.github.io/ProjectC-WebPrototype/
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout main commit
         uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: Test diagnostics
-        id: tests
-        continue-on-error: true
-        run: npm run test
+      - name: Record build time
+        run: echo "VITE_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
 
-      - name: TypeScript diagnostics
-        id: typecheck
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          npx tsc -b --pretty false 2>&1 | tee typecheck-diagnostics.txt
+      - name: Run rules and regression tests
+        run: pnpm test
 
-      - name: Build playable prototype
-        run: npx vite build
+      - name: Build production site
+        run: pnpm build
 
-      - name: Write build metadata
+      - name: Verify production artifact
         env:
-          TEST_RESULT: ${{ steps.tests.outcome }}
-          TYPECHECK_RESULT: ${{ steps.typecheck.outcome }}
-        run: |
-          printf '{"commit":"%s","builtAt":"%s","uiRevision":"tc1-inspector-responsive-v5","deploymentMode":"prototype-vite","testResult":"%s","typecheckResult":"%s"}\n' \
-            "$GITHUB_SHA" \
-            "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-            "$TEST_RESULT" \
-            "$TYPECHECK_RESULT" \
-            > dist/build-info.json
-
-          if test -f typecheck-diagnostics.txt; then
-            cp typecheck-diagnostics.txt dist/typecheck-diagnostics.txt
-          else
-            printf 'TypeScript diagnostics were not produced.\n' > dist/typecheck-diagnostics.txt
-          fi
-
-          {
-            echo '## ProjectC Pages build'
-            echo
-            echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- UI revision: \`tc1-inspector-responsive-v5\`"
-            echo "- Vitest / rules diagnostics: **$TEST_RESULT**"
-            echo "- TypeScript diagnostics: **$TYPECHECK_RESULT**"
-            echo '- Full TypeScript output is published as /typecheck-diagnostics.txt.'
-            echo '- Deployment is blocked only when the Vite production build fails.'
-          } >> "$GITHUB_STEP_SUMMARY"
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: pnpm verify:dist
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -83,7 +68,26 @@ jobs:
         with:
           path: ./dist
 
+      - name: Keep commit-specific build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: projectc-pages-${{ github.sha }}
+          path: ./dist
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summarize verified build
+        run: |
+          echo '## ProjectC Pages build' >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source: \`main\`" >> "$GITHUB_STEP_SUMMARY"
+          echo '- Rules, tests, TypeScript, Vite build, and artifact verification: **passed**' >> "$GITHUB_STEP_SUMMARY"
+          echo "- Revision check: https://i-scan.github.io/ProjectC-WebPrototype/?revision=${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Build metadata: https://i-scan.github.io/ProjectC-WebPrototype/build-info.json?revision=${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
+
   deploy:
+    if: github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -94,87 +98,25 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-      - name: Verify published site
+      - name: Checkout verifier
+        uses: actions/checkout@v4
+
+      - name: Verify published commit
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
           EXPECTED_COMMIT: ${{ github.sha }}
+        run: node scripts/verify-deployment.mjs "$PAGE_URL" "$EXPECTED_COMMIT"
+
+      - name: Publish verified links
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
-          set -euo pipefail
-
-          entry_url="${PAGE_URL%/}/?commit=${EXPECTED_COMMIT}"
-          html=""
-          for attempt in {1..18}; do
-            if html="$(curl --fail --silent --show-error --location \
-              -H 'Cache-Control: no-cache' \
-              "$entry_url")"; then
-              break
-            fi
-            echo "Site is not available yet; retrying ($attempt/18)..."
-            sleep 5
-          done
-
-          test -n "$html"
-          printf '%s' "$html" | grep -q 'projectc-ui-revision'
-          printf '%s' "$html" | grep -q 'tc1-inspector-responsive-v5'
-
-          if printf '%s' "$html" | grep -q '/src/main.tsx'; then
-            echo 'Published page still references the Vite development entry.' >&2
-            exit 1
-          fi
-
-          script_path="$(printf '%s' "$html" | grep -oE 'src="[^"]+\.js"' | head -n 1 | cut -d '"' -f 2)"
-          style_path="$(printf '%s' "$html" | grep -oE 'href="[^"]+\.css"' | head -n 1 | cut -d '"' -f 2)"
-          test -n "$script_path"
-          test -n "$style_path"
-
-          case "$script_path" in
-            http://*|https://*) script_url="$script_path" ;;
-            /*)
-              origin="$(printf '%s' "$PAGE_URL" | sed -E 's#(https?://[^/]+).*#\1#')"
-              script_url="${origin}${script_path}"
-              ;;
-            *) script_url="${PAGE_URL%/}/${script_path}" ;;
-          esac
-
-          case "$style_path" in
-            http://*|https://*) style_url="$style_path" ;;
-            /*)
-              origin="$(printf '%s' "$PAGE_URL" | sed -E 's#(https?://[^/]+).*#\1#')"
-              style_url="${origin}${style_path}"
-              ;;
-            *) style_url="${PAGE_URL%/}/${style_path}" ;;
-          esac
-
-          curl --fail --silent --show-error --location \
-            -H 'Cache-Control: no-cache' \
-            "${script_url}?commit=${EXPECTED_COMMIT}" \
-            --output published-app.js
-          grep -q 'hex-inspector-shared-coordinate' published-app.js
-          grep -q 'inspector-thermal' published-app.js
-          grep -q 'thermal-clock-inline-root' published-app.js
-
-          curl --fail --silent --show-error --location \
-            -H 'Cache-Control: no-cache' \
-            "${style_url}?commit=${EXPECTED_COMMIT}" \
-            --output published-app.css
-          grep -q 'hex-inspector-shared-coordinate' published-app.css
-          grep -q 'inspector-thermal' published-app.css
-          grep -q '460px' published-app.css
-          grep -q 'thermal-clock-inline-root' published-app.css
-
-          build_info_url="${PAGE_URL%/}/build-info.json?commit=${EXPECTED_COMMIT}"
-          curl --fail --silent --show-error --location \
-            -H 'Cache-Control: no-cache' \
-            "$build_info_url" \
-            --output published-build-info.json
-          grep -q "$EXPECTED_COMMIT" published-build-info.json
-          grep -q 'tc1-inspector-responsive-v5' published-build-info.json
-          grep -q 'prototype-vite' published-build-info.json
-
-          diagnostics_url="${PAGE_URL%/}/typecheck-diagnostics.txt?commit=${EXPECTED_COMMIT}"
-          curl --fail --silent --show-error --location \
-            -H 'Cache-Control: no-cache' \
-            "$diagnostics_url" \
-            --output published-typecheck-diagnostics.txt
-
-          echo 'Verified shared coordinate, tab-dependent width, TC1 hierarchy, metadata, and diagnostics.'
+          latest_url="${PAGE_URL%/}/"
+          revision_url="${latest_url}?revision=${GITHUB_SHA}"
+          metadata_url="${latest_url}build-info.json?revision=${GITHUB_SHA}"
+          echo '## Verified production deployment' >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "- Stable latest: ${latest_url}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit check: ${revision_url}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Build metadata: ${metadata_url}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Published commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"

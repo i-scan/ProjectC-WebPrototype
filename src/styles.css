@@ -13,6 +13,28 @@ button { color: inherit; border: 1px solid #34445a; background: #182230; border-
 button:hover:not(:disabled) { border-color: #7ba3d6; background: #223148; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 
+.app-switcher__identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.build-revision {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 8px;
+  color: #b8c8da;
+  border: 1px solid #33475d;
+  border-radius: 999px;
+  background: rgba(10, 19, 29, .78);
+  font-size: 10px;
+  line-height: 1;
+  text-decoration: none;
+}
+.build-revision:hover { color: #e8edf5; border-color: #6687aa; }
+.build-revision code { color: #e8edf5; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.build-revision__dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #8b98a7; }
+.build-revision--verified .build-revision__dot { background: #51d393; box-shadow: 0 0 8px rgba(81, 211, 147, .68); }
+.build-revision--mismatch { color: #ffd2d2; border-color: #a64b56; background: rgba(92, 29, 38, .82); }
+.build-revision--mismatch .build-revision__dot { background: #ff697a; box-shadow: 0 0 8px rgba(255, 105, 122, .65); }
+
 .app-shell { padding: 18px; }
 .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 h1, h2, h3, p { margin-top: 0; }

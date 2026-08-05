@@ -7,6 +7,29 @@
 
 ---
 
+## 在线原型与发布证明
+
+- 稳定 latest：[https://i-scan.github.io/ProjectC-WebPrototype/](https://i-scan.github.io/ProjectC-WebPrototype/)
+- Hex6 入口：[https://i-scan.github.io/ProjectC-WebPrototype/#hex-prototype](https://i-scan.github.io/ProjectC-WebPrototype/#hex-prototype)
+- 当前构建信息：[build-info.json](https://i-scan.github.io/ProjectC-WebPrototype/build-info.json)
+- Pages workflow：[Deploy GitHub Pages](https://github.com/i-scan/ProjectC-WebPrototype/actions/workflows/deploy-pages.yml)
+
+页面顶部始终显示当前加载版本，例如 `main@1a2b3c4`。绿色“已验证发布”表示页面、`build-info.json` 与生产 bundle 指向同一个已通过发布门禁的提交。点击版本标识可直接查看完整 commit、构建时间、Actions run 和链接。
+
+需要确认某个提交时，使用以下 commit check 链接：
+
+```text
+https://i-scan.github.io/ProjectC-WebPrototype/?revision=<full-commit-sha>#hex-prototype
+```
+
+该链接加载 stable latest，同时要求页面核对 `<full-commit-sha>`。如果 latest 已不是所请求的提交，顶部会明确显示红色“版本不匹配”，不会把另一个版本误认为目标提交。每个成功构建另保留 30 天的 `projectc-pages-<sha>` Actions artifact，供逐文件复核。
+
+发布源固定为 `main` + GitHub Actions：只有 `refs/heads/main` 能进入 `github-pages` environment。发布必须依次通过锁文件安装、规则校验、Vitest、TypeScript、Vite production build、artifact 自检、Pages 部署以及线上 commit 回读。任何一步失败时 stable latest 保持在上一个已验证版本。
+
+因此判断更新是否上线只需看两处：workflow 是否为绿色，以及页面顶部 commit 是否等于目标 commit；不再通过猜测缓存或肉眼对比 UI 判断。
+
+---
+
 ## 1. 当前目标
 
 当前主要验证：
@@ -109,8 +132,8 @@ Three.js 是当前主可玩视觉验证方向；PixiJS / 2D 保留为地图总�
 需要 Node.js 20.19+ 或 22.12+。
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 ---
@@ -118,12 +141,13 @@ npm run dev
 ## 6. 构建与测试
 
 ```bash
-npm run validate:rules
-npm run test
-npm run build
+pnpm validate:rules
+pnpm test
+pnpm build
+pnpm verify:dist
 ```
 
-`npm run test` 会先执行 Schema 和引用完整性校验，再运行 Vitest。
+`pnpm test` 会先执行 Schema 和引用完整性校验，再运行 Vitest。`pnpm build` 会写入本次构建信息，并在 TypeScript 通过后生成 Vite production bundle；`pnpm verify:dist` 再确认页面、元数据和 bundle 的 commit 一致。
 
 当前漂移测试只覆盖部分重复字段；尚未被直接配置驱动的 Card Effect、Environment、Equipment、Turn Phase 和 Scenario 等内容需要逐步补足覆盖。
 

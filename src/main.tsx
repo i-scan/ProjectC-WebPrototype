@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { BuildRevision } from './BuildRevision'
 import { GraphicsLab } from './graphics/GraphicsLab'
 import { HexPrototype } from './hex/HexPrototype'
 import { RightInspectorChrome } from './hex/RightInspectorChrome'
@@ -45,7 +46,10 @@ function Root() {
   return (
     <>
       <div className="app-switcher">
-        <strong>ProjectC Web Prototype</strong>
+        <div className="app-switcher__identity">
+          <strong>ProjectC Web Prototype</strong>
+          <BuildRevision />
+        </div>
         <nav aria-label="Prototype views">
           <button className={view === 'rules' ? 'selected' : ''} onClick={() => navigate('rules')}>
             规则实验室
