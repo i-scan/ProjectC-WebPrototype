@@ -1,8 +1,7 @@
-import { useMemo, useState, type ChangeEvent } from 'react'
+import { useMemo, useState, type ChangeEvent, type CSSProperties } from 'react'
 import {
   deriveThermalState,
   formatThermalNumber,
-  temperatureFor,
   type ActorThermalState,
   type ThermalActionResolution,
   type ThermalClockAction,
@@ -42,6 +41,28 @@ const PRIMARY_ACTION_IDS = new Set([
   'push-cold',
   'stabilize',
 ])
+
+const embeddedRootStyle = {
+  '--lab-border': 'rgba(151, 193, 198, .16)',
+  position: 'static',
+  inset: 'auto',
+  zIndex: 'auto',
+  display: 'block',
+  minWidth: 0,
+  width: '100%',
+  maxWidth: '100%',
+  minHeight: 0,
+  maxHeight: 'none',
+  margin: 0,
+  padding: 0,
+  overflow: 'visible',
+  border: 0,
+  borderRadius: 0,
+  background: 'transparent',
+  boxShadow: 'none',
+  transform: 'none',
+  boxSizing: 'border-box',
+} as CSSProperties
 
 function phaseLabel(phaseBeat: number | null): string {
   if (phaseBeat === null) return 'Neutral'
@@ -159,8 +180,9 @@ export function ThermalClockLab({
   const current = deriveThermalState(session.thermal, rules)
   const immediate = deriveThermalState(preview.immediate.thermal, rules)
   const final = deriveThermalState(preview.after.thermal, rules)
-  const currentTemperature = temperatureFor(session.thermal)
+  const currentTemperature = session.thermal.setPoint + session.thermal.offset
   const previewLabels = eventLabelList(preview)
+  const previewEventSummary = previewLabels.join(' · ') || 'No anchor event'
   const actionSequence = useMemo(
     () => history.map((entry) => entry.actionId),
     [history],
@@ -197,9 +219,17 @@ export function ThermalClockLab({
     window.setTimeout(() => setCopyStatus(''), 1400)
   }
 
+  const rootClassName = [
+    embedded ? 'thermal-clock-inline-root' : 'thermal-inertia-lab',
+    'thermal-clock-lab',
+    embedded ? 'is-embedded' : '',
+    resolving ? 'is-resolving' : '',
+  ].filter(Boolean).join(' ')
+
   return (
     <div
-      className={`thermal-inertia-lab thermal-clock-lab${embedded ? ' is-embedded' : ''}${resolving ? ' is-resolving' : ''}`}
+      className={rootClassName}
+      style={embedded ? embeddedRootStyle : undefined}
       aria-label="VAL-012 Thermal Clock and Action Time Inspector"
     >
       <header className="thermal-lab-header">
@@ -252,9 +282,9 @@ export function ThermalClockLab({
           </div>
           <small>{rules.thermalPeriodAt} AT / Period</small>
         </div>
-        <p className="thermal-clock-period-explanation">
-          完整 Period 固定分为 4 个等长相位；调整总 AT 只改变每相位持续时间，不改变相位数量。
-        </p>
+        <small className="thermal-clock-period-explanation">
+          完整 Period 固定为 4 个等长相位；总 AT 只改变每相位时长。
+        </small>
         <div className="thermal-clock-phase-axis" aria-label="Thermal Clock phase">
           {['Hot Apex', '→ Cold', 'Cold Apex', '→ Hot'].map((label, index) => (
             <div key={label} className={current.phaseBeat !== null && Math.floor(current.phaseBeat) === index ? 'is-active' : ''}>
@@ -308,7 +338,7 @@ export function ThermalClockLab({
         <div className="thermal-lab-section-heading">
           <div>
             <span>1 · Select Test Action</span>
-            <strong>真实卡牌、移动和攻击会自动推进；这里用于规则对照</strong>
+            <strong>卡牌、移动和攻击会自动推进；这里用于规则对照</strong>
           </div>
           <small>AP / AT independent</small>
         </div>
@@ -347,10 +377,13 @@ export function ThermalClockLab({
             <span>2 · Preview and Resolve</span>
             <strong>{selectedAction.label}</strong>
           </div>
-          <div className="thermal-lab-event-list">
-            {previewLabels.length === 0
-              ? <span className="is-muted">No anchor event</span>
-              : previewLabels.map((event) => <span key={event}>{event}</span>)}
+          <div
+            className="thermal-lab-event-list thermal-clock-event-summary"
+            title={previewEventSummary}
+            aria-label={`Preview events: ${previewEventSummary}`}
+            style={{ minHeight: 18, maxHeight: 18, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
+          >
+            <span className={previewLabels.length === 0 ? 'is-muted' : ''}>{previewEventSummary}</span>
           </div>
         </div>
 
@@ -383,21 +416,6 @@ export function ThermalClockLab({
           <span>Immediate ΔD {formatThermalNumber(preview.immediateTrace.driftDelta)}</span>
           <span>Next Apex {formatThermalNumber(final.projectedApexTemperature)}</span>
         </div>
-
-        {preview.timeline.length > 0 && (
-          <details className="thermal-clock-timeline-details">
-            <summary>途中事件 · {preview.timeline.length}</summary>
-            <ol className="thermal-clock-timeline">
-              {preview.timeline.map((event, index) => (
-                <li key={`${event.kind}-${event.actionTime}-${index}`}>
-                  <b>{event.actionTime.toFixed(2)} AT</b>
-                  <span>{event.label}{event.overshoot ? ' · Overshoot' : ''}</span>
-                  <small>T {formatThermalNumber(temperatureFor(event.state))} · D {formatThermalNumber(event.state.drift)}</small>
-                </li>
-              ))}
-            </ol>
-          </details>
-        )}
 
         <button type="button" className="thermal-lab-resolve" onClick={onResolve} disabled={resolving}>
           {resolving ? 'Immediate Response → Thermal Clock…' : '执行所选测试动作'}
