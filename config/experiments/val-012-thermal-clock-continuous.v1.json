@@ -1,7 +1,7 @@
 {
   "schemaVersion": "0.1.0",
-  "rulesetVersion": "val-012-tc1.0.0",
-  "updatedAt": "2026-08-04",
+  "rulesetVersion": "val-012-tc1.0.1",
+  "updatedAt": "2026-08-05",
   "status": "candidate-experiment",
   "validationId": "VAL-012",
   "activeStage": "stage-1-thermal-clock-action-time",
