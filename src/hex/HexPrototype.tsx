@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CARD_LIBRARY,
   actorAt,
@@ -15,6 +15,11 @@ import type { VisualEvent, VisualSelection } from '../visual/InteractiveThreeBoa
 import { buildVisualEvents, type PlaybackEvent } from '../visual/visualPlayback'
 import { HexThreeBoard } from './HexThreeBoard'
 import { HexTravelMap } from './HexTravelMap'
+import { ThermalPendulumPortal } from './ThermalPendulumPortal'
+import type {
+  ThermalClockRuntimeAction,
+  ThermalClockRuntimeSignal,
+} from './thermalClockRuntime'
 import {
   activeScenarioCells,
   createHexRoomState,
@@ -72,6 +77,7 @@ const travelDelays = [0, 1050, 680, 400, 230] as const
 const cueDelays = [360, 520, 340, 210, 120] as const
 const maxUndoSteps = 120
 type HexRenderer = '2d' | '3d'
+type RightInspectorTab = 'hex' | 'thermal'
 
 function eventKindForCard(card: Card): VisualEvent['kind'] {
   if (card.effect === 'cool-cell' || card.effect === 'cold-strike') return 'cool'
@@ -97,6 +103,7 @@ type HexHistoryEntry = {
   worldTicks: number
   traveling: boolean
   travelMessage: string
+  thermalAdvanced: boolean
 }
 
 export function HexPrototype() {
@@ -122,6 +129,9 @@ export function HexPrototype() {
   const [worldTicks, setWorldTicks] = useState(0)
   const [traveling, setTraveling] = useState(false)
   const [travelMessage, setTravelMessage] = useState('调整房间半径，比较战术密度、移动空间与环境覆盖。')
+  const [rightInspectorTab, setRightInspectorTab] = useState<RightInspectorTab>('hex')
+  const [thermalRuntimeSignal, setThermalRuntimeSignal] = useState<ThermalClockRuntimeSignal>()
+  const thermalRuntimeSequenceRef = useRef(0)
 
   const player = getPlayer(state)
   const currentEvent = eventQueue[0]
@@ -154,7 +164,27 @@ export function HexPrototype() {
     { done: reachedObjective, label: mapStructure === 'room' ? '抵达房间目标' : '抵达远端求救地点' },
   ], [worldTicks, mode, reachedObjective, mapStructure])
 
-  const captureHistory = (snapshotState: GameState = state): HexHistoryEntry => ({
+  const nextThermalSequence = () => {
+    thermalRuntimeSequenceRef.current += 1
+    return thermalRuntimeSequenceRef.current
+  }
+
+  const emitThermalAction = (action: Omit<ThermalClockRuntimeAction, 'sequence' | 'type'>) => {
+    setThermalRuntimeSignal({
+      ...action,
+      sequence: nextThermalSequence(),
+      type: 'action',
+    })
+  }
+
+  const emitThermalCommand = (type: 'undo' | 'restart') => {
+    setThermalRuntimeSignal({ sequence: nextThermalSequence(), type })
+  }
+
+  const captureHistory = (
+    snapshotState: GameState = state,
+    thermalAdvanced = false,
+  ): HexHistoryEntry => ({
     state: structuredClone(snapshotState),
     mode,
     travelPath: travelPath.map((coord) => ({ ...coord })),
@@ -163,6 +193,7 @@ export function HexPrototype() {
     worldTicks,
     traveling,
     travelMessage,
+    thermalAdvanced,
   })
 
   const queueTransition = (
@@ -181,6 +212,44 @@ export function HexPrototype() {
     setEventQueue(cues.length > 0
       ? cues
       : [fallbackEvent(fallbackKind, fallbackTarget, after.logs[0] ?? 'Hex6 状态已更新')])
+  }
+
+  const bridgeBasicAction = (
+    before: GameState,
+    after: GameState,
+    action: BasicAction,
+  ): boolean => {
+    const succeeded = after.ap < before.ap
+    if (!succeeded) return false
+    emitThermalAction({
+      source: 'basic-action',
+      id: action,
+      label: action === 'move' ? '基础行动 · 六向移动' : '基础行动 · 邻接攻击',
+      baseApCost: 1,
+      actionTime: 1,
+      offsetDelta: getPlayer(after).bodyTemperature - getPlayer(before).bodyTemperature,
+    })
+    return true
+  }
+
+  const bridgeCardAction = (
+    before: GameState,
+    after: GameState,
+    card: Card,
+  ): boolean => {
+    const succeeded = before.hand.includes(card.id) && !after.hand.includes(card.id)
+    if (!succeeded) return false
+    emitThermalAction({
+      source: 'card',
+      id: card.id,
+      label: `卡牌 · ${card.name}`,
+      baseApCost: card.cost,
+      // TC1 first pass: Base AT defaults to Base AP. An active 0 AP card
+      // would still consume 1 AT unless it is explicitly defined as Reaction.
+      actionTime: Math.max(1, card.cost),
+      offsetDelta: getPlayer(after).bodyTemperature - getPlayer(before).bodyTemperature,
+    })
+    return true
   }
 
   function planTravel(destination: Coord, autoStart = true) {
@@ -299,14 +368,28 @@ export function HexPrototype() {
     if (selection.kind === 'basic') {
       const before = state
       const after = performHexBasicAction(before, selection.action, coord)
-      queueTransition(before, after, selection.action === 'move' ? 'move' : 'attack', coord)
+      const thermalAdvanced = bridgeBasicAction(before, after, selection.action)
+      queueTransition(
+        before,
+        after,
+        selection.action === 'move' ? 'move' : 'attack',
+        coord,
+        captureHistory(before, thermalAdvanced),
+      )
       if (selection.action === 'attack' || after.ap < 1) setSelection({ kind: 'inspect' })
       return
     }
     if (selection.kind === 'card') {
       const before = state
       const after = playHexCard(before, selection.card.id, coord, targetLayer)
-      queueTransition(before, after, eventKindForCard(selection.card), coord)
+      const thermalAdvanced = bridgeCardAction(before, after, selection.card)
+      queueTransition(
+        before,
+        after,
+        eventKindForCard(selection.card),
+        coord,
+        captureHistory(before, thermalAdvanced),
+      )
       setSelection({ kind: 'inspect' })
     }
   }
@@ -321,7 +404,14 @@ export function HexPrototype() {
     if (card.target === 'self') {
       const before = state
       const after = playHexCard(before, card.id, undefined, targetLayer)
-      queueTransition(before, after, eventKindForCard(card), player.position)
+      const thermalAdvanced = bridgeCardAction(before, after, card)
+      queueTransition(
+        before,
+        after,
+        eventKindForCard(card),
+        player.position,
+        captureHistory(before, thermalAdvanced),
+      )
       setSelection({ kind: 'inspect' })
       return
     }
@@ -379,6 +469,7 @@ export function HexPrototype() {
     setHoverCoord(undefined)
     setSelection({ kind: 'inspect' })
     setEventQueue([fallbackEvent('reset', getPlayer(previous.state).position, `悔棋：Turn ${previous.state.turn} · ${previous.mode === 'travel' ? '旅行' : phaseLabel(previous.state.phase)}`)])
+    if (previous.thermalAdvanced) emitThermalCommand('undo')
   }
 
   const loadScenario = (structure: HexMapStructure, radius = roomRadius) => {
@@ -403,6 +494,7 @@ export function HexPrototype() {
     setSelection({ kind: 'inspect' })
     setCameraResetToken((value) => value + 1)
     setEventQueue([fallbackEvent('reset', start, structure === 'room' ? `房间尺寸切换为 R${radius}` : '连续 Hex6 地图已重新开始')])
+    emitThermalCommand('restart')
   }
 
   const restart = () => loadScenario(mapStructure, roomRadius)
@@ -438,216 +530,250 @@ export function HexPrototype() {
       : traveling ? '暂停旅行' : '继续旅行'
 
   return (
-    <main className="visual-prototype hex-prototype">
-      <header className="visual-hud">
-        <div className="visual-brand">
-          <p className="eyebrow">ProjectC · Hex6 Map Structure Lab</p>
-          <h1>{mapStructure === 'room' ? '小房间尺寸验证' : '连续大地图验证'}</h1>
-        </div>
-        <div className="hex-mode-switch" role="tablist" aria-label="地图操作模式">
-          <button className={mode === 'travel' ? 'active' : ''} onClick={() => mode === 'travel' ? undefined : resumeTravel()}>旅行 Travel</button>
-          <button className={mode === 'tactical' ? 'active' : ''} onClick={() => mode === 'tactical' ? undefined : enterTactical()}>战术 Tactical</button>
-        </div>
-        <div className="hex-view-switch" role="tablist" aria-label="地图表现方式">
-          <button className={rendererMode === '2d' ? 'active' : ''} onClick={() => { setRendererMode('2d'); setHoverCoord(undefined) }}>2D</button>
-          <button className={rendererMode === '3d' ? 'active' : ''} onClick={() => { setRendererMode('3d'); setHoverCoord(undefined) }}>3D</button>
-        </div>
-        <div className="visual-turn-strip">
-          <div><span>World</span><strong>{state.turn}</strong></div>
-          <div><span>Mode</span><strong>{mode === 'travel' ? 'Travel' : phaseLabel(state.phase)}</strong></div>
-          <div><span>{mode === 'travel' ? 'Clock' : 'AP'}</span><strong>{mode === 'travel' ? `${travelProgress}/${state.config.baseAP}` : state.ap}</strong></div>
-          <label className="visual-speed-control">
-            <span>{mode === 'travel' ? '旅行速度' : '演算速度'}</span>
-            <input aria-label="Hex6 推进速度" type="range" min="0" max="4" step="1" value={simulationSpeed} onChange={(eventValue) => setSimulationSpeed(Number(eventValue.target.value))} />
-            <strong>{speedLabels[simulationSpeed]}</strong>
-          </label>
-          <button className="visual-primary" disabled={topActionDisabled} onClick={topAction}>{topActionLabel}</button>
-        </div>
-      </header>
+    <>
+      <main className="visual-prototype hex-prototype">
+        <header className="visual-hud">
+          <div className="visual-brand">
+            <p className="eyebrow">ProjectC · Hex6 Map Structure Lab</p>
+            <h1>{mapStructure === 'room' ? '小房间尺寸验证' : '连续大地图验证'}</h1>
+          </div>
+          <div className="hex-mode-switch" role="tablist" aria-label="地图操作模式">
+            <button className={mode === 'travel' ? 'active' : ''} onClick={() => mode === 'travel' ? undefined : resumeTravel()}>旅行 Travel</button>
+            <button className={mode === 'tactical' ? 'active' : ''} onClick={() => mode === 'tactical' ? undefined : enterTactical()}>战术 Tactical</button>
+          </div>
+          <div className="hex-view-switch" role="tablist" aria-label="地图表现方式">
+            <button className={rendererMode === '2d' ? 'active' : ''} onClick={() => { setRendererMode('2d'); setHoverCoord(undefined) }}>2D</button>
+            <button className={rendererMode === '3d' ? 'active' : ''} onClick={() => { setRendererMode('3d'); setHoverCoord(undefined) }}>3D</button>
+          </div>
+          <div className="visual-turn-strip">
+            <div><span>World</span><strong>{state.turn}</strong></div>
+            <div><span>Mode</span><strong>{mode === 'travel' ? 'Travel' : phaseLabel(state.phase)}</strong></div>
+            <div><span>{mode === 'travel' ? 'Clock' : 'AP'}</span><strong>{mode === 'travel' ? `${travelProgress}/${state.config.baseAP}` : state.ap}</strong></div>
+            <label className="visual-speed-control">
+              <span>{mode === 'travel' ? '旅行速度' : '演算速度'}</span>
+              <input aria-label="Hex6 推进速度" type="range" min="0" max="4" step="1" value={simulationSpeed} onChange={(eventValue) => setSimulationSpeed(Number(eventValue.target.value))} />
+              <strong>{speedLabels[simulationSpeed]}</strong>
+            </label>
+            <button className="visual-primary" disabled={topActionDisabled} onClick={topAction}>{topActionLabel}</button>
+          </div>
+        </header>
 
-      <section className="visual-layout">
-        <aside className="visual-panel visual-left-panel">
-          <section className="visual-actor-card">
-            <div className="visual-portrait hex-portrait">⬡</div>
-            <div>
-              <p>{mode === 'travel' ? 'Travel Actor' : 'Tactical Actor'}</p>
-              <h2>{player.name}</h2>
-              <div className="visual-bars">
-                <div><span>HP</span><i><b style={{ width: `${(player.hp / player.maxHp) * 100}%` }} /></i><strong>{player.hp}/{player.maxHp}</strong></div>
-                <div><span>体温</span><i className="temperature"><b style={{ width: `${((player.bodyTemperature + 3) / 6) * 100}%` }} /></i><strong>{formatTemperature(player.bodyTemperature)}</strong></div>
-              </div>
-            </div>
-          </section>
-
-          <section className="hex-map-structure-panel">
-            <div className="visual-section-heading"><h3>地图结构</h3><span>{mapStructure === 'room' ? `Room R${roomRadius}` : 'World 16×12'}</span></div>
-            <div className="hex-structure-switch">
-              <button className={mapStructure === 'world' ? 'active' : ''} onClick={() => loadScenario('world', roomRadius)}>大地图 World</button>
-              <button className={mapStructure === 'room' ? 'active' : ''} onClick={() => loadScenario('room', roomRadius)}>小房间 Room</button>
-            </div>
-            {mapStructure === 'room' ? (
-              <div className="hex-room-size-control">
-                <div><span>房间半径</span><strong>R{roomRadius}</strong></div>
-                <input aria-label="Hex6 房间大小" type="range" min={ROOM_MIN_RADIUS} max={ROOM_MAX_RADIUS} step="1" value={roomRadius} onChange={(eventValue) => loadScenario('room', Number(eventValue.target.value))} />
-                <div className="hex-room-size-labels"><span>紧凑 · 19 Cells</span><span>宽阔 · 169 Cells</span></div>
-                <div className="hex-room-metrics">
-                  <div><span>最长轴</span><strong>{roomRadius * 2 + 1} 格</strong></div>
-                  <div><span>有效 Cell</span><strong>{activeCellCount}</strong></div>
-                  <div><span>山体碰撞</span><strong>{mountainCellCount}</strong></div>
+        <section className="visual-layout">
+          <aside className="visual-panel visual-left-panel">
+            <section className="visual-actor-card">
+              <div className="visual-portrait hex-portrait">⬡</div>
+              <div>
+                <p>{mode === 'travel' ? 'Travel Actor' : 'Tactical Actor'}</p>
+                <h2>{player.name}</h2>
+                <div className="visual-bars">
+                  <div><span>HP</span><i><b style={{ width: `${(player.hp / player.maxHp) * 100}%` }} /></i><strong>{player.hp}/{player.maxHp}</strong></div>
+                  <div><span>体温</span><i className="temperature"><b style={{ width: `${((player.bodyTemperature + 3) / 6) * 100}%` }} /></i><strong>{formatTemperature(player.bodyTemperature)}</strong></div>
                 </div>
               </div>
-            ) : (
-              <p className="hex-world-structure-note">保留当前连续 16×12 地图作为对照。切回 Room 后可继续用滑杆比较战术空间密度。</p>
-            )}
-          </section>
-
-          {mode === 'travel' ? (
-            <section className="hex-travel-panel">
-              <div className="visual-section-heading"><h3>旅行控制</h3><span>{traveling ? '自动行进中' : '已暂停'}</span></div>
-              <div className="hex-route-preference">
-                <button className={travelPreference === 'fastest' ? 'active fastest' : ''} onClick={() => setTravelPreference('fastest')}>最快路线</button>
-                <button className={travelPreference === 'safest' ? 'active' : ''} onClick={() => setTravelPreference('safest')}>安全路线</button>
-              </div>
-              <div className="hex-travel-clock">
-                <div><i style={{ width: `${travelProgress / Math.max(1, state.config.baseAP) * 100}%` }} /></div>
-                <p>每累计移动 {state.config.baseAP} 格推进一次世界演算。提高基础 AP 会增加单位世界时间内的旅行距离。</p>
-              </div>
-              <div className="hex-travel-metrics">
-                <div><span>剩余格数</span><strong>{pathSummary.steps}</strong></div>
-                <div><span>预计演算</span><strong>{pathSummary.expectedTicks}</strong></div>
-                <div><span>路线风险</span><strong>{pathSummary.risk}</strong></div>
-              </div>
-              <div className="hex-travel-controls">
-                <button disabled={travelPath.length <= 1} onClick={() => simulationSpeed === 0 ? performTravelStep() : setTraveling((value) => !value)}>{simulationSpeed === 0 ? '推进一格' : traveling ? '暂停' : '继续'}</button>
-                <button onClick={() => enterTactical('玩家主动检查局部态势')}>进入战术</button>
-              </div>
-              <p className="hex-travel-status">{travelMessage}</p>
             </section>
-          ) : (
+
+            <section className="hex-map-structure-panel">
+              <div className="visual-section-heading"><h3>地图结构</h3><span>{mapStructure === 'room' ? `Room R${roomRadius}` : 'World 16×12'}</span></div>
+              <div className="hex-structure-switch">
+                <button className={mapStructure === 'world' ? 'active' : ''} onClick={() => loadScenario('world', roomRadius)}>大地图 World</button>
+                <button className={mapStructure === 'room' ? 'active' : ''} onClick={() => loadScenario('room', roomRadius)}>小房间 Room</button>
+              </div>
+              {mapStructure === 'room' ? (
+                <div className="hex-room-size-control">
+                  <div><span>房间半径</span><strong>R{roomRadius}</strong></div>
+                  <input aria-label="Hex6 房间大小" type="range" min={ROOM_MIN_RADIUS} max={ROOM_MAX_RADIUS} step="1" value={roomRadius} onChange={(eventValue) => loadScenario('room', Number(eventValue.target.value))} />
+                  <div className="hex-room-size-labels"><span>紧凑 · 19 Cells</span><span>宽阔 · 169 Cells</span></div>
+                  <div className="hex-room-metrics">
+                    <div><span>最长轴</span><strong>{roomRadius * 2 + 1} 格</strong></div>
+                    <div><span>有效 Cell</span><strong>{activeCellCount}</strong></div>
+                    <div><span>山体碰撞</span><strong>{mountainCellCount}</strong></div>
+                  </div>
+                </div>
+              ) : (
+                <p className="hex-world-structure-note">保留当前连续 16×12 地图作为对照。切回 Room 后可继续用滑杆比较战术空间密度。</p>
+              )}
+            </section>
+
+            {mode === 'travel' ? (
+              <section className="hex-travel-panel">
+                <div className="visual-section-heading"><h3>旅行控制</h3><span>{traveling ? '自动行进中' : '已暂停'}</span></div>
+                <div className="hex-route-preference">
+                  <button className={travelPreference === 'fastest' ? 'active fastest' : ''} onClick={() => setTravelPreference('fastest')}>最快路线</button>
+                  <button className={travelPreference === 'safest' ? 'active' : ''} onClick={() => setTravelPreference('safest')}>安全路线</button>
+                </div>
+                <div className="hex-travel-clock">
+                  <div><i style={{ width: `${travelProgress / Math.max(1, state.config.baseAP) * 100}%` }} /></div>
+                  <p>每累计移动 {state.config.baseAP} 格推进一次世界演算。提高基础 AP 会增加单位世界时间内的旅行距离。</p>
+                </div>
+                <div className="hex-travel-metrics">
+                  <div><span>剩余格数</span><strong>{pathSummary.steps}</strong></div>
+                  <div><span>预计演算</span><strong>{pathSummary.expectedTicks}</strong></div>
+                  <div><span>路线风险</span><strong>{pathSummary.risk}</strong></div>
+                </div>
+                <div className="hex-travel-controls">
+                  <button disabled={travelPath.length <= 1} onClick={() => simulationSpeed === 0 ? performTravelStep() : setTraveling((value) => !value)}>{simulationSpeed === 0 ? '推进一格' : traveling ? '暂停' : '继续'}</button>
+                  <button onClick={() => enterTactical('玩家主动检查局部态势')}>进入战术</button>
+                </div>
+                <p className="hex-travel-status">{travelMessage}</p>
+              </section>
+            ) : (
+              <section>
+                <div className="visual-section-heading"><h3>基础行动</h3><span>{selectedLabel}</span></div>
+                <div className="visual-action-grid">
+                  <button className={selection.kind === 'basic' && selection.action === 'move' ? 'active sticky' : ''} disabled={playbackActive || state.phase !== 'player' || state.ap < 1} onClick={() => chooseBasicAction('move')}><span>⬡</span><strong>六向移动</strong><small>1 AP · 1 AT / 格</small></button>
+                  <button className={selection.kind === 'basic' && selection.action === 'attack' ? 'active danger' : ''} disabled={playbackActive || state.phase !== 'player' || state.ap < 1} onClick={() => chooseBasicAction('attack')}><span>⚔</span><strong>邻接攻击</strong><small>1 AP · 1 AT</small></button>
+                </div>
+                <div className="hex-travel-controls">
+                  <button disabled={Boolean(threat) || state.phase !== 'player'} onClick={resumeTravel}>恢复旅行</button>
+                  <button onClick={() => setCameraResetToken((value) => value + 1)}>重置镜头</button>
+                </div>
+                <p className="hex-travel-status">{threat ? `${threat.actor.name} 距离 ${threat.distance}：需解除威胁后恢复旅行。` : '当前无近距威胁，可以恢复原旅行目标。'}</p>
+              </section>
+            )}
+
             <section>
-              <div className="visual-section-heading"><h3>基础行动</h3><span>{selectedLabel}</span></div>
-              <div className="visual-action-grid">
-                <button className={selection.kind === 'basic' && selection.action === 'move' ? 'active sticky' : ''} disabled={playbackActive || state.phase !== 'player' || state.ap < 1} onClick={() => chooseBasicAction('move')}><span>⬡</span><strong>六向移动</strong><small>1 AP / 格 · 保持选择</small></button>
-                <button className={selection.kind === 'basic' && selection.action === 'attack' ? 'active danger' : ''} disabled={playbackActive || state.phase !== 'player' || state.ap < 1} onClick={() => chooseBasicAction('attack')}><span>⚔</span><strong>邻接攻击</strong><small>六方向 · 1 AP</small></button>
-              </div>
-              <div className="hex-travel-controls">
-                <button disabled={Boolean(threat) || state.phase !== 'player'} onClick={resumeTravel}>恢复旅行</button>
-                <button onClick={() => setCameraResetToken((value) => value + 1)}>重置镜头</button>
-              </div>
-              <p className="hex-travel-status">{threat ? `${threat.actor.name} 距离 ${threat.distance}：需解除威胁后恢复旅行。` : '当前无近距威胁，可以恢复原旅行目标。'}</p>
+              <div className="visual-section-heading"><h3>验证目标</h3><span>{state.status}</span></div>
+              <div className="visual-objectives">{objectives.map((item) => <div className={item.done ? 'done' : ''} key={item.label}><span>{item.done ? '✓' : '○'}</span><p>{item.label}</p></div>)}</div>
             </section>
-          )}
+          </aside>
 
-          <section>
-            <div className="visual-section-heading"><h3>验证目标</h3><span>{state.status}</span></div>
-            <div className="visual-objectives">{objectives.map((item) => <div className={item.done ? 'done' : ''} key={item.label}><span>{item.done ? '✓' : '○'}</span><p>{item.label}</p></div>)}</div>
-          </section>
-        </aside>
-
-        <section className="visual-board-column hex-board-column">
-          <div className="hex-comparison-strip">
-            <strong>{mapStructure === 'room' ? `紧凑房间 · R${roomRadius}` : mode === 'travel' ? '连续地图旅行' : '同坐标战术局部'}</strong>
-            <span>{mapStructure === 'room'
-              ? `${activeCellCount} 个有效 Cell、${mountainCellCount} 个山体；比较隘口、侧翼和视线。`
-              : mode === 'travel'
-                ? '点击远端目标后自动沿路径移动；世界、敌人和天气按旅行时钟推进。'
-                : 'Actor、Ground、Sky 与旅行模式保持原坐标，只切换操作粒度和信息密度。'}</span>
-            <span>{travelTarget ? `目标 (${travelTarget.x},${travelTarget.y})` : '尚未选择目标'}</span>
-          </div>
-          <div className="visual-board-toolbar">
-            <div className="visual-camera-help">
-              <button onClick={() => setCameraResetToken((value) => value + 1)}>重置视图</button>
-              <span>{rendererMode === '3d'
-                ? mode === 'travel'
-                  ? '3D 旅行：点击远端 Hex 规划路径；拖动旋转，滚轮缩放。'
-                  : '3D 战术：拖动旋转 · 滚轮缩放 · 逐格战术操作。'
+          <section className="visual-board-column hex-board-column">
+            <div className="hex-comparison-strip">
+              <strong>{mapStructure === 'room' ? `紧凑房间 · R${roomRadius}` : mode === 'travel' ? '连续地图旅行' : '同坐标战术局部'}</strong>
+              <span>{mapStructure === 'room'
+                ? `${activeCellCount} 个有效 Cell、${mountainCellCount} 个山体；比较隘口、侧翼和视线。`
                 : mode === 'travel'
-                  ? '2D 旅行：总览路径、风险、地标与世界状态。'
-                  : '2D 战术：有效目标、敌人意图与计划中的旅行路径同时可见。'}</span>
+                  ? '点击远端目标后自动沿路径移动；世界、敌人和天气按旅行时钟推进。'
+                  : 'Actor、Ground、Sky 与旅行模式保持原坐标，只切换操作粒度和信息密度。'}</span>
+              <span>{travelTarget ? `目标 (${travelTarget.x},${travelTarget.y})` : '尚未选择目标'}</span>
             </div>
-            <div className="visual-layer-switch">
-              <button className={targetLayer === 'ground' ? 'active' : ''} onClick={() => setTargetLayer('ground')}>Ground</button>
-              <button className={targetLayer === 'sky' ? 'active' : ''} onClick={() => setTargetLayer('sky')}>Sky</button>
+            <div className="visual-board-toolbar">
+              <div className="visual-camera-help">
+                <button onClick={() => setCameraResetToken((value) => value + 1)}>重置视图</button>
+                <span>{rendererMode === '3d'
+                  ? mode === 'travel'
+                    ? '3D 旅行：点击远端 Hex 规划路径；拖动旋转，滚轮缩放。'
+                    : '3D 战术：拖动旋转 · 滚轮缩放 · 逐格战术操作。'
+                  : mode === 'travel'
+                    ? '2D 旅行：总览路径、风险、地标与世界状态。'
+                    : '2D 战术：有效目标、敌人意图与计划中的旅行路径同时可见。'}</span>
+              </div>
+              <div className="visual-layer-switch">
+                <button className={targetLayer === 'ground' ? 'active' : ''} onClick={() => setTargetLayer('ground')}>Ground</button>
+                <button className={targetLayer === 'sky' ? 'active' : ''} onClick={() => setTargetLayer('sky')}>Sky</button>
+              </div>
+              <div className="visual-session-controls">
+                <button className="visual-undo" disabled={undoStack.length === 0} onClick={undo}>↶ 悔棋 <small>{undoStack.length}</small></button>
+                <button className={showSky ? 'active' : ''} onClick={() => setShowSky((value) => !value)}>天空层</button>
+                <button className={showDebug ? 'active' : ''} onClick={() => setShowDebug((value) => !value)}>Debug</button>
+                <button className="visual-restart" onClick={restart}>重开地图</button>
+              </div>
             </div>
-            <div className="visual-session-controls">
-              <button className="visual-undo" disabled={undoStack.length === 0} onClick={undo}>↶ 悔棋 <small>{undoStack.length}</small></button>
-              <button className={showSky ? 'active' : ''} onClick={() => setShowSky((value) => !value)}>天空层</button>
-              <button className={showDebug ? 'active' : ''} onClick={() => setShowDebug((value) => !value)}>Debug</button>
-              <button className="visual-restart" onClick={restart}>重开地图</button>
-            </div>
-          </div>
 
-          <div className={`visual-board-frame hex-board-frame view-${rendererMode}`}>
-            {rendererMode === '2d' ? (
-              <HexTravelMap
-                state={state}
-                mode={mode}
-                path={travelPath}
-                selectedCoord={selectedCoord}
-                hoverCoord={hoverCoord}
-                selection={selection}
-                targetLayer={targetLayer}
-                preference={travelPreference}
-                onCellClick={handleBoardClick}
-                onCellHover={setHoverCoord}
-              />
+            <div className={`visual-board-frame hex-board-frame view-${rendererMode}`}>
+              {rendererMode === '2d' ? (
+                <HexTravelMap
+                  state={state}
+                  mode={mode}
+                  path={travelPath}
+                  selectedCoord={selectedCoord}
+                  hoverCoord={hoverCoord}
+                  selection={selection}
+                  targetLayer={targetLayer}
+                  preference={travelPreference}
+                  onCellClick={handleBoardClick}
+                  onCellHover={setHoverCoord}
+                />
+              ) : (
+                <HexThreeBoard
+                  state={state}
+                  mode={mode}
+                  travelPath={travelPath}
+                  travelTarget={travelTarget}
+                  travelPreference={travelPreference}
+                  selectedCoord={selectedCoord}
+                  hoverCoord={hoverCoord}
+                  selection={selection}
+                  targetLayer={targetLayer}
+                  cameraResetToken={cameraResetToken}
+                  showSky={showSky}
+                  showDebug={showDebug}
+                  event={currentEvent}
+                  onCellClick={handleBoardClick}
+                  onCellHover={setHoverCoord}
+                />
+              )}
+              {currentEvent && <div className={`visual-event-banner ${currentEvent.kind}`}><strong>{currentEvent.label ?? 'Hex6 状态演出'}</strong>{currentEvent.amount ? <span>{currentEvent.kind === 'attack' ? '伤害' : '变化'} {currentEvent.amount}</span> : null}{eventQueue.length > 1 ? <small>后续 {eventQueue.length - 1} 项</small> : null}</div>}
+              {mode === 'tactical' && travelMessage.startsWith('旅行被打断') && <div className="hex-interrupt-banner">{travelMessage}</div>}
+              <div className="visual-board-legend"><span><i className="cold" />偏冷</span><span><i className="neutral" />中性</span><span><i className="hot" />偏热</span><span><i className="cloud" />Ground / Sky 连续共享</span><span className="hex-collision-legend"><i />山体：阻挡移动 / 击退 / 直线</span></div>
+            </div>
+
+            {mode === 'tactical' ? (
+              <section className="visual-hand">
+                <div className="visual-hand-heading"><div><h2>介入物 / 手牌</h2><p>当前 TC1 默认 Base AT = Base AP；打出卡牌后自动推进 Thermal Clock。</p></div><span>Deck {state.deck.length} · Discard {state.discard.length}</span></div>
+                <div className="visual-card-row">{handCards.map((card) => { const active = selection.kind === 'card' && selection.card.id === card.id; const temperatureClass = card.effect.includes('cool') ? 'cool' : card.effect.includes('heat') || card.effect === 'grip' ? 'heat' : ''; return <button className={`visual-card ${active ? 'active' : ''} ${temperatureClass}`} disabled={playbackActive || state.phase !== 'player' || state.ap < card.cost || state.status !== 'active'} key={card.id} onClick={() => chooseCard(card)}><div className="visual-card-cost">{card.cost}</div><div className="visual-card-icon">{cardIcons[card.effect]}</div><strong>{card.name}</strong><p>{card.description}</p><small>{card.target === 'self' ? '自身' : `${card.range} Hex · ${card.layer ?? card.target}`} · {Math.max(1, card.cost)} AT</small></button> })}</div>
+              </section>
             ) : (
-              <HexThreeBoard
-                state={state}
-                mode={mode}
-                travelPath={travelPath}
-                travelTarget={travelTarget}
-                travelPreference={travelPreference}
-                selectedCoord={selectedCoord}
-                hoverCoord={hoverCoord}
-                selection={selection}
-                targetLayer={targetLayer}
-                cameraResetToken={cameraResetToken}
-                showSky={showSky}
-                showDebug={showDebug}
-                event={currentEvent}
-                onCellClick={handleBoardClick}
-                onCellHover={setHoverCoord}
-              />
+              <section className="visual-hand hex-travel-hand-note">
+                <p>旅行模式收起卡牌操作，只保留路线、风险、发现与世界时间。旅行时钟与 Tactical Action Time 的换算尚未接入 TC1。</p>
+                <div className="hex-travel-route-list"><div><span>路线</span><strong>{travelPreference === 'fastest' ? '最快' : '安全'}</strong></div><div><span>移动成本</span><strong>{pathSummary.movementCost}</strong></div><div><span>世界演算</span><strong>{worldTicks}</strong></div><div><span>近距威胁</span><strong>{threat ? `${threat.distance} Hex` : '无'}</strong></div></div>
+              </section>
             )}
-            {currentEvent && <div className={`visual-event-banner ${currentEvent.kind}`}><strong>{currentEvent.label ?? 'Hex6 状态演出'}</strong>{currentEvent.amount ? <span>{currentEvent.kind === 'attack' ? '伤害' : '变化'} {currentEvent.amount}</span> : null}{eventQueue.length > 1 ? <small>后续 {eventQueue.length - 1} 项</small> : null}</div>}
-            {mode === 'tactical' && travelMessage.startsWith('旅行被打断') && <div className="hex-interrupt-banner">{travelMessage}</div>}
-            <div className="visual-board-legend"><span><i className="cold" />偏冷</span><span><i className="neutral" />中性</span><span><i className="hot" />偏热</span><span><i className="cloud" />Ground / Sky 连续共享</span><span className="hex-collision-legend"><i />山体：阻挡移动 / 击退 / 直线</span></div>
-          </div>
+          </section>
 
-          {mode === 'tactical' ? (
-            <section className="visual-hand">
-              <div className="visual-hand-heading"><div><h2>介入物 / 手牌</h2><p>旅行期间牌序保持；进入战术后恢复逐 AP 出牌。</p></div><span>Deck {state.deck.length} · Discard {state.discard.length}</span></div>
-              <div className="visual-card-row">{handCards.map((card) => { const active = selection.kind === 'card' && selection.card.id === card.id; const temperatureClass = card.effect.includes('cool') ? 'cool' : card.effect.includes('heat') || card.effect === 'grip' ? 'heat' : ''; return <button className={`visual-card ${active ? 'active' : ''} ${temperatureClass}`} disabled={playbackActive || state.phase !== 'player' || state.ap < card.cost || state.status !== 'active'} key={card.id} onClick={() => chooseCard(card)}><div className="visual-card-cost">{card.cost}</div><div className="visual-card-icon">{cardIcons[card.effect]}</div><strong>{card.name}</strong><p>{card.description}</p><small>{card.target === 'self' ? '自身' : `${card.range} Hex · ${card.layer ?? card.target}`}</small></button> })}</div>
+          <aside className="visual-panel visual-right-panel">
+            <div className="hex-inspector-tabs" role="tablist" aria-label="右侧 Inspector">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={rightInspectorTab === 'hex'}
+                className={rightInspectorTab === 'hex' ? 'active' : ''}
+                onClick={() => setRightInspectorTab('hex')}
+              >
+                Hex Inspector
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={rightInspectorTab === 'thermal'}
+                className={rightInspectorTab === 'thermal' ? 'active' : ''}
+                onClick={() => setRightInspectorTab('thermal')}
+              >
+                Thermal Clock
+              </button>
+            </div>
+
+            <section className="hex-inspector-pane" hidden={rightInspectorTab !== 'hex'}>
+              <div className="visual-section-heading"><h3>Hex Inspector</h3><span>({inspectCoord.x},{inspectCoord.y}) · D{selectedDistance}</span></div>
+              {inspectedCell && <div className="visual-inspector-stack"><div className="visual-inspector-block ground"><div className="visual-inspector-title"><span className={`visual-temp-orb temp-${Math.max(-3, Math.min(3, inspectedCell.groundTemp)) + 3}`} /><div><strong>Ground Hex</strong><p>{inspectedCell.tags.includes('Blocked') ? '不可通行山脊' : '连续地图地面层'}</p></div></div><dl><div><dt>Temperature</dt><dd>{formatTemperature(inspectedCell.groundTemp)}</dd></div><div><dt>Fill</dt><dd>{inspectedCell.groundFill}</dd></div><div><dt>Moisture</dt><dd>{inspectedCell.moisture}</dd></div><div><dt>Tags</dt><dd>{inspectedCell.tags.join(', ') || '—'}</dd></div></dl></div><div className={`visual-inspector-block sky ${inspectedCell.skyFill === 'clear' ? 'is-clear' : ''}`}><div className="visual-inspector-title"><span className={`visual-temp-orb temp-${Math.max(-3, Math.min(3, inspectedCell.skyTemp)) + 3}`} /><div><strong>Sky Hex</strong><p>旅行与战术共用的上层状态</p></div></div><dl><div><dt>Temperature</dt><dd>{formatTemperature(inspectedCell.skyTemp)}</dd></div><div><dt>Fill</dt><dd>{inspectedCell.skyFill}</dd></div><div><dt>Cloud Age</dt><dd>{inspectedCell.cloudAge || '—'}</dd></div><div><dt>Wind</dt><dd>{String(inspectedCell.wind ?? '—')}</dd></div><div><dt>Intent</dt><dd>{inspectedCell.intents.map((intent) => `${intent.type} T+${intent.countdown}`).join(', ') || '—'}</dd></div></dl></div></div>}
+              {inspectedActor && <div className="visual-inspector-block actor"><div className="visual-inspector-title"><span className={`visual-faction ${inspectedActor.faction}`} /><div><strong>{inspectedActor.name}</strong><p>{inspectedActor.actorType} · {inspectedActor.intent || '无公开意图'}</p></div></div><dl><div><dt>HP / Shield</dt><dd>{inspectedActor.hp}/{inspectedActor.maxHp} · {inspectedActor.shield}</dd></div><div><dt>体温 / 平衡</dt><dd>{formatTemperature(inspectedActor.bodyTemperature)} / {formatTemperature(inspectedActor.balanceTemperature)}</dd></div><div><dt>Mass</dt><dd>{inspectedActor.mass}</dd></div></dl></div>}
             </section>
-          ) : (
-            <section className="visual-hand hex-travel-hand-note">
-              <p>旅行模式收起卡牌操作，只保留路线、风险、发现与世界时间。切入战术时使用同一手牌、牌库和弃牌堆。</p>
-              <div className="hex-travel-route-list"><div><span>路线</span><strong>{travelPreference === 'fastest' ? '最快' : '安全'}</strong></div><div><span>移动成本</span><strong>{pathSummary.movementCost}</strong></div><div><span>世界演算</span><strong>{worldTicks}</strong></div><div><span>近距威胁</span><strong>{threat ? `${threat.distance} Hex` : '无'}</strong></div></div>
+
+            <section className="thermal-clock-inspector-pane" hidden={rightInspectorTab !== 'thermal'}>
+              <div id="thermal-clock-inspector-slot" />
             </section>
-          )}
+
+            <section>
+              <div className="visual-section-heading"><h3>地图时间线</h3><span>{playbackActive ? `表现队列 ${eventQueue.length}` : mode === 'travel' ? `Clock ${travelProgress}/${state.config.baseAP}` : autoResolving ? `${speedLabels[simulationSpeed]} 自动演算` : '最近日志'}</span></div>
+              <div className="visual-causality">{state.logs.slice(0, 9).map((log, index) => <div key={`${index}-${log}`}><span>{index + 1}</span><p>{log}</p></div>)}</div>
+            </section>
+
+            <section className="visual-slice-note">
+              <h3>本轮验证问题</h3>
+              <p>{mapStructure === 'room' ? '哪一个房间半径能在移动自由、卡牌覆盖和局部拥挤之间形成最佳张力？' : '最快路线是否因为天气与敌人变得不稳定，而安全路线值得额外距离？'}</p>
+              <p>8 / 12 AT 是否提供合适的相位干预密度，而不是把四相误读为八或十二个阶段？</p>
+              <p>卡牌费用映射为 Base AT 后，连续摆动是否能自然影响行动选择？</p>
+            </section>
+          </aside>
         </section>
+      </main>
 
-        <aside className="visual-panel visual-right-panel">
-          <section>
-            <div className="visual-section-heading"><h3>Hex Inspector</h3><span>({inspectCoord.x},{inspectCoord.y}) · D{selectedDistance}</span></div>
-            {inspectedCell && <div className="visual-inspector-stack"><div className="visual-inspector-block ground"><div className="visual-inspector-title"><span className={`visual-temp-orb temp-${Math.max(-3, Math.min(3, inspectedCell.groundTemp)) + 3}`} /><div><strong>Ground Hex</strong><p>{inspectedCell.tags.includes('Blocked') ? '不可通行山脊' : '连续地图地面层'}</p></div></div><dl><div><dt>Temperature</dt><dd>{formatTemperature(inspectedCell.groundTemp)}</dd></div><div><dt>Fill</dt><dd>{inspectedCell.groundFill}</dd></div><div><dt>Moisture</dt><dd>{inspectedCell.moisture}</dd></div><div><dt>Tags</dt><dd>{inspectedCell.tags.join(', ') || '—'}</dd></div></dl></div><div className={`visual-inspector-block sky ${inspectedCell.skyFill === 'clear' ? 'is-clear' : ''}`}><div className="visual-inspector-title"><span className={`visual-temp-orb temp-${Math.max(-3, Math.min(3, inspectedCell.skyTemp)) + 3}`} /><div><strong>Sky Hex</strong><p>旅行与战术共用的上层状态</p></div></div><dl><div><dt>Temperature</dt><dd>{formatTemperature(inspectedCell.skyTemp)}</dd></div><div><dt>Fill</dt><dd>{inspectedCell.skyFill}</dd></div><div><dt>Cloud Age</dt><dd>{inspectedCell.cloudAge || '—'}</dd></div><div><dt>Wind</dt><dd>{String(inspectedCell.wind ?? '—')}</dd></div><div><dt>Intent</dt><dd>{inspectedCell.intents.map((intent) => `${intent.type} T+${intent.countdown}`).join(', ') || '—'}</dd></div></dl></div></div>}
-            {inspectedActor && <div className="visual-inspector-block actor"><div className="visual-inspector-title"><span className={`visual-faction ${inspectedActor.faction}`} /><div><strong>{inspectedActor.name}</strong><p>{inspectedActor.actorType} · {inspectedActor.intent || '无公开意图'}</p></div></div><dl><div><dt>HP / Shield</dt><dd>{inspectedActor.hp}/{inspectedActor.maxHp} · {inspectedActor.shield}</dd></div><div><dt>体温 / 平衡</dt><dd>{formatTemperature(inspectedActor.bodyTemperature)} / {formatTemperature(inspectedActor.balanceTemperature)}</dd></div><div><dt>Mass</dt><dd>{inspectedActor.mass}</dd></div></dl></div>}
-          </section>
-
-          <section>
-            <div className="visual-section-heading"><h3>地图时间线</h3><span>{playbackActive ? `表现队列 ${eventQueue.length}` : mode === 'travel' ? `Clock ${travelProgress}/${state.config.baseAP}` : autoResolving ? `${speedLabels[simulationSpeed]} 自动演算` : '最近日志'}</span></div>
-            <div className="visual-causality">{state.logs.slice(0, 9).map((log, index) => <div key={`${index}-${log}`}><span>{index + 1}</span><p>{log}</p></div>)}</div>
-          </section>
-
-          <section className="visual-slice-note">
-            <h3>本轮验证问题</h3>
-            <p>{mapStructure === 'room' ? '哪一个房间半径能在移动自由、卡牌覆盖和局部拥挤之间形成最佳张力？' : '最快路线是否因为天气与敌人变得不稳定，而安全路线值得额外距离？'}</p>
-            <p>每 baseAP 格推进一次世界后，高 AP 是否自然表现为更高旅行机动性？</p>
-            <p>遭遇切入战术后，位置、天气和剩余路径是否仍然连续、可理解？</p>
-          </section>
-        </aside>
-      </section>
-    </main>
+      <ThermalPendulumPortal
+        enabled
+        inspectorActive={rightInspectorTab === 'thermal'}
+        runtimeSignal={thermalRuntimeSignal}
+        onOpenInspector={() => setRightInspectorTab('thermal')}
+      />
+    </>
   )
 }
