@@ -14,6 +14,96 @@
 
 ---
 
+## Experiment Ruleset `val-012-tc1.0.1` — 2026-08-05
+
+### 类型
+
+VAL-012 TC1 的 Hex6 行动接入与 Inspector 布局修订；**候选实验行为，不构成正式规则晋升**。
+
+### UI 与信息表达
+
+- `Thermal Clock Inspector` 不再使用右上角独立浮层；
+- 右侧栏新增 `Hex Inspector / Thermal Clock` 两个等宽选项卡，并在同一容器内互相切换；
+- 右侧栏桌面宽度由原来的约 `285px` 调整为 `350px`，较窄桌面使用 `330px`；
+- Thermal Clock 面板嵌入右侧栏，继承相同宽度、滚动区域和视觉层级；
+- 角色卡上的 `TC1 Inspector` 按钮会直接切换右侧选项卡；
+- Inspector 明确显示：
+  - `1 Thermal Period = 4 Base Beats`；
+  - `Base Beat AT = Thermal Period AT / 4`；
+  - 8 AT 周期的锚点为 `0 / 2 / 4 / 6 / 8 AT`；
+  - 12 AT 周期的锚点为 `0 / 3 / 6 / 9 / 12 AT`；
+  - 动作预览显示本次 AT 相当于推进多少个 Base Beat；
+- 8 AT 和 12 AT 不表示八个或十二个相位，只表示同一四相周期使用不同世界时间长度。
+
+### Hex6 Tactical Action Time 接入
+
+- 成功执行基础移动：`1 AP / 1 AT`；
+- 成功执行基础攻击：`1 AP / 1 AT`；
+- 成功打出当前 Hex6 卡牌：首轮采用 `Base AT = Base AP Cost`；
+- 主动 `0 AP` 行动的通用桥接下限预留为 `1 AT`，Reaction 仍需显式声明 `0 AT`；
+- 行动失败、目标无效或费用支付失败时，不推进 Thermal Clock；
+- 卡牌或行动直接改变玩家 `bodyTemperature` 时，将该差值作为即时 `Delta Offset` 传入 TC1，然后再按 AT 推进；
+- 当前旧卡牌没有正式 `Delta Drift` 数据，因此不会从卡牌名称或冷热标签推断 Drift；
+- 连续快速行动会先提交前一次 Thermal 结果，再从更新后的状态继续推进；
+- Hex6 悔棋会同步撤回对应的 Thermal Action；
+- 重开地图、切换 Room / World 会同步重置 Thermal Clock 实验状态。
+
+### 保留的 Debug 能力
+
+- Inspector 内的 `Debug Resolve Action` 继续保留，用于测试 Direct Heat、Drift Impulse、Stabilize、0 AT Reaction、长动作和动作内事件；
+- Debug Action 与真实卡牌 / 基础行动写入同一 Thermal 日志；
+- Ghost preview 只在 `Thermal Clock` 选项卡活动时显示，避免 Hex Inspector 模式下常驻额外信息。
+
+### 当前未接入
+
+- Travel 每格移动与 Tactical AT 的换算尚未定义，因此旅行步骤暂不推进 TC1；
+- Enemy Phase、NPC 行动和环境演算是否占用 Actor Thermal Clock 时间尚未确定，暂不自动接入；
+- 当前桥接层只同步玩家行动产生的体温差值，不把 TC1 连续 Temperature 反写为旧战斗 GameState 的唯一温度权威；
+- 正式卡牌 `baseActionTime` 字段尚未加入旧 `Card` 数据结构，当前使用首轮默认映射；
+- Runtime Action 的确定性 Replay 数据结构仍待与正式 Action Record 合并，Debug Replay 保留为实验工具。
+
+### 测试与验证
+
+新增回归用例验证：
+
+- 8 AT 周期仍为四个 Base Beat，锚点间隔为 2 AT；
+- 12 AT 周期仍为四个 Base Beat，锚点间隔为 3 AT；
+- Hex6 runtime bridge 保持 AP、AT、Delta Offset 相互独立；
+- bridge 允许未来动作使用 `AP != AT`，不把二者硬编码为永久等式。
+
+验证状态：
+
+- [x] 右栏 Inspector 选项卡与统一宽度；
+- [x] Thermal Clock 浮层改为嵌入式 Inspector；
+- [x] 基础移动与攻击推进 1 AT；
+- [x] 成功卡牌按首轮 Base AP → Base AT 映射推进；
+- [x] 直接体温变化映射为即时 Delta Offset；
+- [x] Hex6 Undo / Restart 同步；
+- [x] 8 AT / 12 AT 相位间隔测试；
+- [x] runtime action mapping 测试；
+- [ ] 仓库内完整 `npm test`；
+- [ ] 仓库内 `npm run build`；
+- [ ] GitHub Actions 与 Pages 发布结果；
+- [ ] 实际浏览器右栏宽度、滚动与选项卡切换；
+- [ ] 旅行时间与 Tactical AT 的统一换算；
+- [ ] 敌人、NPC 和环境事件的时间归属。
+
+对应 Validation：`VAL-012`。
+
+主要实现提交：
+
+- `dd386ea4c3d1a69fbe39082d4b2eb9b061b40a46`：Hex6 Thermal Clock runtime signal 与 action mapping；
+- `acd9b5696cc859679d4743ac4ff69bba347616fb`：嵌入式 Thermal Clock Inspector 与 AT / Base Beat 解释；
+- `202a57fc31416d38bf5454224436c7d16c96a957`：钟摆消费真实 Hex6 行动、Undo 和 Restart；
+- `f970fa47ce21eaa5d856ca6b31e85524c6f760c8`：Hex6 卡牌、移动、攻击与右栏选项卡接入；
+- `f55f14d75d5bfff3f5c3d688d08988cc5339f41c`：右侧栏宽度与嵌入式 Inspector 样式；
+- `f1feb01c6e5e52a195ea79d7d39f0d34ca0ad636`：加载 Inspector 布局样式；
+- `fb03b98f03ceebd1cddc5dd756e1a306e9cd11f9`：runtime bridge 回归测试；
+- `16005e269e9e943b6c4b73c6e0a37cfe50c60672`：8 / 12 AT 四相间隔回归测试；
+- `7d4d672fa068eda00dd3d5e4030758133d4f25ac`：实验版本提升至 `val-012-tc1.0.1`。
+
+---
+
 ## Experiment Ruleset `val-012-tc1.0.0` — 2026-08-04
 
 ### 类型
