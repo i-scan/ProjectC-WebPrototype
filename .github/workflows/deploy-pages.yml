@@ -61,9 +61,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          entry_url="${PAGE_URL%/}/?commit=${EXPECTED_COMMIT}"
           html=""
           for attempt in {1..12}; do
-            if html="$(curl --fail --silent --show-error --location "$PAGE_URL")"; then
+            if html="$(curl --fail --silent --show-error --location \
+              -H 'Cache-Control: no-cache' \
+              "$entry_url")"; then
               break
             fi
             echo "Site is not available yet; retrying ($attempt/12)..."
@@ -71,6 +74,8 @@ jobs:
           done
 
           test -n "$html"
+          printf '%s' "$html" | grep -q 'projectc-ui-revision'
+          printf '%s' "$html" | grep -q 'tc1-inspector-tabs-v1'
 
           if printf '%s' "$html" | grep -q '/src/main.tsx'; then
             echo 'Published page still references the Vite development entry.' >&2
@@ -89,13 +94,19 @@ jobs:
             *) script_url="${PAGE_URL%/}/${script_path}" ;;
           esac
 
-          curl --fail --silent --show-error --location "$script_url" --output published-app.js
+          curl --fail --silent --show-error --location \
+            -H 'Cache-Control: no-cache' \
+            "${script_url}?commit=${EXPECTED_COMMIT}" \
+            --output published-app.js
           grep -q 'thermal-clock-inspector-slot' published-app.js
           grep -q 'TC1 Inspector' published-app.js
 
-          build_info_url="${PAGE_URL%/}/build-info.json"
-          curl --fail --silent --show-error --location "$build_info_url" --output published-build-info.json
+          build_info_url="${PAGE_URL%/}/build-info.json?commit=${EXPECTED_COMMIT}"
+          curl --fail --silent --show-error --location \
+            -H 'Cache-Control: no-cache' \
+            "$build_info_url" \
+            --output published-build-info.json
           grep -q "$EXPECTED_COMMIT" published-build-info.json
           grep -q 'tc1-inspector-tabs-v1' published-build-info.json
 
-          echo "Verified current commit, TC1 inspector bundle, and build metadata: $script_url"
+          echo "Verified current commit, TC1 inspector entry, bundle, and build metadata: $script_url"
