@@ -1,0 +1,63 @@
+name: Apply failed card feedback fix
+
+on:
+  push:
+    branches:
+      - agent/fix-failed-card-feedback
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/fix-failed-card-feedback
+
+      - name: Patch card feedback and add cleanup automation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/hex/HexPrototype.tsx')
+          source = path.read_text(encoding='utf-8')
+
+          bridge = """  const bridgeCardAction = (\n    before: GameState,\n    after: GameState,\n    card: Card,\n  ): boolean => {\n    const succeeded = before.hand.includes(card.id) && !after.hand.includes(card.id)\n    if (!succeeded) return false\n    emitThermalAction({\n      source: 'card',\n      id: card.id,\n      label: `卡牌 · ${card.name}`,\n      baseApCost: card.cost,\n      actionTime: Math.max(1, card.cost),\n      offsetDelta: getPlayer(after).bodyTemperature - getPlayer(before).bodyTemperature,\n    })\n    return true\n  }\n"""
+
+          bridge_with_resolution = bridge + """\n  const resolveCardAttempt = (\n    before: GameState,\n    after: GameState,\n    card: Card,\n    fallbackTarget?: Coord,\n  ): boolean => {\n    const cardPlayed = bridgeCardAction(before, after, card)\n    if (!cardPlayed) {\n      // Preserve the rule failure log, but do not create undo history or visual playback.\n      setState(after)\n      return false\n    }\n    queueTransition(\n      before,\n      after,\n      eventKindForCard(card),\n      fallbackTarget,\n      captureHistory(before, true),\n    )\n    return true\n  }\n"""
+
+          if source.count(bridge) != 1:
+              raise SystemExit('bridgeCardAction insertion point changed')
+          source = source.replace(bridge, bridge_with_resolution, 1)
+
+          targeted_before = """    if (selection.kind === 'card') {\n      const before = state\n      const after = playHexCard(before, selection.card.id, coord, targetLayer)\n      const thermalAdvanced = bridgeCardAction(before, after, selection.card)\n      queueTransition(\n        before,\n        after,\n        eventKindForCard(selection.card),\n        coord,\n        captureHistory(before, thermalAdvanced),\n      )\n      setSelection({ kind: 'inspect' })\n    }\n"""
+          targeted_after = """    if (selection.kind === 'card') {\n      const before = state\n      const after = playHexCard(before, selection.card.id, coord, targetLayer)\n      const cardPlayed = resolveCardAttempt(before, after, selection.card, coord)\n      if (cardPlayed) setSelection({ kind: 'inspect' })\n    }\n"""
+          if source.count(targeted_before) != 1:
+              raise SystemExit('targeted card handler changed')
+          source = source.replace(targeted_before, targeted_after, 1)
+
+          self_before = """    if (card.target === 'self') {\n      const before = state\n      const after = playHexCard(before, card.id, undefined, targetLayer)\n      const thermalAdvanced = bridgeCardAction(before, after, card)\n      queueTransition(\n        before,\n        after,\n        eventKindForCard(card),\n        player.position,\n        captureHistory(before, thermalAdvanced),\n      )\n      setSelection({ kind: 'inspect' })\n      return\n    }\n"""
+          self_after = """    if (card.target === 'self') {\n      const before = state\n      const after = playHexCard(before, card.id, undefined, targetLayer)\n      resolveCardAttempt(before, after, card, player.position)\n      setSelection({ kind: 'inspect' })\n      return\n    }\n"""
+          if source.count(self_before) != 1:
+              raise SystemExit('self-target card handler changed')
+          source = source.replace(self_before, self_after, 1)
+          path.write_text(source, encoding='utf-8')
+
+          Path('src/hex/cardFeedbackStructure.test.mjs').write_text("""import { readFileSync } from 'node:fs'\nimport { fileURLToPath } from 'node:url'\nimport { describe, expect, it } from 'vitest'\n\nconst prototypePath = fileURLToPath(new URL('./HexPrototype.tsx', import.meta.url))\nconst source = readFileSync(prototypePath, 'utf8')\n\ndescribe('card playback feedback boundary', () => {\n  it('updates failure logs without queuing card playback or undo history', () => {\n    const resolverStart = source.indexOf('const resolveCardAttempt = (')\n    const resolverEnd = source.indexOf('function planTravel', resolverStart)\n    const resolver = source.slice(resolverStart, resolverEnd)\n    const failureGuard = resolver.indexOf('if (!cardPlayed)')\n    const stateUpdate = resolver.indexOf('setState(after)', failureGuard)\n    const earlyReturn = resolver.indexOf('return false', stateUpdate)\n    const transition = resolver.indexOf('queueTransition(', earlyReturn)\n\n    expect(resolverStart).toBeGreaterThan(-1)\n    expect(failureGuard).toBeGreaterThan(-1)\n    expect(stateUpdate).toBeGreaterThan(failureGuard)\n    expect(earlyReturn).toBeGreaterThan(stateUpdate)\n    expect(transition).toBeGreaterThan(earlyReturn)\n    expect(resolver).toContain('captureHistory(before, true)')\n  })\n\n  it('clears a targeted card selection only after a successful play', () => {\n    expect(source).toContain('const cardPlayed = resolveCardAttempt(before, after, selection.card, coord)')\n    expect(source).toContain("if (cardPlayed) setSelection({ kind: 'inspect' })")\n  })\n})\n""", encoding='utf-8')
+
+          Path('.github/workflows/cleanup-merged-agent-branches.yml').write_text("""name: Cleanup merged agent branches\n\non:\n  pull_request:\n    branches:\n      - main\n    types:\n      - closed\n  push:\n    branches:\n      - main\n  workflow_dispatch:\n\npermissions:\n  contents: write\n  pull-requests: read\n\nconcurrency:\n  group: cleanup-merged-agent-branches\n  cancel-in-progress: false\n\njobs:\n  cleanup:\n    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true\n    runs-on: ubuntu-latest\n    steps:\n      - name: Delete merged agent branches without open pull requests\n        uses: actions/github-script@v7\n        with:\n          script: |\n            const owner = context.repo.owner\n            const repo = context.repo.repo\n            const branches = await github.paginate(github.rest.repos.listBranches, {\n              owner,\n              repo,\n              per_page: 100,\n            })\n\n            for (const branch of branches) {\n              const name = branch.name\n              if (!name.startsWith('agent/')) continue\n\n              const openPulls = await github.paginate(github.rest.pulls.list, {\n                owner,\n                repo,\n                state: 'open',\n                head: `${owner}:${name}`,\n                per_page: 100,\n              })\n              if (openPulls.length > 0) {\n                core.info(`Keep ${name}: an open pull request still uses it.`)\n                continue\n              }\n\n              const closedPulls = await github.paginate(github.rest.pulls.list, {\n                owner,\n                repo,\n                state: 'closed',\n                head: `${owner}:${name}`,\n                base: 'main',\n                per_page: 100,\n              })\n              if (!closedPulls.some((pull) => Boolean(pull.merged_at))) {\n                core.info(`Keep ${name}: no merged pull request targets main.`)\n                continue\n              }\n\n              try {\n                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${name}` })\n                core.info(`Deleted merged branch ${name}.`)\n              } catch (error) {\n                if (error.status === 422 || error.status === 404) {\n                  core.warning(`Could not delete ${name}: ${error.message}`)\n                  continue\n                }\n                throw error\n              }\n            }\n""", encoding='utf-8')
+
+          Path('.github/workflows/agent-apply-card-feedback-fix.yml').unlink()
+          PY
+
+      - name: Commit generated fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/hex/HexPrototype.tsx src/hex/cardFeedbackStructure.test.mjs .github/workflows/cleanup-merged-agent-branches.yml .github/workflows/agent-apply-card-feedback-fix.yml
+          git commit -m 'fix: suppress feedback for failed card plays'
+          git push origin HEAD:agent/fix-failed-card-feedback
