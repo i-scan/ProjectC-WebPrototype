@@ -23,6 +23,7 @@ jobs:
 
       - name: Gate visual playback behind successful card resolution
         run: |
+          set -euxo pipefail
           python - <<'PY'
           from pathlib import Path
 
@@ -51,13 +52,11 @@ jobs:
           Path('src/hex/cardFeedbackStructure.test.mjs').write_text("""import { readFileSync } from 'node:fs'\nimport { fileURLToPath } from 'node:url'\nimport { describe, expect, it } from 'vitest'\n\nconst prototypePath = fileURLToPath(new URL('./HexPrototype.tsx', import.meta.url))\nconst source = readFileSync(prototypePath, 'utf8')\n\ndescribe('card playback feedback boundary', () => {\n  it('updates failure logs without queuing playback or undo history', () => {\n    const resolverStart = source.indexOf('const resolveCardAttempt = (')\n    const resolverEnd = source.indexOf('function planTravel', resolverStart)\n    const resolver = source.slice(resolverStart, resolverEnd)\n    const failureGuard = resolver.indexOf('if (!cardPlayed)')\n    const stateUpdate = resolver.indexOf('setState(after)', failureGuard)\n    const earlyReturn = resolver.indexOf('return false', stateUpdate)\n    const transition = resolver.indexOf('queueTransition(', earlyReturn)\n\n    expect(resolverStart).toBeGreaterThan(-1)\n    expect(failureGuard).toBeGreaterThan(-1)\n    expect(stateUpdate).toBeGreaterThan(failureGuard)\n    expect(earlyReturn).toBeGreaterThan(stateUpdate)\n    expect(transition).toBeGreaterThan(earlyReturn)\n    expect(resolver).toContain('captureHistory(before, true)')\n  })\n\n  it('keeps targeted cards selected after failure and clears them after success', () => {\n    expect(source).toContain('const cardPlayed = resolveCardAttempt(before, after, selection.card, coord)')\n    expect(source).toContain("if (cardPlayed) setSelection({ kind: 'inspect' })")\n  })\n})\n""", encoding='utf-8')
           PY
 
-      - name: Remove one-time bootstrap workflow
-        run: git rm .github/workflows/agent-apply-card-feedback-fix.yml
-
       - name: Commit and push implementation branch
         run: |
+          set -euxo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/hex/HexPrototype.tsx src/hex/cardFeedbackStructure.test.mjs .github/workflows/agent-apply-card-feedback-fix.yml
+          git add src/hex/HexPrototype.tsx src/hex/cardFeedbackStructure.test.mjs
           git commit -m 'fix: suppress feedback for failed card plays'
           git push -u origin agent/fix-failed-card-feedback-code
