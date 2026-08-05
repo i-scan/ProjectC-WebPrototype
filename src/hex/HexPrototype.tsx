@@ -250,6 +250,28 @@ export function HexPrototype() {
     return true
   }
 
+  const resolveCardAttempt = (
+    before: GameState,
+    after: GameState,
+    card: Card,
+    fallbackTarget?: Coord,
+  ): boolean => {
+    const cardPlayed = bridgeCardAction(before, after, card)
+    if (!cardPlayed) {
+      // Preserve the rule failure log, but do not create undo history or visual playback.
+      setState(after)
+      return false
+    }
+    queueTransition(
+      before,
+      after,
+      eventKindForCard(card),
+      fallbackTarget,
+      captureHistory(before, true),
+    )
+    return true
+  }
+
   function planTravel(destination: Coord, autoStart = true) {
     const path = findHexTravelPath(state, player.position, destination, travelPreference)
     setSelectedCoord(destination)
@@ -380,15 +402,8 @@ export function HexPrototype() {
     if (selection.kind === 'card') {
       const before = state
       const after = playHexCard(before, selection.card.id, coord, targetLayer)
-      const thermalAdvanced = bridgeCardAction(before, after, selection.card)
-      queueTransition(
-        before,
-        after,
-        eventKindForCard(selection.card),
-        coord,
-        captureHistory(before, thermalAdvanced),
-      )
-      setSelection({ kind: 'inspect' })
+      const cardPlayed = resolveCardAttempt(before, after, selection.card, coord)
+      if (cardPlayed) setSelection({ kind: 'inspect' })
     }
   }
 
@@ -402,14 +417,7 @@ export function HexPrototype() {
     if (card.target === 'self') {
       const before = state
       const after = playHexCard(before, card.id, undefined, targetLayer)
-      const thermalAdvanced = bridgeCardAction(before, after, card)
-      queueTransition(
-        before,
-        after,
-        eventKindForCard(card),
-        player.position,
-        captureHistory(before, thermalAdvanced),
-      )
+      resolveCardAttempt(before, after, card, player.position)
       setSelection({ kind: 'inspect' })
       return
     }
