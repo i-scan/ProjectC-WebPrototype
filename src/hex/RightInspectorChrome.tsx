@@ -3,6 +3,8 @@ import { useEffect } from 'react'
 const ROOT_SELECTOR = '.hex-prototype'
 const TABS_SELECTOR = '.hex-inspector-tabs'
 const COORD_SOURCE_SELECTOR = '.hex-inspector-pane > .visual-section-heading span'
+const HEX_HEADING_SELECTOR = '.hex-inspector-pane > .visual-section-heading'
+const THERMAL_HEADING_SELECTOR = '.thermal-clock-inline-root > .thermal-lab-header'
 const SHARED_COORD_CLASS = 'hex-inspector-shared-coordinate'
 
 function syncInspectorChrome() {
@@ -31,6 +33,14 @@ function syncInspectorChrome() {
   const coordinateSource = root.querySelector<HTMLElement>(COORD_SOURCE_SELECTOR)
   const nextText = coordinateSource?.textContent?.trim() || 'Cell —'
   if (sharedCoordinate.textContent !== nextText) sharedCoordinate.textContent = nextText
+
+  /* The tab row is the single source of both Inspector titles. Keep the old
+     headings hidden at DOM level as a safeguard against future CSS ordering. */
+  const hexHeading = root.querySelector<HTMLElement>(HEX_HEADING_SELECTOR)
+  if (hexHeading && !hexHeading.hidden) hexHeading.hidden = true
+
+  const thermalHeading = root.querySelector<HTMLElement>(THERMAL_HEADING_SELECTOR)
+  if (thermalHeading && !thermalHeading.hidden) thermalHeading.hidden = true
 }
 
 export function RightInspectorChrome() {
