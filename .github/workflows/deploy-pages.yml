@@ -30,9 +30,6 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # These checks remain visible diagnostics, but a regression-test or
-      # strict-type failure must not leave the playable prototype stuck on an
-      # older Pages artifact. Vite syntax/build failure still blocks deploy.
       - name: Test diagnostics
         id: tests
         continue-on-error: true
@@ -41,7 +38,10 @@ jobs:
       - name: TypeScript diagnostics
         id: typecheck
         continue-on-error: true
-        run: npx tsc -b --pretty false
+        shell: bash
+        run: |
+          set -o pipefail
+          npx tsc -b --pretty false 2>&1 | tee typecheck-diagnostics.txt
 
       - name: Build playable prototype
         run: npx vite build
@@ -51,20 +51,27 @@ jobs:
           TEST_RESULT: ${{ steps.tests.outcome }}
           TYPECHECK_RESULT: ${{ steps.typecheck.outcome }}
         run: |
-          printf '{"commit":"%s","builtAt":"%s","uiRevision":"tc1-inspector-contained-v3","deploymentMode":"prototype-vite","testResult":"%s","typecheckResult":"%s"}\n' \
+          printf '{"commit":"%s","builtAt":"%s","uiRevision":"tc1-inspector-inline-v4","deploymentMode":"prototype-vite","testResult":"%s","typecheckResult":"%s"}\n' \
             "$GITHUB_SHA" \
             "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
             "$TEST_RESULT" \
             "$TYPECHECK_RESULT" \
             > dist/build-info.json
 
+          if test -f typecheck-diagnostics.txt; then
+            cp typecheck-diagnostics.txt dist/typecheck-diagnostics.txt
+          else
+            printf 'TypeScript diagnostics were not produced.\n' > dist/typecheck-diagnostics.txt
+          fi
+
           {
             echo '## ProjectC Pages build'
             echo
             echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- UI revision: \`tc1-inspector-contained-v3\`"
+            echo "- UI revision: \`tc1-inspector-inline-v4\`"
             echo "- Vitest / rules diagnostics: **$TEST_RESULT**"
             echo "- TypeScript diagnostics: **$TYPECHECK_RESULT**"
+            echo '- Full TypeScript output is published as /typecheck-diagnostics.txt.'
             echo '- Deployment is blocked only when the Vite production build fails.'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -108,7 +115,7 @@ jobs:
 
           test -n "$html"
           printf '%s' "$html" | grep -q 'projectc-ui-revision'
-          printf '%s' "$html" | grep -q 'tc1-inspector-contained-v3'
+          printf '%s' "$html" | grep -q 'tc1-inspector-inline-v4'
 
           if printf '%s' "$html" | grep -q '/src/main.tsx'; then
             echo 'Published page still references the Vite development entry.' >&2
@@ -116,9 +123,7 @@ jobs:
           fi
 
           script_path="$(printf '%s' "$html" | grep -oE 'src="[^"]+\.js"' | head -n 1 | cut -d '"' -f 2)"
-          style_path="$(printf '%s' "$html" | grep -oE 'href="[^"]+\.css"' | head -n 1 | cut -d '"' -f 2)"
           test -n "$script_path"
-          test -n "$style_path"
 
           case "$script_path" in
             http://*|https://*) script_url="$script_path" ;;
@@ -129,29 +134,17 @@ jobs:
             *) script_url="${PAGE_URL%/}/${script_path}" ;;
           esac
 
-          case "$style_path" in
-            http://*|https://*) style_url="$style_path" ;;
-            /*)
-              origin="$(printf '%s' "$PAGE_URL" | sed -E 's#(https?://[^/]+).*#\1#')"
-              style_url="${origin}${style_path}"
-              ;;
-            *) style_url="${PAGE_URL%/}/${style_path}" ;;
-          esac
-
           curl --fail --silent --show-error --location \
             -H 'Cache-Control: no-cache' \
             "${script_url}?commit=${EXPECTED_COMMIT}" \
             --output published-app.js
-          grep -q 'thermal-clock-inspector-slot' published-app.js
-          grep -q 'Select Test Action' published-app.js
-          grep -q '完整 Period 固定分为 4 个等长相位' published-app.js
 
-          curl --fail --silent --show-error --location \
-            -H 'Cache-Control: no-cache' \
-            "${style_url}?commit=${EXPECTED_COMMIT}" \
-            --output published-app.css
-          grep -q 'thermal-inertia-lab.thermal-clock-lab.is-embedded' published-app.css
-          grep -q 'thermal-clock-timeline-details' published-app.css
+          grep -q 'thermal-clock-inline-root' published-app.js
+          grep -q '完整 Period 固定为 4 个等长相位' published-app.js
+          if grep -q '途中事件' published-app.js; then
+            echo 'Published bundle still contains the removed timeline disclosure.' >&2
+            exit 1
+          fi
 
           build_info_url="${PAGE_URL%/}/build-info.json?commit=${EXPECTED_COMMIT}"
           curl --fail --silent --show-error --location \
@@ -159,7 +152,13 @@ jobs:
             "$build_info_url" \
             --output published-build-info.json
           grep -q "$EXPECTED_COMMIT" published-build-info.json
-          grep -q 'tc1-inspector-contained-v3' published-build-info.json
+          grep -q 'tc1-inspector-inline-v4' published-build-info.json
           grep -q 'prototype-vite' published-build-info.json
 
-          echo "Verified current commit, contained TC1 inspector, JS/CSS bundles, and build metadata."
+          diagnostics_url="${PAGE_URL%/}/typecheck-diagnostics.txt?commit=${EXPECTED_COMMIT}"
+          curl --fail --silent --show-error --location \
+            -H 'Cache-Control: no-cache' \
+            "$diagnostics_url" \
+            --output published-typecheck-diagnostics.txt
+
+          echo 'Verified inline TC1 inspector, removed timeline disclosure, metadata, and diagnostics artifact.'
