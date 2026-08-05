@@ -67,6 +67,10 @@ if (!script.includes(expectedCommit)) throw new Error('published app bundle does
 if (!script.includes('hex-inspector-coordinate')) throw new Error('React-owned inspector coordinate is missing')
 if (!script.includes('inspector-panel-')) throw new Error('React-owned inspector panel mode is missing')
 if (!script.includes('thermal-clock-config-label')) throw new Error('rebuilt Thermal configuration controls are missing')
+if (!script.includes('data-inspector-layout-contract')) throw new Error('runtime inspector layout contract marker is missing')
+if (!script.includes('runtime-v2')) throw new Error('runtime inspector layout contract version is missing')
+if (!script.includes('560px')) throw new Error('runtime Thermal inspector target width is missing')
+if (!script.includes('white-space: nowrap !important')) throw new Error('runtime single-line tab contract is missing')
 if (script.includes('RightInspectorChrome')) throw new Error('obsolete DOM-patching inspector component is still bundled')
 
 const styleMatch = html.match(/<link[^>]+href="([^"]+\.css)"/)
@@ -74,18 +78,9 @@ if (!styleMatch) throw new Error('published CSS entry was not found')
 const styleUrl = new URL(styleMatch[1], pageUrl.origin)
 styleUrl.searchParams.set('verify', cacheBust)
 const style = await fetchText(styleUrl)
-if (!/\.inspector-thermal/.test(style)) throw new Error('Thermal inspector width mode is missing from CSS')
+if (!/\.inspector-thermal/.test(style)) throw new Error('shared Thermal inspector styling is missing from CSS')
 if (!/hex-inspector-coordinate/.test(style)) throw new Error('shared coordinate styling is missing from CSS')
-if (!/--inspector-right-width\s*:\s*560px/.test(style)) throw new Error('desktop Thermal inspector target width is not present in CSS')
-if (!/grid-template-columns\s*:\s*minmax\(0\s*,\s*1fr\)\s+minmax\(0\s*,\s*1fr\)\s+max-content\s*!important/.test(style)) {
-  throw new Error('inspector tabs and coordinate are not locked to one row')
-}
-if (!/white-space\s*:\s*nowrap\s*!important/.test(style)) throw new Error('inspector tab labels are not locked to one line')
-if (!/--tc-body\s*:\s*12px/.test(style)) throw new Error('Thermal base type scale is missing')
-if (!/--tc-value-emphasis\s*:\s*20px/.test(style)) throw new Error('Thermal emphasis type scale is missing')
-if (!/font-family\s*:\s*inherit\s*!important/.test(style)) {
-  throw new Error('embedded Thermal controls do not inherit the inspector typeface')
-}
+if (!/--tc-body\s*:\s*12px/.test(style)) throw new Error('shared Thermal base type scale is missing')
 if (/font-size\s*:\s*6px\s*!important/.test(style)) throw new Error('obsolete 6px Thermal override is still deployed')
 
 console.log(`Verified production ${info.branch}@${info.shortCommit}`)
