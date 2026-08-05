@@ -14,6 +14,7 @@ import {
 
 type ThermalClockLabProps = {
   open: boolean
+  embedded?: boolean
   config: ThermalClockExperimentConfig
   rules: ThermalClockRuleset
   scenario: ThermalClockScenario
@@ -22,7 +23,7 @@ type ThermalClockLabProps = {
   preview: ThermalActionResolution
   history: ThermalActionResolution[]
   resolving: boolean
-  onClose: () => void
+  onClose?: () => void
   onRulesetChange: (id: string) => void
   onScenarioChange: (id: string) => void
   onStateChange: (patch: Partial<ActorThermalState>) => void
@@ -100,6 +101,7 @@ function RangeControl({
 
 export function ThermalClockLab({
   open,
+  embedded = false,
   config,
   rules,
   scenario,
@@ -128,6 +130,15 @@ export function ThermalClockLab({
     () => history.map((entry) => entry.actionId),
     [history],
   )
+  const baseBeatAt = rules.thermalPeriodAt / 4
+  const actionBeatAdvance = baseBeatAt <= 0 ? 0 : selectedAction.baseActionTime / baseBeatAt
+  const anchorSchedule = [
+    { label: 'Hot Apex', at: 0 },
+    { label: 'Set Point → Cold', at: baseBeatAt },
+    { label: 'Cold Apex', at: baseBeatAt * 2 },
+    { label: 'Set Point → Hot', at: baseBeatAt * 3 },
+    { label: 'Hot Apex', at: rules.thermalPeriodAt },
+  ]
 
   if (!open) return null
 
@@ -157,13 +168,18 @@ export function ThermalClockLab({
   }
 
   return (
-    <aside className={`thermal-inertia-lab thermal-clock-lab${resolving ? ' is-resolving' : ''}`} aria-label="VAL-012 Thermal Clock and Action Time Lab">
+    <div
+      className={`thermal-inertia-lab thermal-clock-lab${embedded ? ' is-embedded' : ''}${resolving ? ' is-resolving' : ''}`}
+      aria-label="VAL-012 Thermal Clock and Action Time Inspector"
+    >
       <header className="thermal-lab-header">
         <div>
           <p>VAL-012 · TC1 · Hex6</p>
-          <h2>Thermal Clock Lab</h2>
+          <h2>Thermal Clock Inspector</h2>
         </div>
-        <button type="button" className="thermal-lab-close" onClick={onClose} aria-label="关闭测试面板">×</button>
+        {!embedded && onClose && (
+          <button type="button" className="thermal-lab-close" onClick={onClose} aria-label="关闭测试面板">×</button>
+        )}
       </header>
 
       <section className="thermal-lab-config">
@@ -194,16 +210,28 @@ export function ThermalClockLab({
         <StateValue label="Side" value={sideLabel(current.side, current.neutral)} />
         <StateValue label="Phase" value={current.phaseBeat === null ? '—' : current.phaseBeat.toFixed(2)} />
         <StateValue label="Period" value={`${rules.thermalPeriodAt} AT`} />
+        <StateValue label="Base Beat" value={`${formatThermalNumber(baseBeatAt, 1)} AT`} />
         <StateValue label="World Time" value={`${session.elapsedAt.toFixed(2)} AT`} />
       </section>
 
       <section className="thermal-clock-phase-card">
         <div className="thermal-lab-section-heading">
           <div>
-            <span>Four-Phase Clock</span>
+            <span>固定四相 · 不是 {rules.thermalPeriodAt} 个相位</span>
             <strong>{phaseLabel(current.phaseBeat)}</strong>
           </div>
-          <small>{current.neutral ? 'Settled' : `${((current.phaseBeat ?? 0) / 4 * 100).toFixed(0)}%`}</small>
+          <small>1 Beat = {formatThermalNumber(baseBeatAt, 1)} AT</small>
+        </div>
+        <p className="thermal-clock-period-explanation">
+          一个完整 Period 始终只有四个 Base Beat。Period 改为 8 或 12 AT，只会把同样四相分别拉伸为每 Beat 2 或 3 AT。
+        </p>
+        <div className="thermal-clock-anchor-schedule" aria-label={`${rules.thermalPeriodAt} AT anchor schedule`}>
+          {anchorSchedule.map((anchor, index) => (
+            <div key={`${anchor.label}-${index}`}>
+              <b>{formatThermalNumber(anchor.at, 1)} AT</b>
+              <span>{anchor.label}</span>
+            </div>
+          ))}
         </div>
         <div className="thermal-clock-phase-axis" aria-label="Thermal Clock phase">
           {['Hot Apex', '→ Cold', 'Cold Apex', '→ Hot'].map((label, index) => (
@@ -234,10 +262,7 @@ export function ThermalClockLab({
           min={config.display.setPointMin}
           max={config.display.setPointMax}
           step={0.25}
-          onChange={(setPoint) => onStateChange({
-            setPoint,
-            offset: currentTemperature - setPoint,
-          })}
+          onChange={(setPoint) => onStateChange({ setPoint, offset: currentTemperature - setPoint })}
         />
         <RangeControl
           label="Drift"
@@ -252,8 +277,8 @@ export function ThermalClockLab({
       <section className="thermal-lab-actions">
         <div className="thermal-lab-section-heading">
           <div>
-            <span>Action Time</span>
-            <strong>即时作用 → 按 AT 演化 → 下一决策点</strong>
+            <span>Debug Actions</span>
+            <strong>真实卡牌与基础行动已自动推进；这里保留对照动作</strong>
           </div>
           <small>AP 与 AT 独立</small>
         </div>
@@ -286,6 +311,10 @@ export function ThermalClockLab({
               ? <span className="is-muted">No anchor event</span>
               : previewLabels.map((event) => <span key={event}>{event}</span>)}
           </div>
+        </div>
+
+        <div className="thermal-clock-action-progress">
+          +{formatThermalNumber(selectedAction.baseActionTime, 1)} AT = +{formatThermalNumber(actionBeatAdvance, 2)} Base Beat
         </div>
 
         <div className="thermal-clock-preview-steps">
@@ -329,7 +358,7 @@ export function ThermalClockLab({
         )}
 
         <button type="button" className="thermal-lab-resolve" onClick={onResolve} disabled={resolving}>
-          {resolving ? 'Immediate Response → Thermal Clock…' : 'Resolve Action'}
+          {resolving ? 'Immediate Response → Thermal Clock…' : 'Debug Resolve Action'}
         </button>
       </section>
 
@@ -350,7 +379,7 @@ export function ThermalClockLab({
           <small>{config.rulesetVersion}</small>
         </div>
         {history.length === 0 ? (
-          <p className="thermal-lab-empty">选择动作并结算，日志会记录即时变化、AT 推进与途中锚点。</p>
+          <p className="thermal-lab-empty">打出卡牌、执行移动或攻击，或使用 Debug Action 后，日志会记录即时变化、AT 推进与途中锚点。</p>
         ) : (
           <ol>
             {[...history].reverse().map((entry, reverseIndex) => {
@@ -376,6 +405,6 @@ export function ThermalClockLab({
           </ol>
         )}
       </section>
-    </aside>
+    </div>
   )
 }
