@@ -8,6 +8,7 @@
 
 - `core-rules.v0.json`：当前网页实验的机器可读声明配置；
 - `core-rules.schema.json`：JSON Schema 2020-12 字段约束；
+- `experiments/val-012-unified-at-timeline.v1.json`：Hex6 当前统一 AT 时间实验；
 - `CHANGELOG.md`：每次影响玩法结果的配置变更，最新在前。
 
 历史 Square4 10×10 规则说明位于 `docs/archive/`，不再作为当前规则来源。
@@ -59,6 +60,8 @@ GameState
 ```
 
 ruleset `0.1.0` 尚未被全部运行模块直接消费，因此本目录暂时不能被描述为完整运行时的唯一来源。
+
+`#hex-prototype` 当前例外地运行独立实验 ruleset `VAL-012-UT1`。它以实验配置和 `src/hex/unifiedTimeline.ts` 为直接权威，不回写或覆盖 Square4 / 全局 `0.1.0` 历史快照。
 
 当前值不会自动成为正式规则。WebPrototype 可以为对照实验偏离 ProjectC 当前候选，但必须记录原因、版本和 validation ID。
 

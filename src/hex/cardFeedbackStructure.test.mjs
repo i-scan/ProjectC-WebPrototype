@@ -13,14 +13,15 @@ describe('card playback feedback boundary', () => {
     const failureGuard = resolver.indexOf('if (!cardPlayed)')
     const stateUpdate = resolver.indexOf('setState(after)', failureGuard)
     const earlyReturn = resolver.indexOf('return false', stateUpdate)
-    const transition = resolver.indexOf('queueTransition(', earlyReturn)
+    const transition = resolver.indexOf('resolveAtomicAction(', earlyReturn)
 
     expect(resolverStart).toBeGreaterThan(-1)
     expect(failureGuard).toBeGreaterThan(-1)
     expect(stateUpdate).toBeGreaterThan(failureGuard)
     expect(earlyReturn).toBeGreaterThan(stateUpdate)
     expect(transition).toBeGreaterThan(earlyReturn)
-    expect(resolver).toContain('captureHistory(before, true)')
+    expect(source).toContain('const historyEntry = captureHistory(before, true)')
+    expect(source).toContain('queueTransition(before, resolution.value, fallbackKind, fallbackTarget, historyEntry)')
   })
 
   it('clears a targeted card selection only after a successful play', () => {

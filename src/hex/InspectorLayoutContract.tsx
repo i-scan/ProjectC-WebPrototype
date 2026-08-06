@@ -381,7 +381,8 @@ body .visual-prototype.hex-prototype .thermal-clock-inline-root .thermal-lab-log
 }
 
 @media (max-width: 1180px) {
-  body .visual-prototype.hex-prototype > .visual-layout {
+  body .visual-prototype.hex-prototype.inspector-hex > .visual-layout,
+  body .visual-prototype.hex-prototype.inspector-thermal > .visual-layout {
     grid-template-columns: 210px minmax(0, 1fr) !important;
   }
 

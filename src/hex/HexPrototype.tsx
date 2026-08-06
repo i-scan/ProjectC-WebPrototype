@@ -4,7 +4,6 @@ import {
   actorAt,
   cellAt,
   getPlayer,
-  phaseLabel,
   type BasicAction,
   type Card,
   type Coord,
@@ -32,22 +31,31 @@ import {
 } from './hexRoom'
 import { countMountainCells } from './hexTerrain'
 import {
-  advanceHexPhase,
-  endHexPlayerTurn,
   getHexNeighbors,
   hexDistance,
   isHexInside,
   performHexBasicAction,
   playHexCard,
+  runHexActorReady,
+  runHexGlobalEnvironment,
 } from './hexRules'
 import {
-  advanceTravelClock,
+  actionKindFor,
+  actionTimeFor,
+  applyUnifiedFixedHand,
+  createUnifiedTimeline,
+  nextReadySummary,
+  previewInterveningEvents,
+  resolveUnifiedPlayerAction,
+  unifiedTimelineConfig,
+  type TimelineState,
+} from './unifiedTimeline'
+import {
   createHexTravelState,
   detectTravelInterrupt,
   findHexTravelPath,
   findNearestTravelThreat,
   movePlayerInTravel,
-  runHexTravelTick,
   summarizeTravelPath,
   type HexMode,
   type TravelPreference,
@@ -72,7 +80,6 @@ const cardIcons: Record<Card['effect'], string> = {
 }
 
 const speedLabels = ['手动', '0.5×', '1×', '2×', '4×'] as const
-const phaseDelays = [0, 1400, 850, 450, 220] as const
 const travelDelays = [0, 1050, 680, 400, 230] as const
 const cueDelays = [360, 520, 340, 210, 120] as const
 const maxUndoSteps = 120
@@ -96,6 +103,7 @@ function fallbackEvent(kind: VisualEvent['kind'], target: Coord | undefined, lab
 
 type HexHistoryEntry = {
   state: GameState
+  timeline: TimelineState
   mode: HexMode
   travelPath: Coord[]
   travelTarget?: Coord
@@ -109,7 +117,8 @@ type HexHistoryEntry = {
 export function HexPrototype() {
   const [mapStructure, setMapStructure] = useState<HexMapStructure>('room')
   const [roomRadius, setRoomRadius] = useState(ROOM_DEFAULT_RADIUS)
-  const [state, setState] = useState(() => createHexRoomState(ROOM_DEFAULT_RADIUS))
+  const [state, setState] = useState(() => applyUnifiedFixedHand(createHexRoomState(ROOM_DEFAULT_RADIUS)))
+  const [timeline, setTimeline] = useState(createUnifiedTimeline)
   const [undoStack, setUndoStack] = useState<HexHistoryEntry[]>([])
   const [mode, setMode] = useState<HexMode>('tactical')
   const [rendererMode, setRendererMode] = useState<HexRenderer>('3d')
@@ -156,13 +165,14 @@ export function HexPrototype() {
   const scenarioObjective = findScenarioObjective(state)
   const activeCellCount = activeScenarioCells(state).length
   const mountainCellCount = countMountainCells(state)
+  const queuedTimelineEvents = nextReadySummary(timeline)
   const reachedObjective = Boolean(scenarioObjective && player.position.x === scenarioObjective.x && player.position.y === scenarioObjective.y)
 
   const objectives = useMemo(() => [
-    { done: worldTicks > 0, label: '移动触发世界演算' },
+    { done: timeline.worldTimeAt > 0, label: 'AT 推进全局时间' },
     { done: mode === 'tactical', label: '进入战术操作模式' },
     { done: reachedObjective, label: mapStructure === 'room' ? '抵达房间目标' : '抵达远端求救地点' },
-  ], [worldTicks, mode, reachedObjective, mapStructure])
+  ], [timeline.worldTimeAt, mode, reachedObjective, mapStructure])
 
   const nextThermalSequence = () => {
     thermalRuntimeSequenceRef.current += 1
@@ -186,6 +196,7 @@ export function HexPrototype() {
     thermalAdvanced = false,
   ): HexHistoryEntry => ({
     state: structuredClone(snapshotState),
+    timeline: structuredClone(timeline),
     mode,
     travelPath: travelPath.map((coord) => ({ ...coord })),
     travelTarget: travelTarget ? { ...travelTarget } : undefined,
@@ -214,40 +225,41 @@ export function HexPrototype() {
       : [fallbackEvent(fallbackKind, fallbackTarget, after.logs[0] ?? 'Hex6 状态已更新')])
   }
 
-  const bridgeBasicAction = (
+  const resolveAtomicAction = (
     before: GameState,
-    after: GameState,
-    action: BasicAction,
-  ): boolean => {
-    const succeeded = after.ap < before.ap
-    if (!succeeded) return false
+    immediate: GameState,
+    actionId: string,
+    source: ThermalClockRuntimeAction['source'],
+    label: string,
+    fallbackKind: VisualEvent['kind'],
+    fallbackTarget?: Coord,
+  ) => {
+    const actionTime = actionTimeFor(actionId)
+    const resolution = resolveUnifiedPlayerAction(
+      immediate,
+      timeline,
+      actionTime,
+      (value) => value,
+      {
+        resolveActor: runHexActorReady,
+        resolveEnvironment: runHexGlobalEnvironment,
+      },
+    )
+    resolution.value.phase = 'player'
+    resolution.value.phaseQueue = []
+    const historyEntry = captureHistory(before, true)
+    setTimeline(resolution.timeline)
+    setWorldTicks((value) => value + resolution.interveningEvents.filter((event) => event.type === 'environment').length)
     emitThermalAction({
-      source: 'basic-action',
-      id: action,
-      label: action === 'move' ? '基础行动 · 六向移动' : '基础行动 · 邻接攻击',
-      baseApCost: 1,
-      actionTime: 1,
-      offsetDelta: getPlayer(after).bodyTemperature - getPlayer(before).bodyTemperature,
+      source,
+      id: actionId,
+      label,
+      baseApCost: 0,
+      actionTime: resolution.elapsedAt,
+      offsetDelta: getPlayer(immediate).bodyTemperature - getPlayer(before).bodyTemperature,
     })
-    return true
-  }
-
-  const bridgeCardAction = (
-    before: GameState,
-    after: GameState,
-    card: Card,
-  ): boolean => {
-    const succeeded = before.hand.includes(card.id) && !after.hand.includes(card.id)
-    if (!succeeded) return false
-    emitThermalAction({
-      source: 'card',
-      id: card.id,
-      label: `卡牌 · ${card.name}`,
-      baseApCost: card.cost,
-      actionTime: Math.max(1, card.cost),
-      offsetDelta: getPlayer(after).bodyTemperature - getPlayer(before).bodyTemperature,
-    })
-    return true
+    queueTransition(before, resolution.value, fallbackKind, fallbackTarget, historyEntry)
+    return resolution
   }
 
   const resolveCardAttempt = (
@@ -256,18 +268,20 @@ export function HexPrototype() {
     card: Card,
     fallbackTarget?: Coord,
   ): boolean => {
-    const cardPlayed = bridgeCardAction(before, after, card)
+    const cardPlayed = after.logs[0] !== before.logs[0] && !after.logs[0]?.includes('失败')
     if (!cardPlayed) {
       // Preserve the rule failure log, but do not create undo history or visual playback.
       setState(after)
       return false
     }
-    queueTransition(
+    resolveAtomicAction(
       before,
       after,
+      card.id,
+      'card',
+      `原子动作 · ${card.name} · ${actionTimeFor(card.id)} AT`,
       eventKindForCard(card),
       fallbackTarget,
-      captureHistory(before, true),
     )
     return true
   }
@@ -292,35 +306,27 @@ export function HexPrototype() {
     if (mode !== 'travel' || travelPath.length <= 1 || playbackActive || state.status !== 'active') return
     const destination = travelPath[1]
     const before = state
-    const historyEntry = captureHistory(before)
-    let after = movePlayerInTravel(before, destination)
-    if (getPlayer(after).position.x === getPlayer(before).position.x && getPlayer(after).position.y === getPlayer(before).position.y) {
+    const immediate = movePlayerInTravel(before, destination)
+    if (getPlayer(immediate).position.x === getPlayer(before).position.x && getPlayer(immediate).position.y === getPlayer(before).position.y) {
       setTraveling(false)
       setTravelMessage('下一格已被阻挡，旅行暂停并等待重新规划。')
       return
     }
 
-    const clock = advanceTravelClock(travelProgress, 1, before.config.baseAP)
-    for (let index = 0; index < clock.ticks; index += 1) after = runHexTravelTick(after)
     const remainingPath = travelPath.slice(1)
-    const cues = buildVisualEvents(before, after, destination)
-    if (clock.ticks > 0) {
-      cues.unshift({
-        id: Date.now() + 7,
-        kind: 'phase',
-        effect: 'phase',
-        target: { ...destination },
-        label: `旅行累计达到 ${before.config.baseAP} 格：世界演算推进 ${clock.ticks} 次`,
-      })
-    }
-
-    setUndoStack((current) => [...current, historyEntry].slice(-maxUndoSteps))
-    setState(after)
+    const resolution = resolveAtomicAction(
+      before,
+      immediate,
+      'move',
+      'travel',
+      '旅行原子动作 · Quick Step · 1 AT',
+      'move',
+      destination,
+    )
+    const after = resolution.value
     setSelectedCoord({ ...destination })
     setTravelPath(remainingPath)
-    setTravelProgress(clock.remainder)
-    setWorldTicks((value) => value + clock.ticks)
-    setEventQueue(cues.length > 0 ? cues : [fallbackEvent('move', destination, `旅行到 (${destination.x},${destination.y})`)])
+    setTravelProgress(0)
 
     const interrupt = detectTravelInterrupt(after)
     if (interrupt) {
@@ -335,7 +341,7 @@ export function HexPrototype() {
       setTravelMessage('已抵达旅行目标。可继续选择目的地或主动进入战术模式。')
       return
     }
-    setTravelMessage(`旅行中：剩余 ${remainingPath.length - 1} 格，世界时钟 ${clock.remainder}/${before.config.baseAP}。`)
+    setTravelMessage(`旅行中：剩余 ${remainingPath.length - 1} 格；全局时间 ${resolution.timeline.worldTimeAt} AT。`)
   }
 
   useEffect(() => {
@@ -356,16 +362,6 @@ export function HexPrototype() {
   }, [eventQueue, simulationSpeed])
 
   useEffect(() => {
-    if (mode !== 'tactical' || simulationSpeed === 0 || state.phase === 'player' || state.status !== 'active' || eventQueue.length > 0) return
-    const timer = window.setTimeout(() => {
-      const before = state
-      const after = advanceHexPhase(before)
-      queueTransition(before, after, 'phase', getPlayer(before).position)
-    }, phaseDelays[simulationSpeed])
-    return () => window.clearTimeout(timer)
-  }, [mode, simulationSpeed, state, eventQueue.length])
-
-  useEffect(() => {
     if (mode !== 'travel' || !traveling || simulationSpeed === 0 || travelPath.length <= 1 || eventQueue.length > 0 || state.status !== 'active') return
     const timer = window.setTimeout(performTravelStep, travelDelays[simulationSpeed])
     return () => window.clearTimeout(timer)
@@ -384,24 +380,29 @@ export function HexPrototype() {
       planTravel(coord, true)
       return
     }
-    if (state.phase !== 'player') return
     if (selection.kind === 'basic') {
       const before = state
-      const after = performHexBasicAction(before, selection.action, coord)
-      const thermalAdvanced = bridgeBasicAction(before, after, selection.action)
-      queueTransition(
+      const immediate = performHexBasicAction(before, selection.action, coord, { useActionPoints: false })
+      const succeeded = immediate.logs[0] !== before.logs[0] && !immediate.logs[0]?.includes('失败')
+      if (!succeeded) {
+        setState(immediate)
+        return
+      }
+      resolveAtomicAction(
         before,
-        after,
+        immediate,
+        selection.action,
+        'basic-action',
+        `${selection.action === 'move' ? 'Quick Step' : 'Quick Strike'} · 1 AT`,
         selection.action === 'move' ? 'move' : 'attack',
         coord,
-        captureHistory(before, thermalAdvanced),
       )
-      if (selection.action === 'attack' || after.ap < 1) setSelection({ kind: 'inspect' })
+      if (selection.action === 'attack') setSelection({ kind: 'inspect' })
       return
     }
     if (selection.kind === 'card') {
       const before = state
-      const after = playHexCard(before, selection.card.id, coord, targetLayer)
+      const after = playHexCard(before, selection.card.id, coord, targetLayer, { useActionPoints: false, consumeCard: false })
       const cardPlayed = resolveCardAttempt(before, after, selection.card, coord)
       if (cardPlayed) setSelection({ kind: 'inspect' })
     }
@@ -416,7 +417,7 @@ export function HexPrototype() {
     if (playbackActive || mode !== 'tactical') return
     if (card.target === 'self') {
       const before = state
-      const after = playHexCard(before, card.id, undefined, targetLayer)
+      const after = playHexCard(before, card.id, undefined, targetLayer, { useActionPoints: false, consumeCard: false })
       resolveCardAttempt(before, after, card, player.position)
       setSelection({ kind: 'inspect' })
       return
@@ -428,8 +429,9 @@ export function HexPrototype() {
   const advance = () => {
     if (playbackActive || mode !== 'tactical') return
     const before = state
-    const after = before.phase === 'player' ? endHexPlayerTurn(before) : advanceHexPhase(before)
-    queueTransition(before, after, 'phase', player.position)
+    const immediate = structuredClone(before)
+    immediate.logs.unshift('玩家观察并等待：不产生即时效果。')
+    resolveAtomicAction(before, immediate, 'wait', 'system', 'Observe · 1 AT', 'phase', player.position)
     setSelection({ kind: 'inspect' })
   }
 
@@ -464,6 +466,7 @@ export function HexPrototype() {
     setSimulationSpeed(0)
     setUndoStack((current) => current.slice(0, -1))
     setState(previous.state)
+    setTimeline(previous.timeline)
     setMode(previous.mode)
     setTravelPath(previous.travelPath)
     setTravelTarget(previous.travelTarget)
@@ -474,18 +477,20 @@ export function HexPrototype() {
     setSelectedCoord({ ...getPlayer(previous.state).position })
     setHoverCoord(undefined)
     setSelection({ kind: 'inspect' })
-    setEventQueue([fallbackEvent('reset', getPlayer(previous.state).position, `悔棋：Turn ${previous.state.turn} · ${previous.mode === 'travel' ? '旅行' : phaseLabel(previous.state.phase)}`)])
+    setEventQueue([fallbackEvent('reset', getPlayer(previous.state).position, `悔棋：World ${previous.timeline.worldTimeAt} AT · ${previous.mode === 'travel' ? '旅行' : '战术'}`)])
     if (previous.thermalAdvanced) emitThermalCommand('undo')
   }
 
   const loadScenario = (structure: HexMapStructure, radius = roomRadius) => {
-    const next = structure === 'room'
+    const scenarioState = structure === 'room'
       ? createHexRoomState(radius, { turnMode: state.config.turnMode, baseAP: state.config.baseAP })
       : createHexTravelState({ turnMode: state.config.turnMode, baseAP: state.config.baseAP })
+    const next = applyUnifiedFixedHand(scenarioState)
     const start = getPlayer(next).position
     setMapStructure(structure)
     setRoomRadius(radius)
     setState(next)
+    setTimeline(createUnifiedTimeline())
     setUndoStack([])
     setTravelPath([])
     setTravelTarget(undefined)
@@ -512,8 +517,14 @@ export function HexPrototype() {
         ? '连续移动：六个方向中选择相邻格'
         : '选择六边邻接敌人'
       : `为「${selection.card.name}」选择六边距离目标`
-  const autoResolving = mode === 'tactical' && simulationSpeed > 0 && state.phase !== 'player' && state.status === 'active'
-  const topActionDisabled = state.status !== 'active' || playbackActive || (mode === 'tactical' && autoResolving) || (mode === 'travel' && travelPath.length <= 1)
+  const previewActionId = selection.kind === 'basic'
+    ? selection.action
+    : selection.kind === 'card'
+      ? selection.card.id
+      : 'wait'
+  const previewActionTime = actionTimeFor(previewActionId)
+  const previewEvents = previewInterveningEvents(timeline, previewActionTime)
+  const topActionDisabled = state.status !== 'active' || playbackActive || (mode === 'travel' && travelPath.length <= 1)
 
   const topAction = () => {
     if (mode === 'tactical') {
@@ -528,9 +539,7 @@ export function HexPrototype() {
   }
 
   const topActionLabel = mode === 'tactical'
-    ? state.phase === 'player'
-      ? playbackActive ? '表现队列中…' : '结束玩家回合'
-      : autoResolving ? '自动演算中…' : playbackActive ? '表现队列中…' : '推进一步'
+    ? playbackActive ? '表现队列中…' : '等待 1 AT'
     : simulationSpeed === 0
       ? '旅行一步'
       : traveling ? '暂停旅行' : '继续旅行'
@@ -540,8 +549,8 @@ export function HexPrototype() {
       <main className={`visual-prototype hex-prototype inspector-${rightInspectorTab}`}>
         <header className="visual-hud">
           <div className="visual-brand">
-            <p className="eyebrow">ProjectC · Hex6 Map Structure Lab</p>
-            <h1>{mapStructure === 'room' ? '小房间尺寸验证' : '连续大地图验证'}</h1>
+            <p className="eyebrow">ProjectC · VAL-012-UT1 · unified-at-timeline-v1</p>
+            <h1>{mapStructure === 'room' ? 'Hex6 全局时间验证' : '连续世界时间验证'}</h1>
           </div>
           <div className="hex-mode-switch" role="tablist" aria-label="地图操作模式">
             <button className={mode === 'travel' ? 'active' : ''} onClick={() => mode === 'travel' ? undefined : resumeTravel()}>旅行 Travel</button>
@@ -552,9 +561,9 @@ export function HexPrototype() {
             <button className={rendererMode === '3d' ? 'active' : ''} onClick={() => { setRendererMode('3d'); setHoverCoord(undefined) }}>3D</button>
           </div>
           <div className="visual-turn-strip">
-            <div><span>World</span><strong>{state.turn}</strong></div>
-            <div><span>Mode</span><strong>{mode === 'travel' ? 'Travel' : phaseLabel(state.phase)}</strong></div>
-            <div><span>{mode === 'travel' ? 'Clock' : 'AP'}</span><strong>{mode === 'travel' ? `${travelProgress}/${state.config.baseAP}` : state.ap}</strong></div>
+            <div><span>World Time</span><strong>{timeline.worldTimeAt} AT</strong></div>
+            <div><span>Player Ready</span><strong>{timeline.actors.player.nextReadyAt} AT</strong></div>
+            <div><span>Next Event</span><strong>{queuedTimelineEvents[0]?.timeAt ?? '—'} AT</strong></div>
             <label className="visual-speed-control">
               <span>{mode === 'travel' ? '旅行速度' : '演算速度'}</span>
               <input aria-label="Hex6 推进速度" type="range" min="0" max="4" step="1" value={simulationSpeed} onChange={(eventValue) => setSimulationSpeed(Number(eventValue.target.value))} />
@@ -608,12 +617,12 @@ export function HexPrototype() {
                   <button className={travelPreference === 'safest' ? 'active' : ''} onClick={() => setTravelPreference('safest')}>安全路线</button>
                 </div>
                 <div className="hex-travel-clock">
-                  <div><i style={{ width: `${travelProgress / Math.max(1, state.config.baseAP) * 100}%` }} /></div>
-                  <p>每累计移动 {state.config.baseAP} 格推进一次世界演算。提高基础 AP 会增加单位世界时间内的旅行距离。</p>
+                  <div><i style={{ width: `${(timeline.worldTimeAt % unifiedTimelineConfig.thermalPeriodAt) / unifiedTimelineConfig.thermalPeriodAt * 100}%` }} /></div>
+                  <p>每移动一格是完整的 1 AT 原子动作；敌人、环境与 Thermal Clock 使用同一条全局时间轴。</p>
                 </div>
                 <div className="hex-travel-metrics">
                   <div><span>剩余格数</span><strong>{pathSummary.steps}</strong></div>
-                  <div><span>预计演算</span><strong>{pathSummary.expectedTicks}</strong></div>
+                  <div><span>预计耗时</span><strong>{pathSummary.steps} AT</strong></div>
                   <div><span>路线风险</span><strong>{pathSummary.risk}</strong></div>
                 </div>
                 <div className="hex-travel-controls">
@@ -626,11 +635,11 @@ export function HexPrototype() {
               <section>
                 <div className="visual-section-heading"><h3>基础行动</h3><span>{selectedLabel}</span></div>
                 <div className="visual-action-grid">
-                  <button className={selection.kind === 'basic' && selection.action === 'move' ? 'active sticky' : ''} disabled={playbackActive || state.phase !== 'player' || state.ap < 1} onClick={() => chooseBasicAction('move')}><span>⬡</span><strong>六向移动</strong><small>1 AP · 1 AT / 格</small></button>
-                  <button className={selection.kind === 'basic' && selection.action === 'attack' ? 'active danger' : ''} disabled={playbackActive || state.phase !== 'player' || state.ap < 1} onClick={() => chooseBasicAction('attack')}><span>⚔</span><strong>邻接攻击</strong><small>1 AP · 1 AT</small></button>
+                  <button className={selection.kind === 'basic' && selection.action === 'move' ? 'active sticky' : ''} disabled={playbackActive} onClick={() => chooseBasicAction('move')}><span>⬡</span><strong>Quick Step</strong><small>原子动作 · 1 AT / 格</small></button>
+                  <button className={selection.kind === 'basic' && selection.action === 'attack' ? 'active danger' : ''} disabled={playbackActive} onClick={() => chooseBasicAction('attack')}><span>⚔</span><strong>Quick Strike</strong><small>原子动作 · 1 AT</small></button>
                 </div>
                 <div className="hex-travel-controls">
-                  <button disabled={Boolean(threat) || state.phase !== 'player'} onClick={resumeTravel}>恢复旅行</button>
+                  <button disabled={Boolean(threat)} onClick={resumeTravel}>恢复旅行</button>
                   <button onClick={() => setCameraResetToken((value) => value + 1)}>重置镜头</button>
                 </div>
                 <p className="hex-travel-status">{threat ? `${threat.actor.name} 距离 ${threat.distance}：需解除威胁后恢复旅行。` : '当前无近距威胁，可以恢复原旅行目标。'}</p>
@@ -645,7 +654,7 @@ export function HexPrototype() {
 
           <section className="visual-board-column hex-board-column">
             <div className="hex-comparison-strip">
-              <strong>{mapStructure === 'room' ? `紧凑房间 · R${roomRadius}` : mode === 'travel' ? '连续地图旅行' : '同坐标战术局部'}</strong>
+              <strong>{mapStructure === 'room' ? `UT1 紧凑房间 · R${roomRadius}` : mode === 'travel' ? '连续地图旅行' : '同坐标战术局部'}</strong>
               <span>{mapStructure === 'room'
                 ? `${activeCellCount} 个有效 Cell、${mountainCellCount} 个山体；比较隘口、侧翼和视线。`
                 : mode === 'travel'
@@ -653,6 +662,12 @@ export function HexPrototype() {
                   : 'Actor、Ground、Sky 与旅行模式保持原坐标，只切换操作粒度和信息密度。'}</span>
               <span>{travelTarget ? `目标 (${travelTarget.x},${travelTarget.y})` : '尚未选择目标'}</span>
             </div>
+            <section className="unified-time-preview" aria-label="统一行动预览">
+              <div><span>Now</span><strong>{timeline.worldTimeAt} AT</strong></div>
+              <div><span>选择</span><strong>{previewActionTime} AT · {actionKindFor(previewActionId)}</strong></div>
+              <div><span>再次就绪</span><strong>{timeline.worldTimeAt + previewActionTime} AT</strong></div>
+              <div className="unified-time-preview-events"><span>期间事件</span><strong>{previewEvents.length ? previewEvents.map((event) => `${event.timeAt}:${event.sourceId}`).join(' · ') : '无'}</strong></div>
+            </section>
             <div className="visual-board-toolbar">
               <div className="visual-camera-help">
                 <button onClick={() => setCameraResetToken((value) => value + 1)}>重置视图</button>
@@ -716,13 +731,13 @@ export function HexPrototype() {
 
             {mode === 'tactical' ? (
               <section className="visual-hand">
-                <div className="visual-hand-heading"><div><h2>介入物 / 手牌</h2><p>当前 TC1 默认 Base AT = Base AP；打出卡牌后自动推进 Thermal Clock。</p></div><span>Deck {state.deck.length} · Discard {state.discard.length}</span></div>
-                <div className="visual-card-row">{handCards.map((card) => { const active = selection.kind === 'card' && selection.card.id === card.id; const temperatureClass = card.effect.includes('cool') ? 'cool' : card.effect.includes('heat') || card.effect === 'grip' ? 'heat' : ''; return <button className={`visual-card ${active ? 'active' : ''} ${temperatureClass}`} disabled={playbackActive || state.phase !== 'player' || state.ap < card.cost || state.status !== 'active'} key={card.id} onClick={() => chooseCard(card)}><div className="visual-card-cost">{card.cost}</div><div className="visual-card-icon">{cardIcons[card.effect]}</div><strong>{card.name}</strong><p>{card.description}</p><small>{card.target === 'self' ? '自身' : `${card.range} Hex · ${card.layer ?? card.target}`} · {Math.max(1, card.cost)} AT</small></button> })}</div>
+                <div className="visual-hand-heading"><div><h2>固定介入动作</h2><p>当前实验不使用通用 AP、抽牌或回合补牌；每个动作按完整 AT 结算后回到全局事件队列。</p></div><span>Fixed Hand · {handCards.length}</span></div>
+                <div className="visual-card-row">{handCards.map((card) => { const active = selection.kind === 'card' && selection.card.id === card.id; const temperatureClass = card.effect.includes('cool') ? 'cool' : card.effect.includes('heat') || card.effect === 'grip' ? 'heat' : ''; const actionTime = actionTimeFor(card.id); return <button className={`visual-card ${active ? 'active' : ''} ${temperatureClass}`} disabled={playbackActive || state.status !== 'active'} key={card.id} onClick={() => chooseCard(card)}><div className="visual-card-cost">{actionTime}<small>AT</small></div><div className="visual-card-icon">{cardIcons[card.effect]}</div><strong>{card.name}</strong><p>{card.description}</p><small>{card.target === 'self' ? '自身' : `${card.range} Hex · ${card.layer ?? card.target}`} · {actionKindFor(card.id)}</small></button> })}</div>
               </section>
             ) : (
               <section className="visual-hand hex-travel-hand-note">
-                <p>旅行模式收起卡牌操作，只保留路线、风险、发现与世界时间。旅行时钟与 Tactical Action Time 的换算尚未接入 TC1。</p>
-                <div className="hex-travel-route-list"><div><span>路线</span><strong>{travelPreference === 'fastest' ? '最快' : '安全'}</strong></div><div><span>移动成本</span><strong>{pathSummary.movementCost}</strong></div><div><span>世界演算</span><strong>{worldTicks}</strong></div><div><span>近距威胁</span><strong>{threat ? `${threat.distance} Hex` : '无'}</strong></div></div>
+                <p>旅行与 Tactical 不再使用两套时钟：每格 1 AT，并在玩家再次就绪前结算共享队列中的敌人与环境事件。</p>
+                <div className="hex-travel-route-list"><div><span>路线</span><strong>{travelPreference === 'fastest' ? '最快' : '安全'}</strong></div><div><span>移动成本</span><strong>{pathSummary.movementCost}</strong></div><div><span>世界时间</span><strong>{timeline.worldTimeAt} AT</strong></div><div><span>近距威胁</span><strong>{threat ? `${threat.distance} Hex` : '无'}</strong></div></div>
               </section>
             )}
           </section>
@@ -749,7 +764,7 @@ export function HexPrototype() {
                 className={rightInspectorTab === 'thermal' ? 'active' : ''}
                 onClick={() => setRightInspectorTab('thermal')}
               >
-                Thermal Clock
+                Global Thermal Clock
               </button>
               <span className="hex-inspector-coordinate" role="status" aria-live="polite">
                 ({inspectCoord.x},{inspectCoord.y}) · D{selectedDistance}
@@ -760,19 +775,20 @@ export function HexPrototype() {
               <div id="hex-inspector-content" role="tabpanel" aria-labelledby="hex-inspector-tab" className="hex-inspector-content">
                 <section className="hex-inspector-pane">
                   {inspectedCell && <div className="visual-inspector-stack"><div className="visual-inspector-block ground"><div className="visual-inspector-title"><span className={`visual-temp-orb temp-${Math.max(-3, Math.min(3, inspectedCell.groundTemp)) + 3}`} /><div><strong>Ground Hex</strong><p>{inspectedCell.tags.includes('Blocked') ? '不可通行山脊' : '连续地图地面层'}</p></div></div><dl><div><dt>Temperature</dt><dd>{formatTemperature(inspectedCell.groundTemp)}</dd></div><div><dt>Fill</dt><dd>{inspectedCell.groundFill}</dd></div><div><dt>Moisture</dt><dd>{inspectedCell.moisture}</dd></div><div><dt>Tags</dt><dd>{inspectedCell.tags.join(', ') || '—'}</dd></div></dl></div><div className={`visual-inspector-block sky ${inspectedCell.skyFill === 'clear' ? 'is-clear' : ''}`}><div className="visual-inspector-title"><span className={`visual-temp-orb temp-${Math.max(-3, Math.min(3, inspectedCell.skyTemp)) + 3}`} /><div><strong>Sky Hex</strong><p>旅行与战术共用的上层状态</p></div></div><dl><div><dt>Temperature</dt><dd>{formatTemperature(inspectedCell.skyTemp)}</dd></div><div><dt>Fill</dt><dd>{inspectedCell.skyFill}</dd></div><div><dt>Cloud Age</dt><dd>{inspectedCell.cloudAge || '—'}</dd></div><div><dt>Wind</dt><dd>{String(inspectedCell.wind ?? '—')}</dd></div><div><dt>Intent</dt><dd>{inspectedCell.intents.map((intent) => `${intent.type} T+${intent.countdown}`).join(', ') || '—'}</dd></div></dl></div></div>}
-                  {inspectedActor && <div className="visual-inspector-block actor"><div className="visual-inspector-title"><span className={`visual-faction ${inspectedActor.faction}`} /><div><strong>{inspectedActor.name}</strong><p>{inspectedActor.actorType} · {inspectedActor.intent || '无公开意图'}</p></div></div><dl><div><dt>HP / Shield</dt><dd>{inspectedActor.hp}/{inspectedActor.maxHp} · {inspectedActor.shield}</dd></div><div><dt>体温 / 平衡</dt><dd>{formatTemperature(inspectedActor.bodyTemperature)} / {formatTemperature(inspectedActor.balanceTemperature)}</dd></div><div><dt>Mass</dt><dd>{inspectedActor.mass}</dd></div></dl></div>}
+                  {inspectedActor && <div className="visual-inspector-block actor"><div className="visual-inspector-title"><span className={`visual-faction ${inspectedActor.faction}`} /><div><strong>{inspectedActor.name}</strong><p>{inspectedActor.actorType} · {inspectedActor.intent || '无公开意图'}</p></div></div><dl><div><dt>HP / Shield</dt><dd>{inspectedActor.hp}/{inspectedActor.maxHp} · {inspectedActor.shield}</dd></div><div><dt>体温 / 平衡</dt><dd>{formatTemperature(inspectedActor.bodyTemperature)} / {formatTemperature(inspectedActor.balanceTemperature)}</dd></div><div><dt>Next Ready</dt><dd>{timeline.actors[inspectedActor.id]?.nextReadyAt ?? '—'} AT</dd></div><div><dt>Mass</dt><dd>{inspectedActor.mass}</dd></div></dl></div>}
                 </section>
 
                 <section>
-                  <div className="visual-section-heading"><h3>地图时间线</h3><span>{playbackActive ? `表现队列 ${eventQueue.length}` : mode === 'travel' ? `Clock ${travelProgress}/${state.config.baseAP}` : autoResolving ? `${speedLabels[simulationSpeed]} 自动演算` : '最近日志'}</span></div>
-                  <div className="visual-causality">{state.logs.slice(0, 9).map((log, index) => <div key={`${index}-${log}`}><span>{index + 1}</span><p>{log}</p></div>)}</div>
+                  <div className="visual-section-heading"><h3>全局事件队列</h3><span>{playbackActive ? `表现队列 ${eventQueue.length}` : `World ${timeline.worldTimeAt} AT`}</span></div>
+                  <div className="unified-ready-list">{queuedTimelineEvents.map((event) => <div key={`${event.stableId}-${event.timeAt}`}><span>{event.timeAt} AT</span><strong>{event.label}</strong></div>)}</div>
+                  <div className="visual-causality">{state.logs.slice(0, 6).map((log, index) => <div key={`${index}-${log}`}><span>{index + 1}</span><p>{log}</p></div>)}</div>
                 </section>
 
                 <section className="visual-slice-note">
                   <h3>本轮验证问题</h3>
                   <p>{mapStructure === 'room' ? '哪一个房间半径能在移动自由、卡牌覆盖和局部拥挤之间形成最佳张力？' : '最快路线是否因为天气与敌人变得不稳定，而安全路线值得额外距离？'}</p>
-                  <p>8 / 12 AT 是否提供合适的相位干预密度，而不是把四相误读为八或十二个阶段？</p>
-                  <p>卡牌费用映射为 Base AT 后，连续摆动是否能自然影响行动选择？</p>
+                  <p>1 / 2 / 3 AT 是否形成“灵活性溢价”与重动作不可分割价值，而不是新的行动点预算？</p>
+                  <p>8 AT Thermal Period 与全局队列叠加后，玩家能否从统一预览判断期间会发生什么？</p>
                 </section>
               </div>
             ) : (
@@ -789,6 +805,13 @@ export function HexPrototype() {
         inspectorActive={rightInspectorTab === 'thermal'}
         runtimeSignal={thermalRuntimeSignal}
         onOpenInspector={() => setRightInspectorTab('thermal')}
+        onTemperatureChange={(temperature) => setState((current) => {
+          const currentPlayer = getPlayer(current)
+          if (Math.abs(currentPlayer.bodyTemperature - temperature) < 1e-6) return current
+          const next = structuredClone(current)
+          getPlayer(next).bodyTemperature = temperature
+          return next
+        })}
       />
     </>
   )

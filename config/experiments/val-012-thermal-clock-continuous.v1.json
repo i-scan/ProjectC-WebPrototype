@@ -10,7 +10,7 @@
   "implementationId": "thermal-clock-continuous-v1",
   "designReference": "i-scan/ProjectC:docs/VAL-012-thermal-clock-action-time-prototype-plan.md",
   "defaultRulesetId": "baseline-strict",
-  "defaultScenarioId": "T0-hot-apex",
+  "defaultScenarioId": "UT1-player-start",
   "defaultActionId": "flow-1at",
   "display": {
     "temperatureMin": -4,
@@ -136,23 +136,23 @@
     },
     {
       "id": "zero-ap-active",
-      "label": "Zero AP Active",
-      "shortLabel": "0 AP / 1 AT",
+      "label": "Quick Flow",
+      "shortLabel": "1 AT",
       "kind": "impulse",
       "baseApCost": 0,
       "baseActionTime": 1,
       "immediateDriftDelta": 0.35,
-      "description": "Active zero-cost test. It still advances 1 AT."
+      "description": "A quick atomic action advances the unified world time by 1 AT."
     },
     {
       "id": "quick-drive",
-      "label": "Action Haste",
-      "shortLabel": "2 AP / 1 AT",
+      "label": "Fast Drive",
+      "shortLabel": "1 AT",
       "kind": "impulse",
       "baseApCost": 2,
       "baseActionTime": 1,
       "immediateDriftDelta": 0.45,
-      "description": "AP and AT differ: a costly action completed in only 1 AT."
+      "description": "A fast drive completes atomically in 1 AT."
     },
     {
       "id": "long-impact",
@@ -175,6 +175,15 @@
     }
   ],
   "scenarios": [
+    {
+      "id": "UT1-player-start",
+      "label": "UT1 Player Start",
+      "group": "UT1",
+      "description": "Unified timeline starts from the Hex6 player's warm Set Point.",
+      "setPoint": 1,
+      "amplitude": 0,
+      "phaseBeat": 0
+    },
     {
       "id": "T0-hot-apex",
       "label": "T0 Hot Apex",

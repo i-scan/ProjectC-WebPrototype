@@ -36,6 +36,7 @@ type ThermalPendulumPortalProps = {
   inspectorActive: boolean
   runtimeSignal?: ThermalClockRuntimeSignal
   onOpenInspector: () => void
+  onTemperatureChange?: (temperature: number) => void
 }
 
 type ThermalPendulumProps = {
@@ -43,6 +44,7 @@ type ThermalPendulumProps = {
   inspectorActive: boolean
   runtimeSignal?: ThermalClockRuntimeSignal
   onOpenInspector: () => void
+  onTemperatureChange?: (temperature: number) => void
 }
 
 const pivot = { x: 130, y: 28 }
@@ -59,16 +61,6 @@ function findActorPanelTarget(): HTMLElement | null {
 
 function findInspectorTarget(): HTMLElement | null {
   return document.getElementById('thermal-clock-inspector-slot')
-}
-
-function syncActorTemperatureDisplay(temperature: number) {
-  const rows = document.querySelectorAll<HTMLElement>('.hex-prototype .visual-actor-card .visual-bars > div')
-  for (const row of rows) {
-    if (row.querySelector('span')?.textContent?.trim() !== '体温') continue
-    const value = row.querySelector<HTMLElement>('strong')
-    if (value) value.textContent = formatThermalNumber(temperature, 1)
-    return
-  }
 }
 
 function pointOnArc(angle: number, radius: number) {
@@ -137,6 +129,7 @@ function ThermalPendulum({
   inspectorActive,
   runtimeSignal,
   onOpenInspector,
+  onTemperatureChange,
 }: ThermalPendulumProps) {
   const initialRules = getThermalClockRuleset(thermalClockExperimentConfig.defaultRulesetId)
   const initialScenario = getThermalClockScenario(thermalClockExperimentConfig.defaultScenarioId)
@@ -176,8 +169,8 @@ function ThermalPendulum({
   }, [activeResolution])
 
   useEffect(() => {
-    syncActorTemperatureDisplay(visibleDerived.temperature)
-  }, [visibleDerived.temperature])
+    onTemperatureChange?.(visibleDerived.temperature)
+  }, [visibleDerived.temperature, onTemperatureChange])
 
   useEffect(() => () => {
     if (resolveTimerRef.current !== null) window.clearTimeout(resolveTimerRef.current)
@@ -429,7 +422,7 @@ function ThermalPendulum({
       >
         <div className="thermal-pendulum-heading">
           <strong>热力钟摆</strong>
-          <button type="button" onClick={onOpenInspector}>TC1 Inspector</button>
+          <button type="button" onClick={onOpenInspector}>UT1 Thermal</button>
         </div>
 
         <div className="thermal-pendulum-dial">
@@ -543,6 +536,7 @@ export function ThermalPendulumPortal({
   inspectorActive,
   runtimeSignal,
   onOpenInspector,
+  onTemperatureChange,
 }: ThermalPendulumPortalProps) {
   const [actorTarget, setActorTarget] = useState<HTMLElement | null>(null)
   const [inspectorTarget, setInspectorTarget] = useState<HTMLElement | null>(null)
@@ -574,6 +568,7 @@ export function ThermalPendulumPortal({
       inspectorActive={inspectorActive}
       runtimeSignal={runtimeSignal}
       onOpenInspector={onOpenInspector}
+      onTemperatureChange={onTemperatureChange}
     />,
     actorTarget,
   )

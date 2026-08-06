@@ -14,6 +14,49 @@
 
 ---
 
+## Experiment Ruleset `VAL-012-UT1` — 2026-08-06
+
+### 类型
+
+VAL-012 全局时间与 Action Time 统一原型；**候选实验行为，不构成正式规则晋升**。
+
+### 设计与程序来源
+
+- `i-scan/ProjectC:docs/VAL-012-thermal-clock-action-time-prototype-plan.md` revision 2；
+- `i-scan/ProjectC:docs/VAL-012-unified-time-system-program-handoff.md`；
+- 页面入口：`#hex-prototype`；
+- 实现标识：`unified-at-timeline-v1`。
+
+### 时序变化
+
+- Hex6 当前实验移除通用 AP、保留 AP、玩家阶段结束与阶段式敌人结算；
+- 新增单一 `worldTimeAt`、Actor `nextReadyAt` 与确定性 Event Queue；
+- 玩家、敌人、NPC 与环境按同一队列排序，平手顺序为 Reaction → Contact → Landing → Actor Ready → Environment → stable ID；
+- 玩家动作按 `1 / 2 / 3 AT` 完整原子结算，随后处理期间事件，直到玩家再次 Ready；
+- Travel 每格固定为 `Quick Step · 1 AT`，与 Tactical 共用世界时间；
+- Thermal Clock 按相同 AT 增量推进，当前基线周期保持 `8 AT`。
+
+### 内容与 UI
+
+- 当前十个介入动作改为固定手牌，不抽取、不弃置、不在回合开始补牌；
+- 为现有测试动作登记候选 `1 / 2 / 3 AT`，用于比较轻动作灵活性与重动作不可分割价值；
+- 页面常驻显示 World Time、Player Ready、Next Event、统一动作预览和期间事件；
+- Thermal Inspector 改为 AT-only 表达，不再显示 AP / AT 并列费用。
+
+### 边界
+
+- Square4 与 `core-rules.v0.json` 继续保留旧 AP 规则作为历史快照；
+- 当前 AT 值、敌人周期和环境周期都是 VAL-012 测试基线，不视为正式数值；
+- Prepare / Release 仅以现有动作标签与 commit 类型参与首轮对照，尚未扩展正式内容库。
+
+### 验证状态
+
+- [x] 独立实验配置、稳定 ID 与无通用 AP 声明；
+- [x] 队列排序、平手规则、期间事件预览与处理至玩家 Ready 的规则测试；
+- [ ] 完整 Vitest、TypeScript 与 production build；
+- [ ] 浏览器宽屏 / 窄屏与 2D / 3D 人工验收；
+- [ ] GitHub Actions、PR 与 Pages commit 回读。
+
 ## Experiment Ruleset `val-012-tc1.0.1` — 2026-08-05
 
 ### 类型

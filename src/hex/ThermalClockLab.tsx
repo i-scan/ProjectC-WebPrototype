@@ -150,7 +150,7 @@ function ActionButton({
     >
       <strong>{action.shortLabel}</strong>
       <span>{action.label}</span>
-      <small>{action.baseApCost} AP · {action.baseActionTime} AT</small>
+      <small>{action.baseActionTime} AT · {action.kind}</small>
     </button>
   )
 }
@@ -235,7 +235,7 @@ export function ThermalClockLab({
       {!embedded && (
         <header className="thermal-lab-header">
           <div>
-            <p>VAL-012 · TC1 · Hex6</p>
+            <p>VAL-012 · UT1 / TC1 · Hex6</p>
             <h2>Thermal Clock Inspector</h2>
           </div>
           {onClose && (
@@ -354,7 +354,7 @@ export function ThermalClockLab({
             <span>1 · Select Test Action</span>
             <strong>卡牌、移动和攻击会自动推进；这里用于规则对照</strong>
           </div>
-          <small>AP / AT independent</small>
+          <small>AT-only global time</small>
         </div>
         <div className="thermal-lab-action-grid thermal-clock-action-grid">
           {primaryActions.map((action) => (
@@ -402,7 +402,7 @@ export function ThermalClockLab({
         </div>
 
         <p className="thermal-clock-action-summary">
-          {selectedAction.baseApCost} AP · {selectedAction.baseActionTime} AT · 推进 {formatThermalNumber(actionBeatAdvance, 2)} Base Beat
+          {selectedAction.baseActionTime} AT · 推进全局 Thermal Clock {formatThermalNumber(actionBeatAdvance, 2)} Base Beat
         </p>
 
         <div className="thermal-clock-preview-steps">
