@@ -35,11 +35,14 @@ https://i-scan.github.io/ProjectC-WebPrototype/?revision=<full-commit-sha>#hex-p
 当前主要验证：
 
 - Square4 历史规则与 Hex6 空间对照；
+- `VAL-012-UT1`：Hex6 使用统一 `worldTimeAt` 与全局 Event Queue；
+- 玩家、敌人、NPC、环境与 Thermal Clock 共享 AT 时间基准；
+- Hex6 当前实验移除通用 AP，动作按 `1 / 2 / 3 AT` 原子结算；
 - Hex6 邻接、Range、射线、击退、风和天气传播；
 - World / Room / 后续 Region 的尺度差异；
 - Travel / Tactical 在同一 GameState 中的切换；
 - 2D / 3D 与规则状态解耦；
-- 3 AP + 最多保留 1 AP；
+- Square4 仍保留 `3 AP + 最多保留 1 AP`，仅作为历史规则快照；
 - Actor 与 Cell 热交换；
 - Ground / Sky 中的风、Cloud、Rain；
 - 敌人公开 intent；
@@ -84,11 +87,12 @@ GameState
 其他职责：
 
 - `config/core-rules.schema.json`：配置结构约束；
+- `config/experiments/val-012-unified-at-timeline.v1.json`：当前 Hex6 统一时间实验的声明配置；
 - `config/CHANGELOG.md`：每次影响玩法结果的机制、数值和地图变化；
 - 测试：配置、拓扑和规则回归；
 - 页面：体验和信息表达验证。
 
-ruleset `0.1.0` 仍属于“配置镜像 + TypeScript 硬编码 + 漂移测试”。配置尚未被全部运行时直接消费，原型实现也不会自动成为正式规则。
+全局 ruleset `0.1.0` 仍属于旧快照；Hex6 当前运行独立实验 ruleset `VAL-012-UT1`。实验配置与执行核心已直接接入 `#hex-prototype`，但不会自动晋升为正式规则。
 
 ---
 
@@ -121,7 +125,9 @@ ruleset `0.1.0` 仍属于“配置镜像 + TypeScript 硬编码 + 漂移测试�
 - Graphics Lab；
 - Debug / Regression View；
 - Three.js / PixiJS Player View；
-- intent、悔棋、重开、阶段推进、速度控制和状态导出。
+- intent、悔棋、重开、统一事件队列、速度控制和状态导出。
+
+`#hex-prototype` 顶部可直接看到 `World Time`、玩家再次就绪时间和下一事件；选择动作后，棋盘上方会显示即时效果之后、玩家再次就绪之前会插入的敌人 / NPC / 环境事件。Thermal Inspector 使用同一 AT 增量推进，不再显示通用 AP。
 
 Three.js 是当前主可玩视觉验证方向；PixiJS / 2D 保留为地图总览、对照和潜在低配置表现。正式引擎尚未决定。
 

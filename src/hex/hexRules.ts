@@ -260,17 +260,28 @@ export function createHexInitialState(overrides?: Partial<GameConfig>): GameStat
   return computeHexEnemyIntents(state)
 }
 
-export function performHexBasicAction(state: GameState, action: BasicAction, target: Coord): GameState {
+export type HexActionOptions = {
+  useActionPoints?: boolean
+  consumeCard?: boolean
+}
+
+export function performHexBasicAction(
+  state: GameState,
+  action: BasicAction,
+  target: Coord,
+  options: HexActionOptions = {},
+): GameState {
   const next = clone(state)
   const player = getPlayer(next)
   if (next.phase !== 'player' || next.status !== 'active') return next
+  const useActionPoints = options.useActionPoints ?? true
 
   if (action === 'move') {
     if (hexDistance(player.position, target) !== 1 || !isHexInside(next, target) || isBlocked(next, target, player.id)) {
       addLog(next, '移动失败：目标必须是六边格相邻可通行 Cell。')
       return next
     }
-    if (!spendAP(next, 1, '移动')) return next
+    if (useActionPoints && !spendAP(next, 1, '移动')) return next
     player.position = target
     addLog(next, `玩家沿六边邻接移动到 (${target.x},${target.y})。`)
   }
@@ -281,7 +292,7 @@ export function performHexBasicAction(state: GameState, action: BasicAction, tar
       addLog(next, '攻击失败：需要选择六边邻接的敌人。')
       return next
     }
-    if (!spendAP(next, 1, '攻击')) return next
+    if (useActionPoints && !spendAP(next, 1, '攻击')) return next
     applyDamage(next, targetActor, weaponDamage(player), '剑攻击')
   }
 
@@ -329,17 +340,27 @@ function removeCardFromHand(state: GameState, cardId: string): void {
   state.discard.push(cardId)
 }
 
-export function playHexCard(state: GameState, cardId: string, target?: Coord, layer: Layer = 'ground'): GameState {
+export function playHexCard(
+  state: GameState,
+  cardId: string,
+  target?: Coord,
+  layer: Layer = 'ground',
+  options: HexActionOptions = {},
+): GameState {
   const next = clone(state)
   if (next.phase !== 'player' || next.status !== 'active' || !next.hand.includes(cardId)) return next
   const card = next.cards.find((entry) => entry.id === cardId)
   if (!card) return next
   const player = getPlayer(next)
-  if (!spendAP(next, card.cost, card.name)) return next
+  const useActionPoints = options.useActionPoints ?? true
+  const consumeCard = options.consumeCard ?? true
+  if (useActionPoints && !spendAP(next, card.cost, card.name)) return next
 
   const fail = (message: string): GameState => {
-    next.ap += card.cost
-    next.entropy -= card.cost
+    if (useActionPoints) {
+      next.ap += card.cost
+      next.entropy -= card.cost
+    }
     addLog(next, `${card.name}失败：${message}`)
     return next
   }
@@ -391,7 +412,7 @@ export function playHexCard(state: GameState, cardId: string, target?: Coord, la
     addLog(next, `回火后玩家体温为 ${player.bodyTemperature}，Shield 为 ${player.shield}。`)
   }
 
-  removeCardFromHand(next, card.id)
+  if (consumeCard) removeCardFromHand(next, card.id)
   runLocalReactionsInPlace(next, `卡牌「${card.name}」`)
   updateObjectivesInPlace(next)
   return computeHexEnemyIntents(next)
@@ -448,6 +469,18 @@ function runEnemyPhaseInPlace(state: GameState): void {
   addLog(state, '六边格敌人阶段开始。')
   for (const actor of state.actors.filter((entry) => entry.faction === 'enemy')) enemyAct(state, actor)
   npcAct(state)
+}
+
+export function runHexActorReady(state: GameState, actorId: string): GameState {
+  const next = clone(state)
+  if (next.status !== 'active') return next
+  const actor = next.actors.find((entry) => entry.id === actorId)
+  if (!actor?.alive) return next
+  if (actor.faction === 'enemy') enemyAct(next, actor)
+  else if (actor.actorType === 'npc') npcAct(next)
+  runLocalReactionsInPlace(next, `${actor.name}原子行动`)
+  updateObjectivesInPlace(next)
+  return computeHexEnemyIntents(next)
 }
 
 function coupleGroundAndSky(state: GameState): void {

@@ -7,10 +7,12 @@ import Ajv2020 from 'ajv/dist/2020.js'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const configPath = path.join(root, 'config', 'core-rules.v0.json')
 const schemaPath = path.join(root, 'config', 'core-rules.schema.json')
+const unifiedTimelinePath = path.join(root, 'config', 'experiments', 'val-012-unified-at-timeline.v1.json')
 
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'))
 const config = readJson(configPath)
 const schema = readJson(schemaPath)
+const unifiedTimeline = readJson(unifiedTimelinePath)
 
 const ajv = new Ajv2020({ allErrors: true, strict: false })
 const validate = ajv.compile(schema)
@@ -59,4 +61,22 @@ if (config.temperature.directMaximum > config.temperature.maximum) {
   fail('Direct maximum temperature is above the complete maximum.')
 }
 
-console.log(`Validated ProjectC ruleset ${config.rulesetVersion} (schema ${config.schemaVersion}).`)
+if (unifiedTimeline.rulesetId !== 'VAL-012-UT1') fail('Unified timeline ruleset ID must remain VAL-012-UT1.')
+if (unifiedTimeline.genericActionPoints !== false) fail('VAL-012-UT1 must not enable generic AP.')
+if (unifiedTimeline.fixedHand !== true) fail('VAL-012-UT1 currently requires a fixed hand.')
+if (unifiedTimeline.thermalPeriodAt !== 8) fail('VAL-012-UT1 baseline Thermal Period must be 8 AT.')
+const timelineActionIds = unifiedTimeline.actions.map((action) => action.id)
+if (new Set(timelineActionIds).size !== timelineActionIds.length) fail('Unified timeline action IDs must be unique.')
+if (unifiedTimeline.actions.some((action) => ![1, 2, 3].includes(action.actionTimeAt))) {
+  fail('Unified timeline main actions must use 1, 2 or 3 AT.')
+}
+if (unifiedTimeline.fixedHandActionIds.length !== 5) fail('VAL-012-UT1 fixed hand must contain five actions.')
+for (const actionId of unifiedTimeline.fixedHandActionIds) {
+  if (!timelineActionIds.includes(actionId)) fail(`Fixed hand references missing timeline action: ${actionId}`)
+  if (!cardIds.includes(actionId)) fail(`Fixed hand references missing configured card: ${actionId}`)
+}
+const timelineActorIds = unifiedTimeline.actors.map((actor) => actor.id)
+if (new Set(timelineActorIds).size !== timelineActorIds.length) fail('Unified timeline actor IDs must be unique.')
+if (!timelineActorIds.includes('player')) fail('Unified timeline must define the player actor.')
+
+console.log(`Validated ProjectC ruleset ${config.rulesetVersion} (schema ${config.schemaVersion}) and ${unifiedTimeline.rulesetId}.`)
