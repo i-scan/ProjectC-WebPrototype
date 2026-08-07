@@ -67,8 +67,8 @@
   font-size: 15px;
 }
 
-.hex-board-column {
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+.visual-board-column.hex-board-column {
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 }
 
 .hex-comparison-strip {
@@ -98,7 +98,7 @@
   white-space: nowrap;
 }
 
-.hex-comparison-strip + .visual-board-toolbar {
+.unified-time-preview + .visual-board-toolbar {
   border-radius: 0;
 }
 
