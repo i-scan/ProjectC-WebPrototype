@@ -1,7 +1,35 @@
-import experimentConfigJson from '../../config/experiments/val-012-unified-at-timeline.v1.json'
+import experimentConfigJson from '../../config/experiments/val-012-action-chain.v2.json'
 
 export type TimelineEventType = 'reaction' | 'contact' | 'landing' | 'actor-ready' | 'environment'
 export type TimelineActionKind = 'atomic' | 'commit' | 'reaction'
+
+export type ActionPhaseDefinition = {
+  id: string
+  label: string
+  durationAt: 1
+  movementSteps?: 1 | 2
+  momentumAfter?: 1 | 2 | 3
+  attack?: 'basic-melee'
+}
+
+export type ActionDefinition = {
+  id: string
+  label: string
+  actionKind: TimelineActionKind
+  baseActionTimeAt: 1 | 2 | 3
+  intro?: {
+    label: string
+    requirements?: string[]
+    skipPhaseIdWhenChained?: string
+    chainRequirements?: string[]
+  }
+  phases: ActionPhaseDefinition[]
+  outro?: {
+    pendingMomentum: 0 | 1 | 2 | 3
+    preserveAxis: boolean
+    opensChainWindow: boolean
+  }
+}
 
 export type TimelineEvent = {
   timeAt: number
@@ -39,7 +67,8 @@ type UnifiedTimelineConfig = {
   eventPriority: TimelineEventType[]
   environment: { firstReadyAt: number; intervalAt: number }
   actors: Array<{ id: string; label: string; firstReadyAt: number; actionTimeAt: number }>
-  actions: Array<{ id: string; label: string; actionTimeAt: 1 | 2 | 3; actionKind: TimelineActionKind }>
+  legacyActions: Array<{ id: string; label: string; actionTimeAt: 1 | 2 | 3; actionKind: TimelineActionKind }>
+  actions: ActionDefinition[]
 }
 
 export type TimelineResolution<T> = {
@@ -52,6 +81,18 @@ export type TimelineResolution<T> = {
 export type TimelineResolvers<T> = {
   resolveActor: (value: T, actorId: string) => T
   resolveEnvironment: (value: T) => T
+}
+
+export type TimelinePhaseTrace = {
+  phaseId: string
+  label: string
+  startAt: number
+  endAt: number
+  interveningEvents: TimelineEvent[]
+}
+
+export type TimelinePhasedResolution<T> = TimelineResolution<T> & {
+  phases: TimelinePhaseTrace[]
 }
 
 export const unifiedTimelineConfig = experimentConfigJson as UnifiedTimelineConfig
@@ -107,11 +148,19 @@ export function createUnifiedTimeline(): TimelineState {
 }
 
 export function actionTimeFor(actionId: string): 1 | 2 | 3 {
-  return unifiedTimelineConfig.actions.find((action) => action.id === actionId)?.actionTimeAt ?? 1
+  return unifiedTimelineConfig.actions.find((action) => action.id === actionId)?.baseActionTimeAt
+    ?? unifiedTimelineConfig.legacyActions.find((action) => action.id === actionId)?.actionTimeAt
+    ?? 1
 }
 
 export function actionKindFor(actionId: string): TimelineActionKind {
-  return unifiedTimelineConfig.actions.find((action) => action.id === actionId)?.actionKind ?? 'atomic'
+  return unifiedTimelineConfig.actions.find((action) => action.id === actionId)?.actionKind
+    ?? unifiedTimelineConfig.legacyActions.find((action) => action.id === actionId)?.actionKind
+    ?? 'atomic'
+}
+
+export function actionDefinitionFor(actionId: string): ActionDefinition | undefined {
+  return unifiedTimelineConfig.actions.find((action) => action.id === actionId)
 }
 
 export function applyUnifiedFixedHand<T extends {
@@ -184,6 +233,85 @@ export function resolveUnifiedPlayerAction<T>(
     timeline,
     elapsedAt: timeline.worldTimeAt - startAt,
     interveningEvents: processed.filter((event) => event.sourceId !== 'player'),
+  }
+}
+
+function processTimelineEventsThrough<T>(
+  value: T,
+  timeline: TimelineState,
+  endAt: number,
+  resolvers: TimelineResolvers<T>,
+): { value: T; events: TimelineEvent[] } {
+  let nextValue = value
+  const processed: TimelineEvent[] = []
+
+  while (timeline.eventQueue.length > 0 && timeline.eventQueue[0].timeAt <= endAt) {
+    const [event, ...remaining] = timeline.eventQueue
+    timeline.eventQueue = remaining
+    timeline.worldTimeAt = event.timeAt
+    processed.push(event)
+
+    if (event.type === 'actor-ready') {
+      nextValue = resolvers.resolveActor(nextValue, event.sourceId)
+      const actor = timeline.actors[event.sourceId]
+      if (actor) {
+        actor.nextReadyAt = event.timeAt + actor.actionTimeAt
+        timeline.eventQueue = sortEvents([...timeline.eventQueue, eventForActor(actor)])
+      }
+    } else if (event.type === 'environment') {
+      nextValue = resolvers.resolveEnvironment(nextValue)
+      timeline.environmentNextReadyAt = event.timeAt + unifiedTimelineConfig.environment.intervalAt
+      timeline.eventQueue = sortEvents([...timeline.eventQueue, environmentEvent(timeline.environmentNextReadyAt)])
+    }
+  }
+
+  timeline.worldTimeAt = endAt
+  return { value: nextValue, events: processed }
+}
+
+export function resolveUnifiedPlayerPhasedAction<T>(
+  value: T,
+  timelineInput: TimelineState,
+  phases: readonly ActionPhaseDefinition[],
+  applyPhase: (value: T, phase: ActionPhaseDefinition, phaseIndex: number) => T,
+  resolvers: TimelineResolvers<T>,
+): TimelinePhasedResolution<T> {
+  if (phases.length === 0) throw new Error('A phased action requires at least one phase.')
+
+  const timeline = structuredClone(timelineInput)
+  const startAt = timeline.worldTimeAt
+  const player = timeline.actors.player
+  const traces: TimelinePhaseTrace[] = []
+  const processed: TimelineEvent[] = []
+  let nextValue = value
+  timeline.awaitingPlayer = false
+
+  phases.forEach((phase, phaseIndex) => {
+    const phaseStartAt = timeline.worldTimeAt
+    nextValue = applyPhase(nextValue, phase, phaseIndex)
+    const phaseEndAt = phaseStartAt + phase.durationAt
+    const boundary = processTimelineEventsThrough(nextValue, timeline, phaseEndAt, resolvers)
+    nextValue = boundary.value
+    processed.push(...boundary.events)
+    traces.push({
+      phaseId: phase.id,
+      label: phase.label,
+      startAt: phaseStartAt,
+      endAt: phaseEndAt,
+      interveningEvents: boundary.events,
+    })
+  })
+
+  player.nextReadyAt = timeline.worldTimeAt
+  timeline.awaitingPlayer = true
+  timeline.recentEvents = [...processed, ...timeline.recentEvents].slice(0, 12)
+
+  return {
+    value: nextValue,
+    timeline,
+    elapsedAt: timeline.worldTimeAt - startAt,
+    interveningEvents: processed,
+    phases: traces,
   }
 }
 

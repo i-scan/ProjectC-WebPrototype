@@ -1,5 +1,6 @@
 node_modules
 dist
+artifacts
 .vite
 public/build-info.json
 *.tsbuildinfo

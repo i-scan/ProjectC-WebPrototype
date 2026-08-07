@@ -14,6 +14,57 @@
 
 ---
 
+## Experiment Ruleset `VAL-012-UT2` — 2026-08-08
+
+### 类型
+
+VAL-012 分段动作、空间动量与动作链最小闭环；**候选实验行为，不构成正式规则晋升**。
+
+### 设计与程序来源
+
+- `i-scan/ProjectC:docs/VAL-012-thermal-clock-action-time-prototype-plan.md` revision 3；
+- `i-scan/ProjectC:docs/VAL-012-unified-time-system-program-handoff.md` UT2；
+- 页面入口：`#hex-prototype`；
+- 实现标识：`action-chain-phase-v1`；
+- 上一实验：`VAL-012-UT1 / unified-at-timeline-v1`。
+
+### 动作语法与时序变化
+
+- 动作从完整原子块扩展为 `Intro → Core AT Phase[] → Outro`；
+- Core 内每个 Phase 保持连续、不可在中途插入普通世界事件；Actor Ready、Environment 与其他世界事件只在 Phase 边界结算；
+- 新增 `Pending Momentum + Axis + Chain Window`，不使用额外正式术语 `Flow`；
+- Chain Window 不推进世界时间，也不使用现实时间倒计时；玩家可无限思考，但下一动作一旦提交便继续全局 AT；
+- Momentum 的职责限定为碰撞权威、转向/制动成本和后续动作资格；动作本身提供位移，不把 Momentum 线性叠加为通用额外移动。
+
+### 当前固定闭环
+
+- `Drive`：2 AT，由 `[Step 1 · 1 AT · M1] → [Dash 2 · 1 AT · M2]` 两个 Phase 组成；
+- Drive Outro 保留 Axis，生成 `Pending Momentum 2` 并打开 Chain Window；
+- `Rush Strike`：基础 2 AT，由 `[Start · 1 AT] → [Strike · 1 AT]` 组成；
+- 当 Rush Strike 读取同轴 `Pending Momentum >= 1` 时跳过 Start，因此从 `AT2` 缩短为 `AT1`；
+- 固定房间将玩家、轴线与目标布置为可重复的 E 轴链路；基础移动 / 攻击仍作为 1 AT 兼容动作，并支持点击相邻格直达。
+
+### 边界与延期项
+
+- 当前只落实 `Drive → Rush Strike`，不首轮实现 Raikiri、Anchor、完整动作库；
+- 完整碰撞权威、复杂转向/制动、移动中 Contact 分支、复杂 Thermal 条件和实时 Chain 倒计时延期；
+- UT1 Thermal 介入动作保留在折叠兼容区，不作为 UT2 动作链结论；
+- Square4 与全局 `0.1.0` 继续作为历史快照，不受 UT2 覆盖。
+
+### 验证状态
+
+- [x] 独立 v2 实验配置、稳定 ruleset / implementation ID 与无通用 AP 声明；
+- [x] 分段动作逐 Phase 推进全局 AT 并在边界处理队列事件；
+- [x] Drive 生成 `Pending Momentum 2 / Axis E / Chain Window`；
+- [x] 同轴 Rush Strike 跳过 Start，链路总时间为 `2 AT + 1 AT`；
+- [x] 规则校验、Vitest、TypeScript、production build 与产物标记；
+- [x] 1920 / 1366 宽度无头浏览器验证，并真实点击完成 `Drive E → Chain Window → Rush Strike AT1`；
+- [ ] GitHub Actions、Pages commit 回读与线上浏览器闭环（合并后更新）。
+
+对应 Validation：`VAL-012`。
+
+---
+
 ## Experiment Ruleset `VAL-012-UT1` — 2026-08-06
 
 ### 类型

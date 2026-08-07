@@ -4,25 +4,27 @@ import {
   applyUnifiedFixedHand,
   createUnifiedTimeline,
   previewInterveningEvents,
+  resolveUnifiedPlayerPhasedAction,
   resolveUnifiedPlayerAction,
   unifiedTimelineConfig,
 } from './unifiedTimeline'
 
-describe('VAL-012 UT1 unified AT timeline', () => {
+describe('VAL-012 UT2 unified AT timeline', () => {
   it('declares AT as the only action-time resource for the Hex6 experiment', () => {
-    expect(unifiedTimelineConfig.rulesetId).toBe('VAL-012-UT1')
+    expect(unifiedTimelineConfig.rulesetId).toBe('VAL-012-UT2')
     expect(unifiedTimelineConfig.genericActionPoints).toBe(false)
     expect(unifiedTimelineConfig.fixedHand).toBe(true)
     expect(unifiedTimelineConfig.thermalPeriodAt).toBe(8)
     expect(new Set(unifiedTimelineConfig.actions.map((action) => action.id)).size)
       .toBe(unifiedTimelineConfig.actions.length)
-    expect(unifiedTimelineConfig.actions.every((action) => [1, 2, 3].includes(action.actionTimeAt))).toBe(true)
+    expect(unifiedTimelineConfig.actions.map((action) => action.id)).toEqual(['drive', 'rush-strike'])
+    expect(unifiedTimelineConfig.actions.every((action) => action.phases.every((phase) => phase.durationAt === 1))).toBe(true)
   })
 
   it('previews every actor and environment event before the player is ready', () => {
     const timeline = createUnifiedTimeline()
     expect(previewInterveningEvents(timeline, actionTimeFor('hot-strike')).map((event) => event.sourceId))
-      .toEqual(['hunter', 'elite', 'npc', 'environment'])
+      .toEqual(['elite', 'npc', 'environment', 'hunter'])
   })
 
   it('resolves one atomic action and processes the shared queue until player ready', () => {
@@ -42,23 +44,49 @@ describe('VAL-012 UT1 unified AT timeline', () => {
     expect(result.timeline.awaitingPlayer).toBe(true)
     expect(result.value).toEqual([
       'player:impact',
-      'actor:hunter',
       'actor:elite',
       'actor:npc',
       'environment',
       'actor:hunter',
     ])
-    expect(result.interveningEvents.map((event) => event.timeAt)).toEqual([1, 2, 2, 2, 3])
+    expect(result.interveningEvents.map((event) => event.timeAt)).toEqual([1, 2, 2, 3])
   })
 
   it('uses stable actor IDs to break equal-time actor-ready ties', () => {
     const timeline = createUnifiedTimeline()
     const atTwo = previewInterveningEvents(timeline, 2).filter((event) => event.timeAt === 2)
     expect(atTwo.map((event) => event.stableId)).toEqual([
-      'actor:elite',
       'actor:npc',
       'environment:global',
     ])
+  })
+
+  it('applies each player phase before processing events at its AT boundary', () => {
+    const timeline = createUnifiedTimeline()
+    const action = unifiedTimelineConfig.actions.find((entry) => entry.id === 'drive')!
+    const result = resolveUnifiedPlayerPhasedAction(
+      ['start'],
+      timeline,
+      action.phases,
+      (value, phase) => [...value, `phase:${phase.id}`],
+      {
+        resolveActor: (value, actorId) => [...value, `actor:${actorId}`],
+        resolveEnvironment: (value) => [...value, 'environment'],
+      },
+    )
+
+    expect(result.value).toEqual([
+      'start',
+      'phase:step',
+      'actor:elite',
+      'phase:dash',
+      'actor:npc',
+      'environment',
+    ])
+    expect(result.timeline.worldTimeAt).toBe(2)
+    expect(result.timeline.awaitingPlayer).toBe(true)
+    expect(result.phases.map((phase) => [phase.phaseId, phase.startAt, phase.endAt]))
+      .toEqual([['step', 0, 1], ['dash', 1, 2]])
   })
 
   it('replaces draw and discard state with one deterministic fixed hand', () => {

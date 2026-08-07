@@ -8,7 +8,8 @@
 
 - `core-rules.v0.json`：当前网页实验的机器可读声明配置；
 - `core-rules.schema.json`：JSON Schema 2020-12 字段约束；
-- `experiments/val-012-unified-at-timeline.v1.json`：Hex6 当前统一 AT 时间实验；
+- `experiments/val-012-action-chain.v2.json`：Hex6 当前分段动作与动量链实验；
+- `experiments/val-012-unified-at-timeline.v1.json`：上一轮统一 AT 时间实验，保留为 UT1 历史对照；
 - `CHANGELOG.md`：每次影响玩法结果的配置变更，最新在前。
 
 历史 Square4 10×10 规则说明位于 `docs/archive/`，不再作为当前规则来源。
@@ -61,7 +62,9 @@ GameState
 
 ruleset `0.1.0` 尚未被全部运行模块直接消费，因此本目录暂时不能被描述为完整运行时的唯一来源。
 
-`#hex-prototype` 当前例外地运行独立实验 ruleset `VAL-012-UT1`。它以实验配置和 `src/hex/unifiedTimeline.ts` 为直接权威，不回写或覆盖 Square4 / 全局 `0.1.0` 历史快照。
+`#hex-prototype` 当前例外地运行独立实验 ruleset `VAL-012-UT2`。它以 `val-012-action-chain.v2.json`、`src/hex/unifiedTimeline.ts` 与 `src/hex/actionChain.ts` 为直接权威，不回写或覆盖 Square4 / 全局 `0.1.0` 历史快照。
+
+UT2 将动作声明为 `Intro → Core AT Phase[] → Outro`。世界事件只在 Phase 边界处理；`Chain Window` 不推进世界时间、没有现实时间倒计时。当前只实现固定验证链 `Drive AT2 → Pending Momentum 2 / Axis → Rush Strike 同轴跳过 Start → AT1`。碰撞权威、复杂制动/转向、完整动作库和正式平衡值仍不在本轮结论内。
 
 当前值不会自动成为正式规则。WebPrototype 可以为对照实验偏离 ProjectC 当前候选，但必须记录原因、版本和 validation ID。
 
@@ -73,7 +76,7 @@ ruleset `0.1.0` 尚未被全部运行模块直接消费，因此本目录暂时�
 - `pending`；
 - `deprecated`。
 
-当前 ruleset 使用 `prototype-snapshot`，表示它描述网页实验目标值，不表示全部内容已经接受。
+当前 UT2 ruleset 使用 `candidate`，表示动作语法与动作链仍在验证；其中固定场景、AT 数值、Actor 时序和内容配置仍只属于 `prototype-snapshot`，不表示已经接受为正式规则。
 
 Map profile 内部的 `implemented` 只描述该 profile 已在网页原型实现，不代表产品规则已验证。
 

@@ -169,7 +169,7 @@
 
 .unified-time-preview {
   display: grid;
-  grid-template-columns: repeat(3, minmax(92px, auto)) minmax(220px, 1fr);
+  grid-template-columns: repeat(3, minmax(82px, auto)) minmax(175px, 1fr) minmax(180px, 1fr);
   gap: 6px;
   padding: 7px 10px;
   border: 1px solid rgba(116, 190, 218, .2);
@@ -204,6 +204,221 @@
 .unified-time-preview-events strong {
   color: #e4c972;
   font-size: 9px;
+}
+
+.ut2-phase-preview strong {
+  color: #8fe5ff;
+}
+
+.ut2-chain-window {
+  position: absolute;
+  left: 50%;
+  bottom: 42px;
+  z-index: 17;
+  min-width: min(430px, calc(100% - 40px));
+  display: grid;
+  gap: 3px;
+  padding: 9px 14px;
+  transform: translateX(-50%);
+  text-align: center;
+  border: 1px solid rgba(241, 202, 98, .72);
+  border-radius: 12px;
+  background: linear-gradient(100deg, rgba(67, 49, 18, .94), rgba(21, 52, 61, .94));
+  box-shadow: 0 0 0 1px rgba(255, 224, 130, .16) inset, 0 10px 34px rgba(0, 0, 0, .34);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+
+.ut2-chain-window small {
+  color: #e9c765;
+  font-size: 7px;
+  letter-spacing: .14em;
+}
+
+.ut2-chain-window strong {
+  color: #fff2bf;
+  font-size: 15px;
+}
+
+.ut2-chain-window strong b {
+  color: #8fe6ff;
+}
+
+.ut2-chain-window span {
+  color: #a9c8cf;
+  font-size: 8px;
+}
+
+.chain-open .hex-portrait {
+  color: #fff0a8;
+  filter: drop-shadow(0 0 10px rgba(244, 204, 95, .56));
+  animation: ut2-chain-pulse 1.15s ease-in-out infinite alternate;
+}
+
+@keyframes ut2-chain-pulse {
+  from { transform: translateX(-2px) skewX(-4deg); }
+  to { transform: translateX(3px) skewX(-8deg); }
+}
+
+.ut2-action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.ut2-action-card {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 5px;
+  padding: 7px 9px;
+  border: 1px solid rgba(112, 171, 205, .25);
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(26, 53, 70, .86), rgba(12, 25, 39, .92));
+}
+
+.ut2-action-card.chain-ready {
+  border-color: rgba(237, 198, 90, .68);
+  background: linear-gradient(145deg, rgba(72, 55, 21, .9), rgba(16, 43, 50, .94));
+  box-shadow: 0 0 18px rgba(238, 194, 74, .12);
+}
+
+.ut2-action-title,
+.ut2-action-title > div,
+.ut2-phase-row,
+.ut2-direction-buttons,
+.ut2-rush-targets button {
+  display: flex;
+  align-items: center;
+}
+
+.ut2-action-title {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ut2-action-title > div {
+  gap: 7px;
+}
+
+.ut2-action-title b {
+  color: #fff;
+  font-size: 15px;
+}
+
+.ut2-action-title b small {
+  margin-left: 1px;
+  color: #77bad2;
+  font-size: 6px;
+}
+
+.ut2-action-title span {
+  color: #e4f5fb;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ut2-action-title em {
+  color: #e4c76b;
+  font-size: 7px;
+  font-style: normal;
+}
+
+.ut2-phase-row {
+  gap: 5px;
+}
+
+.ut2-phase-row span {
+  flex: 1;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: #b9d9e6;
+  font-size: 8px;
+  background: rgba(5, 15, 24, .56);
+}
+
+.ut2-phase-row span b {
+  float: right;
+  color: #f0ce69;
+}
+
+.ut2-phase-row span.skipped {
+  color: #6f808b;
+  text-decoration: line-through;
+  opacity: .7;
+}
+
+.ut2-phase-row i {
+  color: #6b8792;
+  font-size: 8px;
+  font-style: normal;
+}
+
+.ut2-action-card > p {
+  margin: 0;
+  color: #809aaa;
+  font-size: 7px;
+  line-height: 1.35;
+}
+
+.ut2-direction-buttons {
+  gap: 4px;
+}
+
+.ut2-direction-buttons button {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 2px;
+  color: #bceaff;
+  font-size: 7px;
+}
+
+.ut2-rush-targets {
+  min-width: 0;
+}
+
+.ut2-rush-targets > span {
+  display: block;
+  color: #6f8997;
+  font-size: 7px;
+}
+
+.ut2-rush-targets button {
+  width: 100%;
+  justify-content: space-between;
+  gap: 7px;
+  padding: 4px 7px;
+  color: #bedce6;
+  font-size: 8px;
+}
+
+.ut2-rush-targets button small {
+  color: #7795a0;
+  font-size: 7px;
+}
+
+.ut2-rush-targets button.chain-target {
+  color: #fff1b5;
+  border-color: rgba(238, 199, 89, .62);
+  background: rgba(92, 69, 19, .62);
+}
+
+.ut2-rush-targets button.chain-target small {
+  color: #efcf6c;
+}
+
+.ut2-legacy-actions {
+  margin-top: 5px;
+}
+
+.ut2-legacy-actions summary {
+  color: #6f899b;
+  font-size: 7px;
+  cursor: pointer;
+}
+
+.ut2-legacy-actions[open] .visual-card-row {
+  margin-top: 7px;
 }
 
 .unified-ready-list {
@@ -265,8 +480,13 @@
     grid-template-columns: repeat(3, 1fr);
   }
 
+  .ut2-phase-preview,
   .unified-time-preview-events {
     grid-column: 1 / -1;
+  }
+
+  .ut2-action-grid {
+    grid-template-columns: 1fr;
   }
 
   .hex-comparison-strip {
