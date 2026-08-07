@@ -67,7 +67,7 @@
   font-size: 15px;
 }
 
-.hex-board-column {
+.visual-board-column.hex-board-column {
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 }
 
