@@ -5,8 +5,8 @@ const css = readFileSync(new URL('./hex.css', import.meta.url), 'utf8')
 const component = readFileSync(new URL('./HexPrototype.tsx', import.meta.url), 'utf8')
 
 describe('Hex board layout structure', () => {
-  it('reserves a dedicated flexible row for the board after the unified time preview', () => {
-    expect(css).toMatch(/\.hex-board-column\s*\{[^}]*grid-template-rows:\s*auto auto auto minmax\(0,\s*1fr\) auto;/s)
+  it('reserves a dedicated flexible row with higher specificity than the generic board layout', () => {
+    expect(css).toMatch(/\.visual-board-column\.hex-board-column\s*\{[^}]*grid-template-rows:\s*auto auto auto minmax\(0,\s*1fr\) auto;/s)
   })
 
   it('keeps comparison, time preview, toolbar, board and hand in that source order', () => {
