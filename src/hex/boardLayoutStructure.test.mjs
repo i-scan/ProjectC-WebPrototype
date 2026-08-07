@@ -21,4 +21,14 @@ describe('Hex board layout structure', () => {
     expect(positions.every((position) => position >= 0)).toBe(true)
     expect(positions).toEqual([...positions].sort((a, b) => a - b))
   })
+
+  it('keeps the UT2 action-chain contract visible and machine-verifiable', () => {
+    expect(component).toContain('data-ruleset-id={unifiedTimelineConfig.rulesetId}')
+    expect(component).toContain('data-implementation-id={unifiedTimelineConfig.implementationId}')
+    expect(component).toContain('data-world-time-at={timeline.worldTimeAt}')
+    expect(component).toContain('data-chain-open={spatialInertia.chainOpen}')
+    expect(component).toContain('data-action-id="drive"')
+    expect(component).toContain('data-action-id="rush-strike"')
+    expect(component).toContain('CHAIN WINDOW · 世界暂停 · 不限时')
+  })
 })

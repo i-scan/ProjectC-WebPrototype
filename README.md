@@ -35,9 +35,11 @@ https://i-scan.github.io/ProjectC-WebPrototype/?revision=<full-commit-sha>#hex-p
 当前主要验证：
 
 - Square4 历史规则与 Hex6 空间对照；
-- `VAL-012-UT1`：Hex6 使用统一 `worldTimeAt` 与全局 Event Queue；
+- `VAL-012-UT2`：Hex6 在统一 `worldTimeAt` 与全局 Event Queue 上验证分段动作和动量链；
 - 玩家、敌人、NPC、环境与 Thermal Clock 共享 AT 时间基准；
-- Hex6 当前实验移除通用 AP，动作按 `1 / 2 / 3 AT` 原子结算；
+- Hex6 当前实验移除通用 AP，动作使用 `Intro → Core AT Phase[] → Outro`；
+- 固定场景验证 `Drive AT2 → Pending Momentum 2 / Axis → Chain Window → 同轴 Rush Strike AT1`；
+- Chain Window 暂停世界且不限现实思考时间，Momentum 负责碰撞权威、转向/制动成本和后续动作资格，不作为通用位移加值；
 - Hex6 邻接、Range、射线、击退、风和天气传播；
 - World / Room / 后续 Region 的尺度差异；
 - Travel / Tactical 在同一 GameState 中的切换；
@@ -87,12 +89,13 @@ GameState
 其他职责：
 
 - `config/core-rules.schema.json`：配置结构约束；
-- `config/experiments/val-012-unified-at-timeline.v1.json`：当前 Hex6 统一时间实验的声明配置；
+- `config/experiments/val-012-action-chain.v2.json`：当前 Hex6 分段动作与动量链实验的声明配置；
+- `config/experiments/val-012-unified-at-timeline.v1.json`：上一轮 UT1 统一时间实验的历史对照；
 - `config/CHANGELOG.md`：每次影响玩法结果的机制、数值和地图变化；
 - 测试：配置、拓扑和规则回归；
 - 页面：体验和信息表达验证。
 
-全局 ruleset `0.1.0` 仍属于旧快照；Hex6 当前运行独立实验 ruleset `VAL-012-UT1`。实验配置与执行核心已直接接入 `#hex-prototype`，但不会自动晋升为正式规则。
+全局 ruleset `0.1.0` 仍属于旧快照；Hex6 当前运行独立实验 ruleset `VAL-012-UT2`。实验配置与执行核心已直接接入 `#hex-prototype`，但状态仍是候选 / prototype snapshot，不会自动晋升为正式规则。
 
 ---
 
@@ -127,7 +130,9 @@ GameState
 - Three.js / PixiJS Player View；
 - intent、悔棋、重开、统一事件队列、速度控制和状态导出。
 
-`#hex-prototype` 顶部可直接看到 `World Time`、玩家再次就绪时间和下一事件；选择动作后，棋盘上方会显示即时效果之后、玩家再次就绪之前会插入的敌人 / NPC / 环境事件。Thermal Inspector 使用同一 AT 增量推进，不再显示通用 AP。
+`#hex-prototype` 顶部可直接看到 `World Time`、玩家再次就绪时间和下一事件；动作预览会列出 Phase 与各边界之间插入的敌人 / NPC / 环境事件。固定 UT2 房间可先沿 E 轴执行 Drive：两个 1 AT Phase 分别结算后打开不计时的 Chain Window，再对轴线目标使用 Rush Strike，跳过 Start 并只消耗 1 AT。Thermal Inspector 使用同一 AT 增量推进，不再显示通用 AP。基础移动和攻击仍保留，并支持直接点击相邻空格或敌人格。
+
+当前 UT2 只验证上述最短闭环；Raikiri、Anchor、完整碰撞、复杂转向/制动和条件化 Thermal 交互明确延期，避免把原型行为误写成已验证规则。
 
 Three.js 是当前主可玩视觉验证方向；PixiJS / 2D 保留为地图总览、对照和潜在低配置表现。正式引擎尚未决定。
 

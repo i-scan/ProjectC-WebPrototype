@@ -59,8 +59,15 @@ class CdpClient {
   async open() {
     if (this.socket.readyState === WebSocket.OPEN) return
     await new Promise((resolvePromise, reject) => {
-      this.socket.addEventListener('open', resolvePromise, { once: true })
-      this.socket.addEventListener('error', reject, { once: true })
+      const timeout = setTimeout(() => reject(new Error('Chrome DevTools WebSocket open timed out')), 10000)
+      this.socket.addEventListener('open', () => {
+        clearTimeout(timeout)
+        resolvePromise()
+      }, { once: true })
+      this.socket.addEventListener('error', (error) => {
+        clearTimeout(timeout)
+        reject(error)
+      }, { once: true })
     })
     this.socket.addEventListener('message', (event) => {
       const payload = JSON.parse(String(event.data))
@@ -68,6 +75,7 @@ class CdpClient {
         const pending = this.pending.get(payload.id)
         if (!pending) return
         this.pending.delete(payload.id)
+        clearTimeout(pending.timeout)
         if (payload.error) pending.reject(new Error(payload.error.message))
         else pending.resolve(payload.result)
         return
@@ -82,7 +90,11 @@ class CdpClient {
     const id = this.nextId
     this.nextId += 1
     return new Promise((resolvePromise, reject) => {
-      this.pending.set(id, { resolve: resolvePromise, reject })
+      const timeout = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`Chrome DevTools ${method} timed out`))
+      }, 15000)
+      this.pending.set(id, { resolve: resolvePromise, reject, timeout })
       this.socket.send(JSON.stringify({ id, method, params }))
     })
   }
@@ -224,6 +236,81 @@ function verifyThermal(snapshot, label) {
   assert(new Set(fontSizes).size <= 5, `${label}: Thermal typography uses too many unrelated sizes`, snapshot)
 }
 
+const actionChainSnapshotExpression = `(() => {
+  const root = document.querySelector('.hex-prototype')
+  const driveEast = root?.querySelector('[data-action-id="drive"][data-axis="E"]')
+  const chainedRush = root?.querySelector('[data-action-id="rush-strike"][data-chain-compatible="true"]')
+  const board = root?.querySelector('.hex-board-frame')
+  const objectives = [...(root?.querySelectorAll('.visual-objectives > div') ?? [])]
+  const boardRect = board?.getBoundingClientRect()
+  return {
+    rulesetId: root?.dataset.rulesetId ?? null,
+    implementationId: root?.dataset.implementationId ?? null,
+    worldTimeAt: Number(root?.dataset.worldTimeAt ?? Number.NaN),
+    chainOpen: root?.dataset.chainOpen === 'true',
+    boardHeight: boardRect?.height ?? 0,
+    driveEastEnabled: Boolean(driveEast && !driveEast.disabled),
+    chainWindowText: root?.querySelector('.ut2-chain-window')?.textContent.trim() ?? null,
+    chainedRush: chainedRush ? {
+      enabled: !chainedRush.disabled,
+      target: chainedRush.dataset.targetActor,
+      axis: chainedRush.dataset.axis,
+      text: chainedRush.textContent.trim(),
+    } : null,
+    objectives: objectives.map((entry) => ({
+      text: entry.textContent.trim(),
+      done: entry.classList.contains('done'),
+    })),
+  }
+})()`
+
+async function verifyActionChain(client) {
+  await evaluate(client, `document.querySelector('#hex-inspector-tab').click(); true`)
+  const initial = await evaluate(client, actionChainSnapshotExpression)
+  assert(initial.rulesetId === 'VAL-012-UT2', 'UT2 ruleset marker is missing', initial)
+  assert(initial.implementationId === 'action-chain-phase-v1', 'UT2 implementation marker is missing', initial)
+  assert(initial.worldTimeAt === 0, 'UT2 fixed scenario did not start at world time 0', initial)
+  assert(initial.boardHeight >= 300, 'Hex board collapsed below its playable height', initial)
+  assert(initial.driveEastEnabled, 'Fixed scenario must allow Drive on the E axis', initial)
+
+  await evaluate(client, `document.querySelector('[data-action-id="drive"][data-axis="E"]').click(); true`)
+  await waitFor('Drive chain window', async () => {
+    const ready = await evaluate(client, `(() => {
+      const root = document.querySelector('.hex-prototype')
+      const rush = root?.querySelector('[data-action-id="rush-strike"][data-chain-compatible="true"]')
+      return root?.dataset.chainOpen === 'true' && Boolean(rush && !rush.disabled)
+    })()`)
+    if (!ready) throw new Error('Chain Window or chained Rush Strike is not ready')
+    return true
+  })
+
+  const afterDrive = await evaluate(client, actionChainSnapshotExpression)
+  assert(afterDrive.worldTimeAt === 2, 'Drive must consume two phased AT', afterDrive)
+  assert(afterDrive.chainOpen, 'Drive Outro must open a Chain Window', afterDrive)
+  assert(afterDrive.chainWindowText?.includes('Pending Momentum 2'), 'Pending Momentum 2 is not visible', afterDrive)
+  assert(afterDrive.chainWindowText?.includes('AT2 → AT1'), 'Rush Strike chain discount is not visible', afterDrive)
+  assert(afterDrive.chainedRush?.target === 'hunter', 'Fixed target is not chain-compatible after Drive', afterDrive)
+  assert(afterDrive.chainedRush?.axis === 'E', 'Rush Strike chain axis is not preserved', afterDrive)
+  assert(afterDrive.chainedRush?.text.includes('Chain AT1'), 'Chained Rush Strike does not show AT1', afterDrive)
+
+  await evaluate(client, `document.querySelector('[data-action-id="rush-strike"][data-chain-compatible="true"]').click(); true`)
+  await waitFor('Rush Strike completion', async () => {
+    const complete = await evaluate(client, `(() => {
+      const root = document.querySelector('.hex-prototype')
+      const hunter = root?.querySelector('[data-action-id="rush-strike"][data-target-actor="hunter"]')
+      return root?.dataset.chainOpen === 'false' && root?.dataset.worldTimeAt === '3' && Boolean(hunter && !hunter.disabled)
+    })()`)
+    if (!complete) throw new Error('Rush Strike has not completed at world time 3')
+    return true
+  })
+
+  const afterRush = await evaluate(client, actionChainSnapshotExpression)
+  assert(afterRush.worldTimeAt === 3, 'Same-axis Rush Strike must consume one AT', afterRush)
+  assert(!afterRush.chainOpen, 'Rush Strike must consume Pending Momentum and close the chain', afterRush)
+  assert(afterRush.objectives.some((entry) => entry.done && entry.text.includes('Rush Strike')), 'Rush Strike objective did not complete', afterRush)
+  return { initial, afterDrive, afterRush }
+}
+
 async function loadViewport(client, width) {
   await client.send('Emulation.setDeviceMetricsOverride', {
     width,
@@ -291,7 +378,7 @@ let chromeProcess
 let client
 
 try {
-  previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4173', '--strictPort'], {
+  previewProcess = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4173', '--strictPort'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   previewProcess.stdout.on('data', (chunk) => process.stdout.write(`[preview] ${chunk}`))
@@ -334,6 +421,7 @@ try {
   const results = {}
   for (const width of [1920, 1366]) {
     results[width] = await loadViewport(client, width)
+    if (width === 1920) results.actionChain = await verifyActionChain(client)
   }
 
   await mkdir(artifactDir, { recursive: true })
@@ -355,6 +443,11 @@ try {
       thermalWidth: results[1366].thermal.panel.width,
     },
     thermalType: results[1920].thermal.thermal,
+    actionChain: {
+      afterDriveAt: results.actionChain.afterDrive.worldTimeAt,
+      afterRushAt: results.actionChain.afterRush.worldTimeAt,
+      axis: results.actionChain.afterDrive.chainedRush.axis,
+    },
   }, null, 2))
 } finally {
   client?.close()
