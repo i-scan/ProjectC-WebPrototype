@@ -35,6 +35,8 @@ assert(script.includes('action-chain-phase-v1'), 'action chain implementation ma
 assert(script.includes('Pending Momentum'), 'visible Pending Momentum marker is missing')
 assert(script.includes('Chain Window'), 'visible Chain Window marker is missing')
 assert(script.includes('World Time'), 'visible global time marker is missing')
+assert(script.includes('data-at-playback-control'), 'AT playback speed control is missing')
+assert(script.includes('ms/AT'), 'AT playback duration readout is missing')
 assert(script.includes('460px'), 'desktop unified inspector width is missing')
 assert(script.includes('430px'), 'laptop unified inspector width is missing')
 assert(script.includes('--tc-body: 10px'), 'compact Thermal base type scale is missing')

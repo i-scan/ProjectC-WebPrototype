@@ -28,6 +28,13 @@ import {
   ROOM_MIN_RADIUS,
   type HexMapStructure,
 } from './hexRoom'
+import {
+  AT_PLAYBACK_RATE_STEP,
+  atPlaybackTiming,
+  formatAtPlaybackRate,
+  MAX_AT_PLAYBACK_RATE,
+  playbackDelayForAt,
+} from './atPlayback'
 import { countMountainCells } from './hexTerrain'
 import {
   allDrivePlans,
@@ -91,9 +98,6 @@ const cardIcons: Record<Card['effect'], string> = {
   temper: '◉',
 }
 
-const speedLabels = ['手动', '0.5×', '1×', '2×', '4×'] as const
-const travelDelays = [0, 1050, 680, 400, 230] as const
-const cueDelays = [360, 520, 340, 210, 120] as const
 const maxUndoSteps = 120
 type HexRenderer = '2d' | '3d'
 type RightInspectorTab = 'hex' | 'thermal'
@@ -109,8 +113,8 @@ function formatTemperature(value: number) {
   return value > 0 ? `+${value}` : String(value)
 }
 
-function fallbackEvent(kind: VisualEvent['kind'], target: Coord | undefined, label: string): PlaybackEvent {
-  return { id: Date.now(), kind, target, label, effect: kind }
+function fallbackEvent(kind: VisualEvent['kind'], target: Coord | undefined, label: string, durationAt = 0.5): PlaybackEvent {
+  return { id: Date.now(), kind, target, label, effect: kind, durationAt }
 }
 
 type HexHistoryEntry = {
@@ -147,7 +151,8 @@ export function HexPrototype() {
   const [cameraResetToken, setCameraResetToken] = useState(0)
   const [showSky, setShowSky] = useState(true)
   const [showDebug, setShowDebug] = useState(false)
-  const [simulationSpeed, setSimulationSpeed] = useState(2)
+  const [playbackRate, setPlaybackRate] = useState(1)
+  const playbackTiming = useMemo(() => atPlaybackTiming(playbackRate), [playbackRate])
   const [eventQueue, setEventQueue] = useState<PlaybackEvent[]>([])
   const [travelPreference, setTravelPreference] = useState<TravelPreference>('fastest')
   const [travelPath, setTravelPath] = useState<Coord[]>([])
@@ -233,16 +238,19 @@ export function HexPrototype() {
     fallbackKind: VisualEvent['kind'],
     fallbackTarget?: Coord,
     historyEntry: HexHistoryEntry = captureHistory(before),
+    elapsedAt = 1,
   ) => {
     const cues = buildVisualEvents(before, after, fallbackTarget)
     if (cues.length === 1 && before.phase === after.phase && before.turn === after.turn && after.logs[0] !== before.logs[0]) {
       cues[0] = { ...cues[0], kind: fallbackKind, effect: fallbackKind, label: after.logs[0], target: fallbackTarget }
     }
+    const durationAt = elapsedAt / Math.max(1, cues.length)
+    const timedCues = cues.map((cue) => ({ ...cue, durationAt }))
     setUndoStack((current) => [...current, historyEntry].slice(-maxUndoSteps))
     setState(after)
-    setEventQueue(cues.length > 0
-      ? cues
-      : [fallbackEvent(fallbackKind, fallbackTarget, after.logs[0] ?? 'Hex6 状态已更新')])
+    setEventQueue(timedCues.length > 0
+      ? timedCues
+      : [fallbackEvent(fallbackKind, fallbackTarget, after.logs[0] ?? 'Hex6 状态已更新', elapsedAt)])
   }
 
   const resolveAtomicAction = (
@@ -284,7 +292,7 @@ export function HexPrototype() {
       actionTime: resolution.elapsedAt,
       offsetDelta: getPlayer(immediate).bodyTemperature - getPlayer(before).bodyTemperature,
     })
-    queueTransition(before, resolution.value, fallbackKind, fallbackTarget, historyEntry)
+    queueTransition(before, resolution.value, fallbackKind, fallbackTarget, historyEntry, resolution.elapsedAt)
     return resolution
   }
 
@@ -339,6 +347,7 @@ export function HexPrototype() {
       actionId === 'drive' ? 'move' : 'attack',
       actionId === 'drive' ? getPlayer(resolution.value).position : state.actors.find((actor) => actor.id === targetActorId)?.position,
       historyEntry,
+      resolution.elapsedAt,
     )
     setSelection({ kind: 'inspect' })
   }
@@ -438,15 +447,17 @@ export function HexPrototype() {
 
   useEffect(() => {
     if (eventQueue.length === 0) return
-    const timer = window.setTimeout(() => setEventQueue((current) => current.slice(1)), cueDelays[simulationSpeed])
+    const timer = window.setTimeout(
+      () => setEventQueue((current) => current.slice(1)),
+      playbackDelayForAt(playbackTiming, eventQueue[0]?.durationAt ?? 0.5),
+    )
     return () => window.clearTimeout(timer)
-  }, [eventQueue, simulationSpeed])
+  }, [eventQueue, playbackTiming])
 
   useEffect(() => {
-    if (mode !== 'travel' || !traveling || simulationSpeed === 0 || travelPath.length <= 1 || eventQueue.length > 0 || state.status !== 'active') return
-    const timer = window.setTimeout(performTravelStep, travelDelays[simulationSpeed])
-    return () => window.clearTimeout(timer)
-  }, [mode, traveling, simulationSpeed, travelPath, eventQueue.length, state, travelProgress])
+    if (mode !== 'travel' || !traveling || playbackTiming.manual || travelPath.length <= 1 || eventQueue.length > 0 || state.status !== 'active') return
+    performTravelStep()
+  }, [mode, traveling, playbackTiming.manual, travelPath, eventQueue.length, state, travelProgress])
 
   useEffect(() => {
     if (!travelTarget || mode !== 'travel' || traveling) return
@@ -560,7 +571,7 @@ export function HexPrototype() {
   const undo = () => {
     if (undoStack.length === 0) return
     const previous = undoStack[undoStack.length - 1]
-    setSimulationSpeed(0)
+    setPlaybackRate(0)
     setUndoStack((current) => current.slice(0, -1))
     setState(previous.state)
     setTimeline(previous.timeline)
@@ -638,7 +649,7 @@ export function HexPrototype() {
       advance()
       return
     }
-    if (simulationSpeed === 0) {
+    if (playbackTiming.manual) {
       performTravelStep()
       return
     }
@@ -647,7 +658,7 @@ export function HexPrototype() {
 
   const topActionLabel = mode === 'tactical'
     ? playbackActive ? '表现队列中…' : '等待 1 AT'
-    : simulationSpeed === 0
+    : playbackTiming.manual
       ? '旅行一步'
       : traveling ? '暂停旅行' : '继续旅行'
 
@@ -677,10 +688,10 @@ export function HexPrototype() {
             <div><span>World Time</span><strong>{timeline.worldTimeAt} AT</strong></div>
             <div><span>Player Ready</span><strong>{timeline.actors.player.nextReadyAt} AT</strong></div>
             <div><span>Next Event</span><strong>{queuedTimelineEvents[0]?.timeAt ?? '—'} AT</strong></div>
-            <label className="visual-speed-control">
-              <span>{mode === 'travel' ? '旅行速度' : '演算速度'}</span>
-              <input aria-label="Hex6 推进速度" type="range" min="0" max="4" step="1" value={simulationSpeed} onChange={(eventValue) => setSimulationSpeed(Number(eventValue.target.value))} />
-              <strong>{speedLabels[simulationSpeed]}</strong>
+            <label className="visual-speed-control hex-at-playback-control" data-at-playback-control="v1" title="只改变播放节奏，不改变规则结算与世界时间">
+              <span>AT 播放速度</span>
+              <input aria-label="每 AT 播放速度" type="range" min="0" max={MAX_AT_PLAYBACK_RATE} step={AT_PLAYBACK_RATE_STEP} value={playbackRate} onChange={(eventValue) => setPlaybackRate(Number(eventValue.target.value))} />
+              <strong>{formatAtPlaybackRate(playbackTiming)}</strong>
             </label>
             <button className="visual-primary" disabled={topActionDisabled} onClick={topAction}>{topActionLabel}</button>
           </div>
@@ -739,7 +750,7 @@ export function HexPrototype() {
                   <div><span>路线风险</span><strong>{pathSummary.risk}</strong></div>
                 </div>
                 <div className="hex-travel-controls">
-                  <button disabled={travelPath.length <= 1} onClick={() => simulationSpeed === 0 ? performTravelStep() : setTraveling((value) => !value)}>{simulationSpeed === 0 ? '推进一格' : traveling ? '暂停' : '继续'}</button>
+                  <button disabled={travelPath.length <= 1} onClick={() => playbackTiming.manual ? performTravelStep() : setTraveling((value) => !value)}>{playbackTiming.manual ? '推进一格' : traveling ? '暂停' : '继续'}</button>
                   <button onClick={() => enterTactical('玩家主动检查局部态势')}>进入战术</button>
                 </div>
                 <p className="hex-travel-status">{travelMessage}</p>
@@ -751,11 +762,7 @@ export function HexPrototype() {
                   <button className={selection.kind === 'basic' && selection.action === 'move' ? 'active sticky' : ''} disabled={playbackActive} onClick={() => chooseBasicAction('move')}><span>⬡</span><strong>Basic Move</strong><small>空格点击直达 · 1 AT</small></button>
                   <button className={selection.kind === 'basic' && selection.action === 'attack' ? 'active danger' : ''} disabled={playbackActive} onClick={() => chooseBasicAction('attack')}><span>⚔</span><strong>Basic Attack</strong><small>敌人格点击直达 · 1 AT</small></button>
                 </div>
-                <div className="hex-travel-controls">
-                  <button disabled={Boolean(threat)} onClick={resumeTravel}>恢复旅行</button>
-                  <button onClick={() => setCameraResetToken((value) => value + 1)}>重置镜头</button>
-                </div>
-                <p className="hex-travel-status">{threat ? `${threat.actor.name} 距离 ${threat.distance}：需解除威胁后恢复旅行。` : '当前无近距威胁，可以恢复原旅行目标。'}</p>
+                <p className="hex-travel-status">{threat ? `${threat.actor.name} 距离 ${threat.distance}：需解除威胁后才能返回旅行。` : '当前无近距威胁；可使用顶部 Travel 切换返回旅行。'}</p>
               </section>
             )}
 

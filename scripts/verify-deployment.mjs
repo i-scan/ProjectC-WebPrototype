@@ -95,6 +95,8 @@ await retry('published JavaScript bundle', async (attempt) => {
   if (!script.includes('Pending Momentum')) throw new Error('Pending Momentum UI is missing')
   if (!script.includes('Chain Window')) throw new Error('Chain Window UI is missing')
   if (!script.includes('data-action-id')) throw new Error('action-chain browser verification hooks are missing')
+  if (!script.includes('data-at-playback-control')) throw new Error('AT playback speed control is missing')
+  if (!script.includes('ms/AT')) throw new Error('AT playback duration readout is missing')
   if (!script.includes('460px')) throw new Error('desktop unified inspector width is missing')
   if (!script.includes('430px')) throw new Error('laptop unified inspector width is missing')
   if (!script.includes('--tc-body: 10px')) throw new Error('compact Thermal base type scale is missing')

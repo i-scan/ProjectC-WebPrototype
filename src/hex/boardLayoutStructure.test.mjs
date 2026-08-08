@@ -31,4 +31,17 @@ describe('Hex board layout structure', () => {
     expect(component).toContain('data-action-id="rush-strike"')
     expect(component).toContain('CHAIN WINDOW · 世界暂停 · 不限时')
   })
+
+  it('uses the global Travel switch and board toolbar instead of duplicate left-panel controls', () => {
+    expect(component).not.toContain('>恢复旅行</button>')
+    expect(component).not.toContain('>重置镜头</button>')
+    expect(component).toContain('>重置视图</button>')
+  })
+
+  it('exposes a fine-grained presentation-only AT playback control', () => {
+    expect(component).toContain('data-at-playback-control="v1"')
+    expect(component).toContain('aria-label="每 AT 播放速度"')
+    expect(component).toContain('step={AT_PLAYBACK_RATE_STEP}')
+    expect(component).toContain('只改变播放节奏，不改变规则结算与世界时间')
+  })
 })

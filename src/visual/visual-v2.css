@@ -96,6 +96,16 @@ body:has(.visual-prototype) .app-switcher {
   font-size: 10px;
 }
 
+.hex-at-playback-control {
+  min-width: 220px;
+  grid-template-columns: minmax(100px, 1fr) 96px;
+}
+
+.hex-at-playback-control strong {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .visual-primary {
   min-height: 42px;
   padding: 0 13px;
