@@ -238,8 +238,8 @@ function verifyThermal(snapshot, label) {
 
 const actionChainSnapshotExpression = `(() => {
   const root = document.querySelector('.hex-prototype')
-  const driveEast = root?.querySelector('[data-action-id="drive"][data-axis="E"]')
-  const chainedRush = root?.querySelector('[data-action-id="rush-strike"][data-chain-compatible="true"]')
+  const drive = root?.querySelector('[data-action-id="drive"]')
+  const rush = root?.querySelector('[data-action-id="rush-strike"]')
   const board = root?.querySelector('.hex-board-frame')
   const playbackControl = root?.querySelector('[data-at-playback-control="v1"]')
   const playbackInput = playbackControl?.querySelector('input[type="range"]')
@@ -251,7 +251,11 @@ const actionChainSnapshotExpression = `(() => {
     worldTimeAt: Number(root?.dataset.worldTimeAt ?? Number.NaN),
     chainOpen: root?.dataset.chainOpen === 'true',
     boardHeight: boardRect?.height ?? 0,
-    driveEastEnabled: Boolean(driveEast && !driveEast.disabled),
+    driveEnabled: Boolean(drive && !drive.disabled),
+    driveSelected: Boolean(drive?.classList.contains('selected-action')),
+    rushSelected: Boolean(rush?.classList.contains('selected-action')),
+    driveBoardTargets: root?.querySelectorAll('.hex-travel-cell.valid-target.drive').length ?? 0,
+    rushBoardTargets: root?.querySelectorAll('.hex-travel-cell.valid-target.rush').length ?? 0,
     playback: playbackInput ? {
       min: playbackInput.min,
       max: playbackInput.max,
@@ -260,12 +264,7 @@ const actionChainSnapshotExpression = `(() => {
       text: playbackControl.textContent.trim(),
     } : null,
     chainWindowText: root?.querySelector('.ut2-chain-window')?.textContent.trim() ?? null,
-    chainedRush: chainedRush ? {
-      enabled: !chainedRush.disabled,
-      target: chainedRush.dataset.targetActor,
-      axis: chainedRush.dataset.axis,
-      text: chainedRush.textContent.trim(),
-    } : null,
+    rushText: rush?.textContent.trim() ?? null,
     objectives: objectives.map((entry) => ({
       text: entry.textContent.trim(),
       done: entry.classList.contains('done'),
@@ -275,25 +274,31 @@ const actionChainSnapshotExpression = `(() => {
 
 async function verifyActionChain(client) {
   await evaluate(client, `document.querySelector('#hex-inspector-tab').click(); true`)
+  await evaluate(client, `[...document.querySelectorAll('.hex-view-switch button')].find((button) => button.textContent.trim() === '2D')?.click(); true`)
   const initial = await evaluate(client, actionChainSnapshotExpression)
-  assert(initial.rulesetId === 'VAL-012-UT2', 'UT2 ruleset marker is missing', initial)
-  assert(initial.implementationId === 'action-chain-phase-v1', 'UT2 implementation marker is missing', initial)
-  assert(initial.worldTimeAt === 0, 'UT2 fixed scenario did not start at world time 0', initial)
+  assert(initial.rulesetId === 'VAL-012-UT3', 'UT3 ruleset marker is missing', initial)
+  assert(initial.implementationId === 'momentum-collision-lab-v1', 'UT3 implementation marker is missing', initial)
+  assert(initial.worldTimeAt === 0, 'UT3 fixed scenario did not start at world time 0', initial)
   assert(initial.boardHeight >= 300, 'Hex board collapsed below its playable height', initial)
-  assert(initial.driveEastEnabled, 'Fixed scenario must allow Drive on the E axis', initial)
+  assert(initial.driveEnabled, 'Drive card must be enabled', initial)
   assert(initial.playback?.min === '0' && initial.playback?.max === '4', 'AT playback range is incorrect', initial)
   assert(initial.playback?.step === '0.25', 'AT playback must use quarter-rate steps', initial)
   assert(initial.playback?.value === '1', 'AT playback baseline must start at 1x', initial)
   assert(initial.playback?.text.includes('680 ms/AT'), 'AT playback duration is not visible', initial)
 
-  await evaluate(client, `document.querySelector('[data-action-id="drive"][data-axis="E"]').click(); true`)
+  await evaluate(client, `document.querySelector('[data-action-id="drive"]').click(); true`)
+  await waitFor('Drive board targets', async () => {
+    const targets = await evaluate(client, `document.querySelectorAll('.hex-travel-cell.valid-target.drive').length`)
+    if (targets < 1) throw new Error('Drive did not expose board endpoints')
+    return true
+  })
+  await evaluate(client, `document.querySelector('.hex-travel-cell.valid-target.drive[data-x="5"][data-y="4"]').dispatchEvent(new MouseEvent('click', { bubbles: true })); true`)
   await waitFor('Drive chain window', async () => {
     const ready = await evaluate(client, `(() => {
       const root = document.querySelector('.hex-prototype')
-      const rush = root?.querySelector('[data-action-id="rush-strike"][data-chain-compatible="true"]')
-      return root?.dataset.chainOpen === 'true' && Boolean(rush && !rush.disabled)
+      return root?.dataset.chainOpen === 'true' && root?.querySelectorAll('.hex-travel-cell.valid-target.rush').length > 0 && !root?.querySelector('.visual-event-banner')
     })()`)
-    if (!ready) throw new Error('Chain Window or chained Rush Strike is not ready')
+    if (!ready) throw new Error('Chain Window or board-targeted Rush Strike is not ready')
     return true
   })
 
@@ -302,16 +307,15 @@ async function verifyActionChain(client) {
   assert(afterDrive.chainOpen, 'Drive Outro must open a Chain Window', afterDrive)
   assert(afterDrive.chainWindowText?.includes('Pending Momentum 2'), 'Pending Momentum 2 is not visible', afterDrive)
   assert(afterDrive.chainWindowText?.includes('AT2 → AT1'), 'Rush Strike chain discount is not visible', afterDrive)
-  assert(afterDrive.chainedRush?.target === 'hunter', 'Fixed target is not chain-compatible after Drive', afterDrive)
-  assert(afterDrive.chainedRush?.axis === 'E', 'Rush Strike chain axis is not preserved', afterDrive)
-  assert(afterDrive.chainedRush?.text.includes('Chain AT1'), 'Chained Rush Strike does not show AT1', afterDrive)
+  assert(afterDrive.rushSelected, 'Rush Strike must auto-focus after Drive', afterDrive)
+  assert(afterDrive.rushBoardTargets >= 1, 'Chained Rush Strike target is not highlighted on the board', afterDrive)
+  assert(afterDrive.rushText?.includes('M2 Launch'), 'Chained Rush Strike does not preview the M2 impact', afterDrive)
 
-  await evaluate(client, `document.querySelector('[data-action-id="rush-strike"][data-chain-compatible="true"]').click(); true`)
+  await evaluate(client, `document.querySelector('.hex-travel-cell.valid-target.rush').dispatchEvent(new MouseEvent('click', { bubbles: true })); true`)
   await waitFor('Rush Strike completion', async () => {
     const complete = await evaluate(client, `(() => {
       const root = document.querySelector('.hex-prototype')
-      const hunter = root?.querySelector('[data-action-id="rush-strike"][data-target-actor="hunter"]')
-      return root?.dataset.chainOpen === 'false' && root?.dataset.worldTimeAt === '3' && Boolean(hunter && !hunter.disabled)
+      return root?.dataset.chainOpen === 'false' && root?.dataset.worldTimeAt === '3' && !root?.querySelector('.visual-event-banner')
     })()`)
     if (!complete) throw new Error('Rush Strike has not completed at world time 3')
     return true
@@ -459,7 +463,8 @@ try {
     actionChain: {
       afterDriveAt: results.actionChain.afterDrive.worldTimeAt,
       afterRushAt: results.actionChain.afterRush.worldTimeAt,
-      axis: results.actionChain.afterDrive.chainedRush.axis,
+      boardTargetsAfterDrive: results.actionChain.afterDrive.rushBoardTargets,
+      rushAutoFocused: results.actionChain.afterDrive.rushSelected,
     },
   }, null, 2))
 } finally {

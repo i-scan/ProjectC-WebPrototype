@@ -14,6 +14,49 @@
 
 ---
 
+## Experiment Ruleset `VAL-012-UT3` — 2026-08-08
+
+### 类型
+
+VAL-012 Momentum 的 Carry / Impact / Stability / Steering 与最小碰撞实验；**候选实验行为，不构成正式规则晋升**。
+
+### 设计与程序来源
+
+- `i-scan/ProjectC:docs/VAL-012-thermal-clock-action-time-prototype-plan.md` revision 4；
+- `i-scan/ProjectC:docs/VAL-012-unified-time-system-program-handoff.md` UT3；
+- 页面入口：`#rules-lab`（诊断场景）与 `#hex-prototype`（整合原型）；
+- 实现标识：`momentum-collision-lab-v1`；
+- 上一实验：`VAL-012-UT2 / action-chain-phase-v1`。
+
+### 规则变化
+
+- 正式区分仅在动作 Core 中存在的 `Active Momentum` 与 Outro 后供下一动作读取的 `Pending Momentum`；
+- Carry 只在同轴 Rush Strike 中跳过 Start，不提供线性 AT 折扣或通用额外位移；
+- Rush Strike 最多沿所选轴推进两格并命中路径上首个 Actor；M0 / M1 / M2 / M3 分别映射 Normal / Push / Launch / Pierce；
+- 转向承诺为 `0°: 0`、`±60°: -1`、`±120°: -2`；180° 必须先执行 `Brake · 1 AT`，并清空 Momentum 与 Axis；
+- Normal Hit 造成伤害并使 Momentum -1；Intercept 使 Momentum -2，归零时中断轨迹与 Chain；
+- 加入 Hard Wall、Reflect Left / Right、Crash / Bounce 与至多一次 Secondary Impact 的离散 Forced Motion；
+- 预览与执行共用 `src/hex/actionChain.ts`，不在 React 或渲染器中复制玩法判断。
+- 诊断 Dummy 首次 Ready 设为 4 AT，晚于 T1 的 `Drive 2 AT + Carry Rush 1 AT`，使 Launch / Pierce 结果先形成可观察的稳定落点；其后仍进入同一全局队列。
+
+### 页面与操作变化
+
+- 原 Square4 规则实验室入口改造成 T1–T11 Momentum 实验场景，提供 M0–M3、Normal Hit、Intercept、Brake 与表面碰撞的可复位诊断；
+- Hex6 的 Drive / Rush Strike 不再通过卡牌内部方向或目标按钮执行；改为“选择行动卡 → 棋盘高亮合法落点/Actor → 点击棋盘提交”；
+- Drive Outro 后自动聚焦 Rush Strike 并在棋盘显示可 Carry 的目标；
+- 规则表现加入分级轨迹、Push 低滑移、Launch 高弧、Pierce 快速穿越、Bounce 折向、Chain 动态冻结和 Brake 状态反馈。
+
+### 验证状态
+
+- [x] UT3 独立声明配置、规则校验与稳定 ruleset / implementation ID；
+- [x] Carry、Impact、Stability、Steering、Brake、Hard / Reflect 行为测试；
+- [x] 规则实验场景与 Hex6 使用共享规则核心；
+- [ ] production build、真实浏览器交互与 Pages commit 回读（本提交合并后更新）。
+
+对应 Validation：`VAL-012`。
+
+---
+
 ## Experiment Ruleset `VAL-012-UT2` — 2026-08-08
 
 ### 类型

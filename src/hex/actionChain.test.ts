@@ -1,60 +1,98 @@
 import { describe, expect, it } from 'vitest'
-import { actorAt, getPlayer } from '../game'
+import { cellAt, getPlayer } from '../game'
 import { createHexRoomState } from './hexRoom'
 import { hexAdvance } from './hexTopology'
 import {
   allDrivePlans,
-  applyUt2ActionPhase,
+  applyMomentumInterruption,
+  applyUt3ActionPhase,
   createSpatialInertiaState,
-  evaluateUt2Action,
-  prepareUt2ChainScenario,
+  evaluateUt3Action,
+  prepareUt3MomentumScenario,
   rushStrikeTargets,
-  spatialAfterUt2Action,
+  spatialAfterUt3Action,
 } from './actionChain'
 
-describe('VAL-012 UT2 action chain', () => {
-  it('prepares the fixed Drive to Rush Strike line without changing topology', () => {
-    const state = prepareUt2ChainScenario(createHexRoomState(4))
-    const east = allDrivePlans(state).find((plan) => plan.direction === 'E')!
+describe('VAL-012 UT3 momentum rules', () => {
+  it('resolves Drive phases, then exposes a board target for a same-axis Carry', () => {
+    const prepared = prepareUt3MomentumScenario(createHexRoomState(4), 'chain')
+    const plan = allDrivePlans(prepared.state).find((candidate) => candidate.direction === 'E')!
+    const drive = evaluateUt3Action('drive', prepared.spatial, 'E')
+    const afterStep = applyUt3ActionPhase(prepared.state, drive, drive.phases[0], 'E')
+    const afterDash = applyUt3ActionPhase(afterStep, drive, drive.phases[1], 'E')
+    const spatial = spatialAfterUt3Action(drive, 'E')
+    const target = rushStrikeTargets(afterDash, spatial).find((candidate) => candidate.actor.id === 'hunter')
 
-    expect(east.valid).toBe(true)
-    expect(east.route).toHaveLength(3)
-    expect(actorAt(state, east.route[2])).toBeUndefined()
+    expect(plan.valid).toBe(true)
+    expect(getPlayer(afterDash).position).toEqual(plan.endpoint)
+    expect(spatial).toEqual({ axis: 'E', activeMomentum: 0, pendingMomentum: 2, chainOpen: true })
+    expect(target).toMatchObject({ direction: 'E', distance: 1, chained: true, momentumAtImpact: 2, impact: 'launch' })
   })
 
-  it('resolves Drive as two distinct phases and opens Pending Momentum', () => {
-    const state = prepareUt2ChainScenario(createHexRoomState(4))
-    const action = evaluateUt2Action('drive', createSpatialInertiaState(), 'E')
-    const afterStep = applyUt2ActionPhase(state, action, action.phases[0], 'E')
-    const afterDash = applyUt2ActionPhase(afterStep, action, action.phases[1], 'E')
-    const spatial = spatialAfterUt2Action(action, 'E')
+  it('only Carry-skips Start on the committed axis and charges steering loss otherwise', () => {
+    const spatial = createSpatialInertiaState({ axis: 'E', pendingMomentum: 3, chainOpen: true })
+    const sameAxis = evaluateUt3Action('rush-strike', spatial, 'E')
+    const sixty = evaluateUt3Action('rush-strike', spatial, 'NE')
+    const oneTwenty = evaluateUt3Action('rush-strike', spatial, 'NW')
+    const reverse = evaluateUt3Action('rush-strike', spatial, 'W')
 
-    expect(action.phases.map((phase) => phase.id)).toEqual(['step', 'dash'])
-    expect(getPlayer(afterDash).position).toEqual(hexAdvance(getPlayer(state).position, 'E', 3))
-    expect(spatial).toEqual({ axis: 'E', pendingMomentum: 2, chainOpen: true })
+    expect(sameAxis.phases.map((phase) => phase.id)).toEqual(['strike'])
+    expect(sameAxis.actionTimeAt).toBe(1)
+    expect(sixty).toMatchObject({ chained: false, steeringLoss: 1, activeMomentumStart: 2 })
+    expect(oneTwenty).toMatchObject({ chained: false, steeringLoss: 2, activeMomentumStart: 1 })
+    expect(reverse).toMatchObject({ brakeRequired: true, activeMomentumStart: 0 })
   })
 
-  it('skips Rush Strike Start only for a same-axis Chain', () => {
-    const spatial = { axis: 'E' as const, pendingMomentum: 2 as const, chainOpen: true }
-    const chained = evaluateUt2Action('rush-strike', spatial, 'E')
-    const redirected = evaluateUt2Action('rush-strike', spatial, 'NE')
+  it.each([
+    ['m0', 'Normal Hit', 0],
+    ['m1', 'Push', 1],
+    ['m2', 'Launch', 2],
+    ['m3', 'Pierce', 3],
+  ] as const)('maps %s to a distinguishable %s result', (preset, expectedLabel, momentum) => {
+    const prepared = prepareUt3MomentumScenario(createHexRoomState(4), preset)
+    const target = rushStrikeTargets(prepared.state, prepared.spatial).find((candidate) => candidate.actor.id === 'hunter')!
+    const evaluated = evaluateUt3Action('rush-strike', prepared.spatial, target.direction)
+    const result = evaluated.phases.reduce(
+      (value, phase) => applyUt3ActionPhase(value, evaluated, phase, target.direction, target.actor.id),
+      prepared.state,
+    )
 
-    expect(chained.chained).toBe(true)
-    expect(chained.actionTimeAt).toBe(1)
-    expect(chained.phases.map((phase) => phase.id)).toEqual(['strike'])
-    expect(redirected.chained).toBe(false)
-    expect(redirected.actionTimeAt).toBe(2)
+    expect(evaluated.activeMomentumStart).toBe(momentum)
+    expect(result.logs[0]).toContain(expectedLabel)
   })
 
-  it('finds the fixed target ahead after Drive and marks it chain-compatible', () => {
-    const initial = prepareUt2ChainScenario(createHexRoomState(4))
-    const drive = evaluateUt2Action('drive', createSpatialInertiaState(), 'E')
-    const afterStep = applyUt2ActionPhase(initial, drive, drive.phases[0], 'E')
-    const afterDash = applyUt2ActionPhase(afterStep, drive, drive.phases[1], 'E')
-    const spatial = spatialAfterUt2Action(drive, 'E')
-    const targets = rushStrikeTargets(afterDash, spatial)
+  it('stops Launch at a Hard Wall and deflects it on a discrete reflect surface', () => {
+    const hard = prepareUt3MomentumScenario(createHexRoomState(4), 'hard')
+    const hardTarget = rushStrikeTargets(hard.state, hard.spatial)[0]
+    const hardAction = evaluateUt3Action('rush-strike', hard.spatial, hardTarget.direction)
+    const hardResult = applyUt3ActionPhase(hard.state, hardAction, hardAction.phases.at(-1)!, hardTarget.direction, hardTarget.actor.id)
 
-    expect(targets.map((target) => [target.actor.id, target.direction, target.chained]))
-      .toContainEqual(['hunter', 'E', true])
+    const reflect = prepareUt3MomentumScenario(createHexRoomState(4), 'reflect-left')
+    const reflectTarget = rushStrikeTargets(reflect.state, reflect.spatial)[0]
+    const reflectAction = evaluateUt3Action('rush-strike', reflect.spatial, reflectTarget.direction)
+    const reflectResult = applyUt3ActionPhase(reflect.state, reflectAction, reflectAction.phases.at(-1)!, reflectTarget.direction, reflectTarget.actor.id)
+
+    expect(hardResult.logs[0]).toContain('Crash · Hard Wall')
+    expect(reflectResult.logs[0]).toContain('Bounce · Reflect Left')
+    expect(cellAt(reflectResult, hexAdvance(reflectTarget.actor.position, 'E'))?.tags).toContain('UT3ReflectLeft')
+  })
+
+  it('keeps normal hits as damage-plus-decay and lets Intercept break the chain', () => {
+    const spatial = createSpatialInertiaState({ axis: 'E', pendingMomentum: 2, chainOpen: true })
+    const normal = applyMomentumInterruption(spatial, 'normal-hit')
+    const intercepted = applyMomentumInterruption(spatial, 'intercept')
+
+    expect(normal).toMatchObject({ stopped: false, spatial: { axis: 'E', pendingMomentum: 1, chainOpen: true } })
+    expect(normal.label).toContain('Stability 继续')
+    expect(intercepted.stopped).toBe(true)
+    expect(intercepted.spatial).toEqual(createSpatialInertiaState())
+  })
+
+  it('Brake costs one AT and clears Momentum and Axis in the Outro', () => {
+    const spatial = createSpatialInertiaState({ axis: 'E', pendingMomentum: 2, chainOpen: true })
+    const brake = evaluateUt3Action('brake', spatial, 'E')
+
+    expect(brake.actionTimeAt).toBe(1)
+    expect(spatialAfterUt3Action(brake)).toEqual(createSpatialInertiaState())
   })
 })

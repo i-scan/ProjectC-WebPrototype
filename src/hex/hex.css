@@ -275,7 +275,17 @@
   border: 1px solid rgba(112, 171, 205, .25);
   border-radius: 10px;
   background: linear-gradient(145deg, rgba(26, 53, 70, .86), rgba(12, 25, 39, .92));
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
 }
+
+.ut2-action-card:disabled { cursor: not-allowed; opacity: .58; }
+.ut2-action-card.selected-action {
+  border-color: rgba(239, 202, 88, .82);
+  box-shadow: 0 0 20px rgba(239, 202, 88, .17), inset 0 0 18px rgba(239, 202, 88, .06);
+}
+.ut3-card-cta { color: #e4c45d; font-size: 7px; font-weight: 700; }
 
 .ut2-action-card.chain-ready {
   border-color: rgba(237, 198, 90, .68);

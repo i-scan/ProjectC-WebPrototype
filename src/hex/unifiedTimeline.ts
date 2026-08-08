@@ -1,4 +1,4 @@
-import experimentConfigJson from '../../config/experiments/val-012-action-chain.v2.json'
+import experimentConfigJson from '../../config/experiments/val-012-momentum-lab.v3.json'
 
 export type TimelineEventType = 'reaction' | 'contact' | 'landing' | 'actor-ready' | 'environment'
 export type TimelineActionKind = 'atomic' | 'commit' | 'reaction'
@@ -9,7 +9,7 @@ export type ActionPhaseDefinition = {
   durationAt: 1
   movementSteps?: 1 | 2
   momentumAfter?: 1 | 2 | 3
-  attack?: 'basic-melee'
+  attack?: 'basic-melee' | 'momentum-impact'
 }
 
 export type ActionDefinition = {

@@ -9,22 +9,22 @@ import {
   unifiedTimelineConfig,
 } from './unifiedTimeline'
 
-describe('VAL-012 UT2 unified AT timeline', () => {
+describe('VAL-012 UT3 unified AT timeline', () => {
   it('declares AT as the only action-time resource for the Hex6 experiment', () => {
-    expect(unifiedTimelineConfig.rulesetId).toBe('VAL-012-UT2')
+    expect(unifiedTimelineConfig.rulesetId).toBe('VAL-012-UT3')
     expect(unifiedTimelineConfig.genericActionPoints).toBe(false)
     expect(unifiedTimelineConfig.fixedHand).toBe(true)
     expect(unifiedTimelineConfig.thermalPeriodAt).toBe(8)
     expect(new Set(unifiedTimelineConfig.actions.map((action) => action.id)).size)
       .toBe(unifiedTimelineConfig.actions.length)
-    expect(unifiedTimelineConfig.actions.map((action) => action.id)).toEqual(['drive', 'rush-strike'])
+    expect(unifiedTimelineConfig.actions.map((action) => action.id)).toEqual(['drive', 'rush-strike', 'brake'])
     expect(unifiedTimelineConfig.actions.every((action) => action.phases.every((phase) => phase.durationAt === 1))).toBe(true)
   })
 
   it('previews every actor and environment event before the player is ready', () => {
     const timeline = createUnifiedTimeline()
     expect(previewInterveningEvents(timeline, actionTimeFor('hot-strike')).map((event) => event.sourceId))
-      .toEqual(['elite', 'npc', 'environment', 'hunter'])
+      .toEqual(['elite', 'npc', 'environment'])
   })
 
   it('resolves one atomic action and processes the shared queue until player ready', () => {
@@ -47,9 +47,8 @@ describe('VAL-012 UT2 unified AT timeline', () => {
       'actor:elite',
       'actor:npc',
       'environment',
-      'actor:hunter',
     ])
-    expect(result.interveningEvents.map((event) => event.timeAt)).toEqual([1, 2, 2, 3])
+    expect(result.interveningEvents.map((event) => event.timeAt)).toEqual([1, 2, 2])
   })
 
   it('uses stable actor IDs to break equal-time actor-ready ties', () => {

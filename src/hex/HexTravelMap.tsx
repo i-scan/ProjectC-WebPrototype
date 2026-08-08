@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { actorAt, cellAt, getPlayer, type Cell, type Coord, type GameState, type Layer } from '../game'
-import type { VisualSelection } from '../visual/InteractiveThreeBoard'
+import type { HexBoardSelection } from './HexThreeBoard'
 import { buildHexPath, hexDistance } from './hexRules'
 import { isVoidCell } from './hexRoom'
 import { hasHexLineOfSight, isMountainCell } from './hexTerrain'
@@ -17,7 +17,7 @@ export type HexTravelMapProps = {
   path: Coord[]
   selectedCoord: Coord
   hoverCoord?: Coord
-  selection: VisualSelection
+  selection: HexBoardSelection
   targetLayer: Layer
   preference: TravelPreference
   onCellClick: (coord: Coord) => void
@@ -50,6 +50,9 @@ function cellFill(cell: Cell) {
 }
 
 function landmarkLabel(cell: Cell) {
+  if (cell.tags.includes('UT3Hard')) return '■'
+  if (cell.tags.includes('UT3ReflectLeft')) return '↰'
+  if (cell.tags.includes('UT3ReflectRight')) return '↱'
   if (cell.tags.includes('Shelter')) return 'S'
   if (cell.tags.includes('Objective')) return 'O'
   if (cell.tags.includes('Resource')) return 'R'
@@ -59,11 +62,12 @@ function landmarkLabel(cell: Cell) {
   return ''
 }
 
-function isValidTacticalTarget(state: GameState, selection: VisualSelection, coord: Coord) {
+function isValidTacticalTarget(state: GameState, selection: HexBoardSelection, coord: Coord) {
   const cell = cellAt(state, coord)
   if (!cell || isVoidCell(cell) || cell.tags.includes('Blocked')) return false
   const player = getPlayer(state)
   if (selection.kind === 'inspect') return false
+  if (selection.kind === 'momentum') return selection.validCoords.some((target) => sameCoord(target, coord))
   if (selection.kind === 'basic') {
     if (selection.action === 'move') return hexDistance(player.position, coord) === 1 && !actorAt(state, coord)
     return hexDistance(player.position, coord) === 1 && Boolean(actorAt(state, coord, false))
@@ -135,7 +139,9 @@ export function HexTravelMap(props: HexTravelMapProps) {
             const label = landmarkLabel(cell)
             const mountain = isMountainCell(cell)
             const validTarget = mode === 'tactical' && isValidTacticalTarget(state, selection, cell.coord)
-            const targetKind = selection.kind === 'basic'
+            const targetKind = selection.kind === 'momentum'
+              ? selection.action === 'drive' ? 'drive' : 'rush'
+              : selection.kind === 'basic'
               ? selection.action
               : selection.kind === 'card'
                 ? selection.card.effect.includes('cool') ? 'cool' : selection.card.effect.includes('heat') || selection.card.effect === 'grip' ? 'heat' : 'card'
@@ -143,6 +149,8 @@ export function HexTravelMap(props: HexTravelMapProps) {
             return (
               <g
                 key={keyOf(cell.coord)}
+                data-x={cell.coord.x}
+                data-y={cell.coord.y}
                 className={`hex-travel-cell ${mountain ? 'mountain' : ''} ${cell.tags.includes('RoomEdge') ? 'room-edge' : ''} ${selected ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${onPath ? 'path' : ''} ${risk > 0 ? 'risky' : ''} ${validTarget ? `valid-target ${targetKind} layer-${targetLayer}` : ''}`}
                 onClick={() => onCellClick(cell.coord)}
                 onMouseEnter={() => onCellHover?.(cell.coord)}
