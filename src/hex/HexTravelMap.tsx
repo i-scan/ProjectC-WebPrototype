@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { actorAt, cellAt, getPlayer, type Cell, type Coord, type GameState, type Layer } from '../game'
 import type { HexBoardSelection } from './HexThreeBoard'
+import type { PlaybackEvent } from '../visual/visualPlayback'
 import { buildHexPath, hexDistance } from './hexRules'
 import { isVoidCell } from './hexRoom'
 import { hasHexLineOfSight, isMountainCell } from './hexTerrain'
@@ -20,6 +21,8 @@ export type HexTravelMapProps = {
   selection: HexBoardSelection
   targetLayer: Layer
   preference: TravelPreference
+  event?: PlaybackEvent
+  momentumByActorId?: Record<string, number>
   onCellClick: (coord: Coord) => void
   onCellHover?: (coord?: Coord) => void
 }
@@ -103,6 +106,8 @@ export function HexTravelMap(props: HexTravelMapProps) {
     selection,
     targetLayer,
     preference,
+    event,
+    momentumByActorId = {},
     onCellClick,
     onCellHover,
   } = props
@@ -157,6 +162,9 @@ export function HexTravelMap(props: HexTravelMapProps) {
                 onMouseLeave={() => onCellHover?.(undefined)}
               >
                 <polygon points={polygonPoints(cell.coord)} fill={cellFill(cell)} opacity={mode === 'travel' && fogDistance > 5 ? 0.48 : 0.96} />
+                {validTarget && selection.kind === 'momentum' && (
+                  <polygon className={`hex-target-reticle ${targetKind}`} points={polygonPoints(cell.coord)} />
+                )}
                 {mountain && <MountainGlyph center={center} ridge={cell.tags.includes('Ridge')} />}
                 {!mountain && cell.skyFill === 'cloud' && <circle cx={center.x + 7} cy={center.y - 7} r="5" className="hex-travel-cloud" />}
                 {!mountain && cell.intents.some((intent) => intent.type === 'rain') && <path d={`M ${center.x - 7} ${center.y - 4} l -3 7 M ${center.x} ${center.y - 4} l -3 7 M ${center.x + 7} ${center.y - 4} l -3 7`} className="hex-travel-rain" />}
@@ -194,8 +202,17 @@ export function HexTravelMap(props: HexTravelMapProps) {
         <g className="hex-travel-actors">
           {state.actors.filter((actor) => actor.alive).map((actor) => {
             const center = hexCenter(actor.position)
+            const momentum = Math.max(0, Math.min(3, Math.floor(momentumByActorId[actor.id] ?? 0)))
+            const launched = event?.actorId === actor.id && event.label?.includes('Launch')
             return (
-              <g key={actor.id} className={`hex-travel-actor ${actor.faction}`}>
+              <g key={actor.id} className={`hex-travel-actor ${actor.faction} ${launched ? 'launching' : ''}`}>
+                {momentum > 0 && (
+                  <g className="hex-actor-momentum" aria-label={`${actor.name} Momentum ${momentum}`}>
+                    {Array.from({ length: momentum }, (_, index) => (
+                      <circle key={index} cx={center.x + (index - (momentum - 1) / 2) * 5.5} cy={center.y - 12} r="1.9" />
+                    ))}
+                  </g>
+                )}
                 <circle cx={center.x} cy={center.y} r={actor.actorType === 'elite' ? 8 : 6} />
                 <text x={center.x} y={center.y + 3}>{actor.actorType === 'player' ? 'P' : actor.actorType === 'elite' ? 'E' : actor.actorType === 'npc' ? 'N' : 'H'}</text>
               </g>

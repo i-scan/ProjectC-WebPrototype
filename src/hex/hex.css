@@ -167,6 +167,10 @@
   max-width: calc(100% - 125px);
 }
 
+.hex-prototype.chain-open .visual-board-legend {
+  max-width: calc(100% - 345px);
+}
+
 .unified-time-preview {
   display: grid;
   grid-template-columns: repeat(3, minmax(82px, auto)) minmax(175px, 1fr) minmax(180px, 1fr);
@@ -212,15 +216,14 @@
 
 .ut2-chain-window {
   position: absolute;
-  left: 50%;
-  bottom: 42px;
+  right: 12px;
+  bottom: 10px;
   z-index: 17;
-  min-width: min(430px, calc(100% - 40px));
+  min-width: min(310px, calc(100% - 24px));
   display: grid;
   gap: 3px;
   padding: 9px 14px;
-  transform: translateX(-50%);
-  text-align: center;
+  text-align: right;
   border: 1px solid rgba(241, 202, 98, .72);
   border-radius: 12px;
   background: linear-gradient(100deg, rgba(67, 49, 18, .94), rgba(21, 52, 61, .94));

@@ -86,6 +86,11 @@ describe('VAL-012 UT3 unified AT timeline', () => {
     expect(result.timeline.awaitingPlayer).toBe(true)
     expect(result.phases.map((phase) => [phase.phaseId, phase.startAt, phase.endAt]))
       .toEqual([['step', 0, 1], ['dash', 1, 2]])
+    expect(result.frames.map((frame) => frame.value)).toEqual([
+      ['start', 'phase:step', 'actor:elite'],
+      ['start', 'phase:step', 'actor:elite', 'phase:dash', 'actor:npc', 'environment'],
+    ])
+    expect(result.frames.map((frame) => frame.timeline.worldTimeAt)).toEqual([1, 2])
   })
 
   it('replaces draw and discard state with one deterministic fixed hand', () => {

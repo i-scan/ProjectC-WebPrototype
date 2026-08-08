@@ -32,6 +32,8 @@ type Props = {
   showSky: boolean
   showDebug: boolean
   event?: PlaybackEvent
+  eventDurationMs?: number
+  momentumByActorId?: Record<string, number>
   onCellClick: (coord: Coord) => void
   onCellHover?: (coord?: Coord) => void
 }
@@ -117,6 +119,26 @@ function createHexOverlay(color: number, opacity: number, height: number, radius
   mesh.position.y = height
   mesh.renderOrder = 12
   return mesh
+}
+
+function createTargetReticle(color: number, height: number) {
+  const group = new THREE.Group()
+  const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.98, depthWrite: false, depthTest: false })
+  const darkMaterial = new THREE.MeshBasicMaterial({ color: 0x071018, transparent: true, opacity: 0.92, depthWrite: false, depthTest: false })
+  const darkRing = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.052, 8, 6), darkMaterial)
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.025, 8, 6), material)
+  darkRing.rotation.x = ring.rotation.x = Math.PI / 2
+  group.add(darkRing, ring)
+  for (let index = 0; index < 3; index += 1) {
+    const marker = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.18, 3), material)
+    const angle = index * Math.PI * 2 / 3
+    marker.position.set(Math.cos(angle) * 0.51, 0.025, Math.sin(angle) * 0.51)
+    marker.rotation.y = -angle
+    group.add(marker)
+  }
+  group.position.y = height
+  group.renderOrder = 34
+  return group
 }
 
 function createTopOutline(cell: Cell) {
@@ -249,7 +271,7 @@ function createMomentumSurface(cell: Cell) {
   return group
 }
 
-function createActorPawn(actor: Actor, billboards: THREE.Group[]) {
+function createActorPawn(actor: Actor, billboards: THREE.Group[], momentum = 0) {
   const group = new THREE.Group()
   group.userData.actorId = actor.id
   const primary = new THREE.MeshStandardMaterial({
@@ -322,6 +344,21 @@ function createActorPawn(actor: Actor, billboards: THREE.Group[]) {
   fill.position.x = -0.3 + 0.3 * ratio
   fill.position.z = 0.002
   bar.add(back, fill)
+  const momentumCount = Math.max(0, Math.min(3, Math.floor(momentum)))
+  for (let index = 0; index < 3; index += 1) {
+    const dot = new THREE.Mesh(
+      new THREE.CircleGeometry(0.042, 12),
+      new THREE.MeshBasicMaterial({
+        color: index < momentumCount ? 0xc978ff : 0x263342,
+        transparent: true,
+        opacity: index < momentumCount ? 1 : 0.5,
+        depthTest: false,
+      }),
+    )
+    dot.position.set((index - 1) * 0.12, 0.14, 0.004)
+    dot.renderOrder = 26
+    bar.add(dot)
+  }
   bar.position.y = actor.actorType === 'elite' ? 1.24 : 1.07
   bar.renderOrder = 24
   group.add(bar)
@@ -428,6 +465,8 @@ export function HexThreeBoard({
   showSky,
   showDebug,
   event,
+  eventDurationMs = 680,
+  momentumByActorId = {},
   onCellClick,
   onCellHover,
 }: Props) {
@@ -780,7 +819,7 @@ export function HexThreeBoard({
 
       if (isValidTarget(state, selection, cell.coord)) {
         const color = selection.kind === 'momentum'
-          ? selection.action === 'drive' ? 0xe8bd45 : 0xff704f
+          ? selection.action === 'drive' ? 0xc978ff : 0xd8ff4f
           : selection.kind === 'basic' && selection.action === 'attack'
           ? 0xf05b68
           : selection.kind === 'card' && selection.card.effect.includes('cool')
@@ -788,14 +827,18 @@ export function HexThreeBoard({
             : selection.kind === 'card' && (selection.card.effect.includes('heat') || selection.card.effect === 'grip')
               ? 0xff8a45
               : 0x64d7a1
-        const overlay = createHexOverlay(
-          color,
-          targetLayer === 'sky' ? 0.22 : 0.34,
-          targetLayer === 'sky' ? 1.62 : 0.12,
-        )
-        overlay.position.x = position.x
-        overlay.position.z = position.z
-        content.add(overlay)
+        if (selection.kind === 'momentum') {
+          const reticle = createTargetReticle(color, targetLayer === 'sky' ? 1.62 : 0.17)
+          reticle.position.x = position.x
+          reticle.position.z = position.z
+          content.add(reticle)
+          bobRef.current.push({ object: reticle, baseY: reticle.position.y, phase: cell.coord.x + cell.coord.y, amplitude: 0.06, speed: 4.2 })
+        } else {
+          const overlay = createHexOverlay(color, targetLayer === 'sky' ? 0.22 : 0.34, targetLayer === 'sky' ? 1.62 : 0.12)
+          overlay.position.x = position.x
+          overlay.position.z = position.z
+          content.add(overlay)
+        }
       }
 
       if (cell.moisture === 2 && cell.groundFill !== 'water') {
@@ -986,7 +1029,7 @@ export function HexThreeBoard({
     }
 
     for (const actor of state.actors.filter((entry) => entry.alive)) {
-      const pawn = createActorPawn(actor, billboardRef.current)
+      const pawn = createActorPawn(actor, billboardRef.current, momentumByActorId[actor.id] ?? 0)
       const target = hexWorldPosition(actor.position, state, 0.1)
       const previous = previousActorPositionsRef.current.get(actor.id)
       if (previous && !sameCoord(previous, actor.position)) {
@@ -1004,7 +1047,7 @@ export function HexThreeBoard({
           from,
           to: target,
           startedAt: performance.now(),
-          duration: isPierce ? 280 : isLaunch || isBounce ? 620 : isPush ? 360 : 430,
+          duration: Math.max(120, Math.min(eventDurationMs * 0.84, isPierce ? 280 : isLaunch || isBounce ? 620 : isPush ? 360 : 430)),
           arcHeight: isLaunch ? 0.92 : isBounce ? 0.42 : isPierce ? 0.08 : isPush ? 0.04 : 0.18,
         })
         if (momentumLog.includes('[UT3]')) {
@@ -1053,7 +1096,7 @@ export function HexThreeBoard({
       }
     }
     if (event) addLocalEffect(content, event, state, pulseRef.current)
-  }, [state, mode, travelPath, travelTarget, travelPreference, selection, targetLayer, showSky, showDebug, event])
+  }, [state, mode, travelPath, travelTarget, travelPreference, selection, targetLayer, showSky, showDebug, event, eventDurationMs, momentumByActorId])
 
   useEffect(() => {
     const layer = interactionLayerRef.current

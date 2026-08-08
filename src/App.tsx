@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { actorAt, cellAt, getPlayer, type Coord, type GameState } from './game'
-import type { HexBoardSelection } from './hex/HexThreeBoard'
+import { HexThreeBoard, type HexBoardSelection } from './hex/HexThreeBoard'
 import {
   allDrivePlans,
   applyMomentumInterruption,
@@ -19,6 +19,8 @@ import { createHexRoomState } from './hex/hexRoom'
 import { runHexActorReady, runHexGlobalEnvironment } from './hex/hexRules'
 import { HexTravelMap } from './hex/HexTravelMap'
 import type { HexDirection } from './hex/hexTopology'
+import { atPlaybackTiming, formatAtPlaybackRate, playbackDelayForAt } from './hex/atPlayback'
+import type { PlaybackEvent } from './visual/visualPlayback'
 import {
   createUnifiedTimeline,
   previewInterveningEvents,
@@ -69,6 +71,20 @@ function sameCoord(left: Coord, right: Coord) {
   return left.x === right.x && left.y === right.y
 }
 
+type LabRenderer = '2d' | '3d'
+type LabPlaybackFrame = {
+  state: GameState
+  timeline: TimelineState
+  spatial: SpatialInertiaState
+  event: PlaybackEvent
+}
+type LabPlaybackCompletion = {
+  state: GameState
+  timeline: TimelineState
+  spatial: SpatialInertiaState
+  selection: HexBoardSelection
+}
+
 export function App() {
   const initial = useMemo(() => createLab('chain'), [])
   const [state, setState] = useState<GameState>(initial.state)
@@ -79,6 +95,12 @@ export function App() {
   const [selectedCoord, setSelectedCoord] = useState<Coord>(() => ({ ...getPlayer(initial.state).position }))
   const [hoverCoord, setHoverCoord] = useState<Coord>()
   const [lastPhases, setLastPhases] = useState<TimelinePhaseTrace[]>([])
+  const [rendererMode, setRendererMode] = useState<LabRenderer>('3d')
+  const [cameraResetToken, setCameraResetToken] = useState(0)
+  const [playbackRate, setPlaybackRate] = useState(1)
+  const playbackTiming = useMemo(() => atPlaybackTiming(playbackRate), [playbackRate])
+  const [playbackFrames, setPlaybackFrames] = useState<LabPlaybackFrame[]>([])
+  const playbackCompletionRef = useRef<LabPlaybackCompletion | undefined>(undefined)
   const [lastResult, setLastResult] = useState('选择一个测试预设，或从 T1 开始选择 Drive。')
 
   const player = getPlayer(state)
@@ -93,6 +115,10 @@ export function App() {
     : undefined
   const previewEvents = previewInterveningEvents(timeline, previewAction?.actionTimeAt ?? 0)
   const brakeNeeded = rushTargets.some((target) => target.brakeRequired)
+  const currentEvent = playbackFrames[0]?.event
+  const playbackActive = playbackFrames.length > 0
+  const displayedMomentum = spatial.activeMomentum || spatial.pendingMomentum
+  const momentumByActorId = useMemo(() => ({ player: displayedMomentum }), [displayedMomentum])
 
   const loadPreset = (nextPreset: MomentumLabPreset) => {
     const next = createLab(nextPreset)
@@ -104,10 +130,13 @@ export function App() {
     setSelectedCoord({ ...getPlayer(next.state).position })
     setHoverCoord(undefined)
     setLastPhases([])
+    setPlaybackFrames([])
+    playbackCompletionRef.current = undefined
     setLastResult(`${presetTitle[nextPreset]} 已加载；选择行动卡后在棋盘上提交。`)
   }
 
   const chooseAction = (action: 'drive' | 'rush-strike') => {
+    if (playbackActive) return
     if (action === 'drive') {
       setSelection({ kind: 'momentum', action, validCoords: drivePlans.filter((plan) => plan.valid).map((plan) => plan.endpoint) })
       setLastResult('Drive 已选择：点击棋盘上的金色落点。')
@@ -125,6 +154,7 @@ export function App() {
     direction: HexDirection = spatial.axis ?? 'E',
     targetActorId?: string,
   ) => {
+    if (playbackActive) return
     const evaluated = evaluateUt3Action(actionId, spatial, direction)
     if (evaluated.brakeRequired) {
       setLastResult('180° 反向需要先执行 Brake；本次 Rush 未提交。')
@@ -143,23 +173,77 @@ export function App() {
     resolution.value.phase = 'player'
     resolution.value.phaseQueue = []
     const nextSpatial = spatialAfterUt3Action(evaluated, direction)
-    setState(resolution.value)
-    setTimeline(resolution.timeline)
-    setSpatial(nextSpatial)
     setLastPhases(resolution.phases)
-    setSelectedCoord({ ...getPlayer(resolution.value).position })
     setLastResult(
       resolution.value.logs.find((log) => log.includes(`[UT3] ${evaluated.definition.label}`))
         ?? resolution.value.logs.find((log) => log.startsWith('[UT3]'))
         ?? `${evaluated.definition.label} 已执行`,
     )
-    if (actionId === 'drive') {
-      const chainTargets = rushStrikeTargets(resolution.value, nextSpatial).filter((target) => !target.brakeRequired)
-      setSelection({ kind: 'momentum', action: 'rush-strike', validCoords: chainTargets.map((target) => target.actor.position) })
-    } else {
-      setSelection({ kind: 'inspect' })
+    const frames = resolution.frames.map((frame, index) => {
+      const phaseMomentum = actionId === 'drive'
+        ? evaluated.phases[index]?.momentumAfter ?? 0
+        : actionId === 'rush-strike'
+          ? evaluated.activeMomentumStart
+          : spatial.activeMomentum || spatial.pendingMomentum
+      const frameSpatial = createSpatialInertiaState({ axis: actionId === 'brake' ? spatial.axis : direction, activeMomentum: phaseMomentum })
+      const targetActor = targetActorId ? frame.value.actors.find((actor) => actor.id === targetActorId) : undefined
+      const target = actionId === 'rush-strike' ? targetActor?.position : getPlayer(frame.value).position
+      return {
+        state: frame.value,
+        timeline: frame.timeline,
+        spatial: frameSpatial,
+        event: {
+          id: Date.now() + index,
+          kind: actionId === 'rush-strike' ? 'attack' : 'move',
+          effect: actionId === 'rush-strike' ? 'attack' : 'move',
+          target,
+          actorId: actionId === 'rush-strike' ? targetActorId : 'player',
+          sourceActorId: actionId === 'rush-strike' ? 'player' : undefined,
+          label: frame.value.logs.find((log) => log.includes(`[UT3] ${evaluated.definition.label}`)) ?? frame.phase.label,
+          durationAt: frame.phase.endAt - frame.phase.startAt,
+        },
+      } satisfies LabPlaybackFrame
+    })
+    const completionSelection: HexBoardSelection = actionId === 'drive'
+      ? { kind: 'momentum', action: 'rush-strike', validCoords: rushStrikeTargets(resolution.value, nextSpatial).filter((target) => !target.brakeRequired).map((target) => target.actor.position) }
+      : { kind: 'inspect' }
+    playbackCompletionRef.current = { state: resolution.value, timeline: resolution.timeline, spatial: nextSpatial, selection: completionSelection }
+    setSelection({ kind: 'inspect' })
+    if (frames[0]) {
+      setState(frames[0].state)
+      setTimeline(frames[0].timeline)
+      setSpatial(frames[0].spatial)
+      setSelectedCoord({ ...getPlayer(frames[0].state).position })
+      setPlaybackFrames(frames)
     }
   }
+
+  useEffect(() => {
+    if (playbackFrames.length === 0 || playbackTiming.manual) return
+    const current = playbackFrames[0]
+    const timer = window.setTimeout(() => {
+      if (playbackFrames.length > 1) {
+        const next = playbackFrames[1]
+        setState(next.state)
+        setTimeline(next.timeline)
+        setSpatial(next.spatial)
+        setSelectedCoord({ ...getPlayer(next.state).position })
+        setPlaybackFrames((frames) => frames.slice(1))
+        return
+      }
+      const completion = playbackCompletionRef.current
+      if (completion) {
+        setState(completion.state)
+        setTimeline(completion.timeline)
+        setSpatial(completion.spatial)
+        setSelection(completion.selection)
+        setSelectedCoord({ ...getPlayer(completion.state).position })
+      }
+      playbackCompletionRef.current = undefined
+      setPlaybackFrames([])
+    }, playbackDelayForAt(playbackTiming, current.event.durationAt ?? 1))
+    return () => window.clearTimeout(timer)
+  }, [playbackFrames, playbackTiming])
 
   const handleBoardClick = (coord: Coord) => {
     setSelectedCoord(coord)
@@ -199,7 +283,7 @@ export function App() {
       <header className="momentum-lab__header">
         <div>
           <p>ProjectC · VAL-012-UT3 · candidate experiment</p>
-          <h1>Momentum 规则实验场景</h1>
+          <h1>惯性实验室</h1>
           <span>旧 Square4 规则表已替换；这里与 Hex6 原型共用预览和执行规则。</span>
         </div>
         <div className="momentum-lab__clock"><span>World Time</span><strong>{timeline.worldTimeAt} AT</strong><small>{spatial.chainOpen ? 'Chain Window · 世界暂停' : 'Player Ready'}</small></div>
@@ -241,28 +325,61 @@ export function App() {
             <div><span>期间事件</span><strong>{previewEvents.length ? previewEvents.map((event) => `${event.timeAt}:${event.sourceId}`).join(' · ') : '无'}</strong></div>
           </div>
           <div className="momentum-lab__board">
-            <HexTravelMap
-              state={state}
-              mode="tactical"
-              path={[]}
-              selectedCoord={selectedCoord}
-              hoverCoord={hoverCoord}
-              selection={selection}
-              targetLayer="ground"
-              preference="fastest"
-              onCellClick={handleBoardClick}
-              onCellHover={setHoverCoord}
-            />
+            <div className="momentum-lab__view-controls">
+              <div>
+                <button className={rendererMode === '2d' ? 'active' : ''} onClick={() => setRendererMode('2d')}>2D</button>
+                <button className={rendererMode === '3d' ? 'active' : ''} onClick={() => setRendererMode('3d')}>3D</button>
+                {rendererMode === '3d' && <button onClick={() => setCameraResetToken((value) => value + 1)}>重置视图</button>}
+              </div>
+              <label>
+                <span>AT 播放 {formatAtPlaybackRate(playbackTiming)}</span>
+                <input type="range" min="0.25" max="4" step="0.25" value={playbackRate} onChange={(event) => setPlaybackRate(Number(event.target.value))} />
+              </label>
+            </div>
+            {rendererMode === '2d' ? (
+              <HexTravelMap
+                state={state}
+                mode="tactical"
+                path={[]}
+                selectedCoord={selectedCoord}
+                hoverCoord={hoverCoord}
+                selection={selection}
+                targetLayer="ground"
+                preference="fastest"
+                event={currentEvent}
+                momentumByActorId={momentumByActorId}
+                onCellClick={handleBoardClick}
+                onCellHover={setHoverCoord}
+              />
+            ) : (
+              <HexThreeBoard
+                state={state}
+                mode="tactical"
+                selectedCoord={selectedCoord}
+                hoverCoord={hoverCoord}
+                selection={selection}
+                targetLayer="ground"
+                cameraResetToken={cameraResetToken}
+                showSky
+                showDebug={false}
+                event={currentEvent}
+                eventDurationMs={playbackDelayForAt(playbackTiming, currentEvent?.durationAt ?? 1)}
+                momentumByActorId={momentumByActorId}
+                onCellClick={handleBoardClick}
+                onCellHover={setHoverCoord}
+              />
+            )}
+            {playbackActive && <div className="momentum-lab__phase-cue"><small>AT PHASE</small><strong>{currentEvent?.label}</strong><span>{timeline.worldTimeAt} AT · 剩余 {playbackFrames.length} 段</span></div>}
             {spatial.chainOpen && <div className="momentum-lab__chain"><small>CHAIN WINDOW</small><strong>Pending M{spatial.pendingMomentum} → {spatial.axis}</strong><span>世界时间不推进；选择下一动作。</span></div>}
           </div>
           <div className="momentum-lab__actions">
-            <button className={selection.kind === 'momentum' && selection.action === 'drive' ? 'active' : ''} onClick={() => chooseAction('drive')}>
+            <button disabled={playbackActive} className={selection.kind === 'momentum' && selection.action === 'drive' ? 'active' : ''} onClick={() => chooseAction('drive')}>
               <b>2<small> AT</small></b><strong>Drive</strong><span>Step 1 · M1 → Dash 2 · M2</span><em>选择后点击棋盘落点</em>
             </button>
-            <button className={selection.kind === 'momentum' && selection.action === 'rush-strike' ? 'active' : ''} onClick={() => chooseAction('rush-strike')}>
+            <button disabled={playbackActive} className={selection.kind === 'momentum' && selection.action === 'rush-strike' ? 'active' : ''} onClick={() => chooseAction('rush-strike')}>
               <b>{rushTargets.some((target) => target.chained) ? 1 : 2}<small> AT</small></b><strong>Rush Strike</strong><span>M0 Normal · M1 Push · M2 Launch · M3 Pierce</span><em>选择后点击棋盘 Actor</em>
             </button>
-            {spatial.chainOpen && <button className={`brake ${brakeNeeded ? 'required' : ''}`} onClick={() => executeAction('brake')}>
+            {spatial.chainOpen && <button disabled={playbackActive} className={`brake ${brakeNeeded ? 'required' : ''}`} onClick={() => executeAction('brake')}>
               <b>1<small> AT</small></b><strong>Brake</strong><span>Skid Stop · Momentum / Axis 清零</span><em>{brakeNeeded ? '180° 反向必须执行' : '情境制动'}</em>
             </button>}
           </div>

@@ -93,6 +93,13 @@ export type TimelinePhaseTrace = {
 
 export type TimelinePhasedResolution<T> = TimelineResolution<T> & {
   phases: TimelinePhaseTrace[]
+  frames: TimelinePhaseFrame<T>[]
+}
+
+export type TimelinePhaseFrame<T> = {
+  value: T
+  timeline: TimelineState
+  phase: TimelinePhaseTrace
 }
 
 export const unifiedTimelineConfig = experimentConfigJson as UnifiedTimelineConfig
@@ -282,9 +289,11 @@ export function resolveUnifiedPlayerPhasedAction<T>(
   const startAt = timeline.worldTimeAt
   const player = timeline.actors.player
   const traces: TimelinePhaseTrace[] = []
+  const frames: TimelinePhaseFrame<T>[] = []
   const processed: TimelineEvent[] = []
   let nextValue = value
   timeline.awaitingPlayer = false
+  player.nextReadyAt = startAt + phases.reduce((total, phase) => total + phase.durationAt, 0)
 
   phases.forEach((phase, phaseIndex) => {
     const phaseStartAt = timeline.worldTimeAt
@@ -293,12 +302,18 @@ export function resolveUnifiedPlayerPhasedAction<T>(
     const boundary = processTimelineEventsThrough(nextValue, timeline, phaseEndAt, resolvers)
     nextValue = boundary.value
     processed.push(...boundary.events)
-    traces.push({
+    const trace = {
       phaseId: phase.id,
       label: phase.label,
       startAt: phaseStartAt,
       endAt: phaseEndAt,
       interveningEvents: boundary.events,
+    }
+    traces.push(trace)
+    frames.push({
+      value: structuredClone(nextValue),
+      timeline: structuredClone(timeline),
+      phase: structuredClone(trace),
     })
   })
 
@@ -312,6 +327,7 @@ export function resolveUnifiedPlayerPhasedAction<T>(
     elapsedAt: timeline.worldTimeAt - startAt,
     interveningEvents: processed,
     phases: traces,
+    frames,
   }
 }
 

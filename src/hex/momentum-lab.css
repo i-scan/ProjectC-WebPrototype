@@ -111,15 +111,65 @@
   background: #0d1820;
 }
 .momentum-lab__board .hex-travel-map-host { height: 100%; }
+.momentum-lab__board .hex-board-host { position: absolute; inset: 0; }
 .momentum-lab__board svg { width: 100%; height: 100%; }
-.momentum-lab__board .valid-target.drive polygon { stroke: #f4cd57; stroke-width: 3px; filter: drop-shadow(0 0 5px rgba(244, 205, 87, .85)); }
-.momentum-lab__board .valid-target.rush polygon { stroke: #ff704f; stroke-width: 3px; filter: drop-shadow(0 0 5px rgba(255, 112, 79, .8)); }
+.momentum-lab__board .valid-target.drive > polygon:first-of-type { filter: brightness(.72) saturate(.7); }
+.momentum-lab__board .valid-target.rush > polygon:first-of-type { filter: brightness(.72) saturate(.7); }
 .momentum-lab__board .hex-travel-cell:has(text:not(:empty)) { cursor: pointer; }
+
+.momentum-lab__view-controls {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 18;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px;
+  border: 1px solid rgba(128, 180, 202, .34);
+  border-radius: 9px;
+  background: rgba(7, 18, 27, .9);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .26);
+}
+.momentum-lab__view-controls > div { display: flex; gap: 3px; }
+.momentum-lab__view-controls button {
+  padding: 5px 8px;
+  border: 1px solid rgba(110, 157, 175, .24);
+  border-radius: 6px;
+  color: #93afba;
+  background: rgba(16, 35, 48, .92);
+  cursor: pointer;
+  font-size: 8px;
+}
+.momentum-lab__view-controls button.active { border-color: #8edaf2; color: #ecfbff; background: #214e65; }
+.momentum-lab__view-controls label { display: grid; gap: 2px; color: #a8c1cb; font-size: 7px; }
+.momentum-lab__view-controls input { width: 105px; accent-color: #b975e7; }
+
+.momentum-lab__phase-cue {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  z-index: 17;
+  max-width: min(420px, 48%);
+  display: grid;
+  gap: 2px;
+  padding: 7px 12px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(202, 125, 255, .58);
+  border-radius: 9px;
+  color: #e7f4f7;
+  background: rgba(19, 15, 31, .9);
+  text-align: center;
+  pointer-events: none;
+}
+.momentum-lab__phase-cue small { color: #cf7dff; font-size: 7px; letter-spacing: .15em; }
+.momentum-lab__phase-cue strong { overflow: hidden; font-size: 9px; white-space: nowrap; text-overflow: ellipsis; }
+.momentum-lab__phase-cue span { color: #8da8b3; font-size: 7px; }
 
 .momentum-lab__chain {
   position: absolute;
-  top: 10px;
-  left: 50%;
+  right: 10px;
+  bottom: 10px;
   display: grid;
   min-width: 220px;
   padding: 8px 13px;
@@ -127,9 +177,9 @@
   border-radius: 10px;
   background: rgba(49, 39, 12, .92);
   box-shadow: 0 0 25px rgba(226, 183, 54, .18);
-  transform: translateX(-50%);
   pointer-events: none;
-  text-align: center;
+  text-align: right;
+  z-index: 16;
 }
 .momentum-lab__chain small { color: #bd9b39; font-size: 7px; letter-spacing: .15em; }
 .momentum-lab__chain strong { color: #fff0a5; font-size: 13px; }
