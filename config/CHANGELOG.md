@@ -41,7 +41,12 @@ VAL-012 Momentum 的 Carry / Impact / Stability / Steering 与最小碰撞实验
 
 ### 页面与操作变化
 
-- 原 Square4 规则实验室入口改造成 T1–T11 Momentum 实验场景，提供 M0–M3、Normal Hit、Intercept、Brake 与表面碰撞的可复位诊断；
+- 原 “Momentum 规则实验场景” 更名为“惯性实验室”，并加入与 Hex6 一致的 2D / 3D 切换、视图重置和细粒度 AT 播放速度控制；
+- 多 Phase 动作不再先跳到最终状态再等待：每个 1 AT Phase 都生成独立状态快照，棋盘、World Time、Active Momentum 与期间事件按 AT 依次更新；
+- Drive / Rush 合法目标改为紫色与酸性荧光绿动态瞄准框，避免与冷热地块混淆；Actor 血条上方显示最多 3 点 Momentum；
+- Chain Window 移到棋盘右下角，与冷热图例同一行；修复 Drive → Carry Rush 的 M2 Launch 表现，使 2D 抛起与 3D 弧线/落地均可观察；
+- 本轮只修正实验入口、可视化与播放提交时序，不改变 UT3 的动作耗时、Carry、Impact 或 Forced Motion 规则结果；
+- 原 Square4 规则实验室入口改造成 T1–T11“惯性实验室”，提供 M0–M3、Normal Hit、Intercept、Brake 与表面碰撞的可复位诊断；
 - Hex6 的 Drive / Rush Strike 不再通过卡牌内部方向或目标按钮执行；改为“选择行动卡 → 棋盘高亮合法落点/Actor → 点击棋盘提交”；
 - Drive Outro 后自动聚焦 Rush Strike 并在棋盘显示可 Carry 的目标；
 - 规则表现加入分级轨迹、Push 低滑移、Launch 高弧、Pierce 快速穿越、Bounce 折向、Chain 动态冻结和 Brake 状态反馈。
@@ -51,7 +56,8 @@ VAL-012 Momentum 的 Carry / Impact / Stability / Steering 与最小碰撞实验
 - [x] UT3 独立声明配置、规则校验与稳定 ruleset / implementation ID；
 - [x] Carry、Impact、Stability、Steering、Brake、Hard / Reflect 行为测试；
 - [x] 规则实验场景与 Hex6 使用共享规则核心；
-- [ ] production build、真实浏览器交互与 Pages commit 回读（本提交合并后更新）。
+- [x] 25 个测试文件 / 138 项测试与 production build；真实浏览器完成 2D / 3D 切换、Drive 分段、Chain 布局及 M2 Launch 验收；
+- [ ] Pages commit 回读（本提交合并后更新）。
 
 对应 Validation：`VAL-012`。
 

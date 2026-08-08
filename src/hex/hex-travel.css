@@ -65,6 +65,29 @@
   stroke-dasharray: 3 2;
 }
 
+.hex-travel-cell .hex-target-reticle {
+  fill: rgba(8, 13, 20, .2);
+  stroke-width: 3.6;
+  stroke-dasharray: 7 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+  animation: hex-target-reticle 1s linear infinite;
+}
+
+.hex-travel-cell .hex-target-reticle.drive {
+  stroke: #cf7dff;
+  filter: drop-shadow(0 0 2px #071018) drop-shadow(0 0 5px rgba(207, 125, 255, .95));
+}
+
+.hex-travel-cell .hex-target-reticle.rush {
+  stroke: #dfff50;
+  filter: drop-shadow(0 0 2px #071018) drop-shadow(0 0 5px rgba(223, 255, 80, .9));
+}
+
+@keyframes hex-target-reticle {
+  to { stroke-dashoffset: -20; }
+}
+
 .hex-travel-cloud {
   fill: rgba(237, 244, 248, .7);
   stroke: rgba(146, 189, 215, .72);
@@ -136,6 +159,25 @@
   font-weight: 700;
   text-anchor: middle;
   pointer-events: none;
+}
+
+.hex-actor-momentum circle {
+  fill: #d48aff;
+  stroke: #120d1a;
+  stroke-width: 1;
+  filter: drop-shadow(0 0 2px rgba(212, 138, 255, .95));
+}
+
+.hex-travel-actor.launching {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hex-actor-launch .62s cubic-bezier(.2, .75, .25, 1);
+}
+
+@keyframes hex-actor-launch {
+  0% { transform: translateY(7px) scale(.86); }
+  45% { transform: translateY(-13px) scale(1.08); }
+  100% { transform: translateY(0) scale(1); }
 }
 
 .hex-travel-panel {

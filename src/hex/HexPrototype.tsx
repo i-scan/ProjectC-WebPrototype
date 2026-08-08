@@ -102,6 +102,20 @@ const maxUndoSteps = 120
 type HexRenderer = '2d' | '3d'
 type RightInspectorTab = 'hex' | 'thermal'
 
+type Ut3PlaybackFrame = {
+  state: GameState
+  timeline: TimelineState
+  spatial: SpatialInertiaState
+  event: PlaybackEvent
+}
+
+type Ut3PlaybackCompletion = {
+  state: GameState
+  timeline: TimelineState
+  spatial: SpatialInertiaState
+  selection: HexBoardSelection
+}
+
 function eventKindForCard(card: Card): VisualEvent['kind'] {
   if (card.effect === 'cool-cell' || card.effect === 'cold-strike') return 'cool'
   if (card.effect === 'heat-cell' || card.effect === 'hot-strike' || card.effect === 'grip') return 'heat'
@@ -154,6 +168,8 @@ export function HexPrototype() {
   const [playbackRate, setPlaybackRate] = useState(1)
   const playbackTiming = useMemo(() => atPlaybackTiming(playbackRate), [playbackRate])
   const [eventQueue, setEventQueue] = useState<PlaybackEvent[]>([])
+  const [ut3PlaybackFrames, setUt3PlaybackFrames] = useState<Ut3PlaybackFrame[]>([])
+  const ut3PlaybackCompletionRef = useRef<Ut3PlaybackCompletion | undefined>(undefined)
   const [travelPreference, setTravelPreference] = useState<TravelPreference>('fastest')
   const [travelPath, setTravelPath] = useState<Coord[]>([])
   const [travelTarget, setTravelTarget] = useState<Coord | undefined>()
@@ -166,8 +182,10 @@ export function HexPrototype() {
   const thermalRuntimeSequenceRef = useRef(0)
 
   const player = getPlayer(state)
-  const currentEvent = eventQueue[0]
-  const playbackActive = eventQueue.length > 0
+  const currentEvent = ut3PlaybackFrames[0]?.event ?? eventQueue[0]
+  const playbackActive = ut3PlaybackFrames.length > 0 || eventQueue.length > 0
+  const displayedMomentum = spatialInertia.activeMomentum || spatialInertia.pendingMomentum
+  const momentumByActorId = useMemo(() => ({ player: displayedMomentum }), [displayedMomentum])
   const inspectCoord = hoverCoord ?? selectedCoord
   const inspectedCell = cellAt(state, inspectCoord)
   const inspectedActor = actorAt(state, inspectCoord)
@@ -335,8 +353,6 @@ export function HexPrototype() {
     resolution.value.phase = 'player'
     resolution.value.phaseQueue = []
     const nextSpatial = spatialAfterUt3Action(evaluated, actionDirection)
-    setTimeline(resolution.timeline)
-    setSpatialInertia(nextSpatial)
     setLastActionPhases(resolution.phases)
     setLastUt3ActionId(actionId)
     setWorldTicks((value) => value + resolution.interveningEvents.filter((event) => event.type === 'environment').length)
@@ -348,19 +364,52 @@ export function HexPrototype() {
       actionTime: resolution.elapsedAt,
       offsetDelta: 0,
     })
-    queueTransition(
-      before,
-      resolution.value,
-      actionId === 'drive' || actionId === 'brake' ? 'move' : 'attack',
-      actionId === 'drive' || actionId === 'brake' ? getPlayer(resolution.value).position : state.actors.find((actor) => actor.id === targetActorId)?.position,
-      historyEntry,
-      resolution.elapsedAt,
-    )
-    if (actionId === 'drive') {
-      const chainTargets = rushStrikeTargets(resolution.value, nextSpatial).filter((target) => !target.brakeRequired)
-      setSelection({ kind: 'momentum', action: 'rush-strike', validCoords: chainTargets.map((target) => target.actor.position) })
-    } else {
-      setSelection({ kind: 'inspect' })
+    setUndoStack((current) => [...current, historyEntry].slice(-maxUndoSteps))
+    const frames = resolution.frames.map((frame, index) => {
+      const phaseMomentum = actionId === 'drive'
+        ? evaluated.phases[index]?.momentumAfter ?? 0
+        : actionId === 'rush-strike'
+          ? evaluated.activeMomentumStart
+          : spatialInertia.activeMomentum || spatialInertia.pendingMomentum
+      const phaseSpatial = createSpatialInertiaState({
+        axis: actionId === 'brake' ? spatialInertia.axis : actionDirection,
+        activeMomentum: phaseMomentum,
+      })
+      const phaseTargetActor = targetActorId ? frame.value.actors.find((actor) => actor.id === targetActorId) : undefined
+      const target = actionId === 'rush-strike' ? phaseTargetActor?.position : getPlayer(frame.value).position
+      const label = frame.value.logs.find((log) => log.includes(`[UT3] ${evaluated.definition.label}`))
+        ?? `[${frame.phase.startAt}–${frame.phase.endAt} AT] ${frame.phase.label}`
+      return {
+        state: frame.value,
+        timeline: frame.timeline,
+        spatial: phaseSpatial,
+        event: {
+          id: Date.now() + index,
+          kind: actionId === 'rush-strike' ? 'attack' : 'move',
+          effect: actionId === 'rush-strike' ? 'attack' : 'move',
+          target,
+          actorId: actionId === 'rush-strike' ? targetActorId : 'player',
+          sourceActorId: actionId === 'rush-strike' ? 'player' : undefined,
+          label,
+          durationAt: frame.phase.endAt - frame.phase.startAt,
+        },
+      } satisfies Ut3PlaybackFrame
+    })
+    const chainSelection: HexBoardSelection = actionId === 'drive'
+      ? { kind: 'momentum', action: 'rush-strike', validCoords: rushStrikeTargets(resolution.value, nextSpatial).filter((target) => !target.brakeRequired).map((target) => target.actor.position) }
+      : { kind: 'inspect' }
+    ut3PlaybackCompletionRef.current = {
+      state: resolution.value,
+      timeline: resolution.timeline,
+      spatial: nextSpatial,
+      selection: chainSelection,
+    }
+    setSelection({ kind: 'inspect' })
+    if (frames[0]) {
+      setState(frames[0].state)
+      setTimeline(frames[0].timeline)
+      setSpatialInertia(frames[0].spatial)
+      setUt3PlaybackFrames(frames)
     }
   }
 
@@ -458,6 +507,31 @@ export function HexPrototype() {
   }, [mode])
 
   useEffect(() => {
+    if (ut3PlaybackFrames.length === 0) return
+    const current = ut3PlaybackFrames[0]
+    const timer = window.setTimeout(() => {
+      if (ut3PlaybackFrames.length > 1) {
+        const next = ut3PlaybackFrames[1]
+        setState(next.state)
+        setTimeline(next.timeline)
+        setSpatialInertia(next.spatial)
+        setUt3PlaybackFrames((frames) => frames.slice(1))
+        return
+      }
+      const completion = ut3PlaybackCompletionRef.current
+      if (completion) {
+        setState(completion.state)
+        setTimeline(completion.timeline)
+        setSpatialInertia(completion.spatial)
+        setSelection(completion.selection)
+      }
+      ut3PlaybackCompletionRef.current = undefined
+      setUt3PlaybackFrames([])
+    }, playbackDelayForAt(playbackTiming, current.event.durationAt ?? 1))
+    return () => window.clearTimeout(timer)
+  }, [ut3PlaybackFrames, playbackTiming])
+
+  useEffect(() => {
     if (eventQueue.length === 0) return
     const timer = window.setTimeout(
       () => setEventQueue((current) => current.slice(1)),
@@ -467,9 +541,9 @@ export function HexPrototype() {
   }, [eventQueue, playbackTiming])
 
   useEffect(() => {
-    if (mode !== 'travel' || !traveling || playbackTiming.manual || travelPath.length <= 1 || eventQueue.length > 0 || state.status !== 'active') return
+    if (mode !== 'travel' || !traveling || playbackTiming.manual || travelPath.length <= 1 || playbackActive || state.status !== 'active') return
     performTravelStep()
-  }, [mode, traveling, playbackTiming.manual, travelPath, eventQueue.length, state, travelProgress])
+  }, [mode, traveling, playbackTiming.manual, travelPath, playbackActive, state, travelProgress])
 
   useEffect(() => {
     if (!travelTarget || mode !== 'travel' || traveling) return
@@ -873,6 +947,8 @@ export function HexPrototype() {
                   selection={selection}
                   targetLayer={targetLayer}
                   preference={travelPreference}
+                  event={currentEvent}
+                  momentumByActorId={momentumByActorId}
                   onCellClick={handleBoardClick}
                   onCellHover={setHoverCoord}
                 />
@@ -891,11 +967,13 @@ export function HexPrototype() {
                   showSky={showSky}
                   showDebug={showDebug}
                   event={currentEvent}
+                  eventDurationMs={playbackDelayForAt(playbackTiming, currentEvent?.durationAt ?? 1)}
+                  momentumByActorId={momentumByActorId}
                   onCellClick={handleBoardClick}
                   onCellHover={setHoverCoord}
                 />
               )}
-              {currentEvent && <div className={`visual-event-banner ${currentEvent.kind}`}><strong>{currentEvent.label ?? 'Hex6 状态演出'}</strong>{currentEvent.amount ? <span>{currentEvent.kind === 'attack' ? '伤害' : '变化'} {currentEvent.amount}</span> : null}{eventQueue.length > 1 ? <small>后续 {eventQueue.length - 1} 项</small> : null}</div>}
+              {currentEvent && <div className={`visual-event-banner ${currentEvent.kind}`}><strong>{currentEvent.label ?? 'Hex6 状态演出'}</strong>{currentEvent.amount ? <span>{currentEvent.kind === 'attack' ? '伤害' : '变化'} {currentEvent.amount}</span> : null}{ut3PlaybackFrames.length + eventQueue.length > 1 ? <small>后续 {ut3PlaybackFrames.length + eventQueue.length - 1} 项</small> : null}</div>}
               {spatialInertia.chainOpen && (
                 <div className="ut2-chain-window" role="status" aria-live="polite">
                   <small>CHAIN WINDOW · 世界暂停 · 不限时</small>
@@ -996,7 +1074,7 @@ export function HexPrototype() {
                 </section>
 
                 <section>
-                  <div className="visual-section-heading"><h3>全局事件队列</h3><span>{playbackActive ? `表现队列 ${eventQueue.length}` : `World ${timeline.worldTimeAt} AT`}</span></div>
+                  <div className="visual-section-heading"><h3>全局事件队列</h3><span>{playbackActive ? `表现队列 ${ut3PlaybackFrames.length + eventQueue.length}` : `World ${timeline.worldTimeAt} AT`}</span></div>
                   <div className="unified-ready-list">{queuedTimelineEvents.map((event) => <div key={`${event.stableId}-${event.timeAt}`}><span>{event.timeAt} AT</span><strong>{event.label}</strong></div>)}</div>
                   <div className="visual-causality">{state.logs.slice(0, 6).map((log, index) => <div key={`${index}-${log}`}><span>{index + 1}</span><p>{log}</p></div>)}</div>
                 </section>
