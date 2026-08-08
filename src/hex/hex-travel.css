@@ -217,6 +217,10 @@
   background: rgba(92, 71, 27, .72);
 }
 
+.hex-travel-actors {
+  pointer-events: none;
+}
+
 .hex-travel-controls {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -12,7 +12,7 @@ import {
 } from '../game'
 import type { VisualEvent, VisualSelection } from '../visual/InteractiveThreeBoard'
 import { buildVisualEvents, type PlaybackEvent } from '../visual/visualPlayback'
-import { HexThreeBoard } from './HexThreeBoard'
+import { HexThreeBoard, type HexBoardSelection } from './HexThreeBoard'
 import { HexTravelMap } from './HexTravelMap'
 import { ThermalPendulumPortal } from './ThermalPendulumPortal'
 import type {
@@ -38,12 +38,12 @@ import {
 import { countMountainCells } from './hexTerrain'
 import {
   allDrivePlans,
-  applyUt2ActionPhase,
+  applyUt3ActionPhase,
   createSpatialInertiaState,
-  evaluateUt2Action,
-  prepareUt2ChainScenario,
+  evaluateUt3Action,
+  prepareUt3MomentumScenario,
   rushStrikeTargets,
-  spatialAfterUt2Action,
+  spatialAfterUt3Action,
   type SpatialInertiaState,
 } from './actionChain'
 import {
@@ -122,7 +122,7 @@ type HexHistoryEntry = {
   timeline: TimelineState
   spatialInertia: SpatialInertiaState
   lastActionPhases: TimelinePhaseTrace[]
-  lastUt2ActionId?: 'drive' | 'rush-strike'
+  lastUt3ActionId?: 'drive' | 'rush-strike' | 'brake'
   mode: HexMode
   travelPath: Coord[]
   travelTarget?: Coord
@@ -136,15 +136,15 @@ type HexHistoryEntry = {
 export function HexPrototype() {
   const [mapStructure, setMapStructure] = useState<HexMapStructure>('room')
   const [roomRadius, setRoomRadius] = useState(ROOM_DEFAULT_RADIUS)
-  const [state, setState] = useState(() => applyUnifiedFixedHand(prepareUt2ChainScenario(createHexRoomState(ROOM_DEFAULT_RADIUS))))
+  const [state, setState] = useState(() => applyUnifiedFixedHand(prepareUt3MomentumScenario(createHexRoomState(ROOM_DEFAULT_RADIUS), 'chain').state))
   const [timeline, setTimeline] = useState(createUnifiedTimeline)
   const [spatialInertia, setSpatialInertia] = useState(createSpatialInertiaState)
   const [lastActionPhases, setLastActionPhases] = useState<TimelinePhaseTrace[]>([])
-  const [lastUt2ActionId, setLastUt2ActionId] = useState<'drive' | 'rush-strike'>()
+  const [lastUt3ActionId, setLastUt3ActionId] = useState<'drive' | 'rush-strike' | 'brake'>()
   const [undoStack, setUndoStack] = useState<HexHistoryEntry[]>([])
   const [mode, setMode] = useState<HexMode>('tactical')
   const [rendererMode, setRendererMode] = useState<HexRenderer>('3d')
-  const [selection, setSelection] = useState<VisualSelection>({ kind: 'inspect' })
+  const [selection, setSelection] = useState<HexBoardSelection>({ kind: 'inspect' })
   const [targetLayer, setTargetLayer] = useState<Layer>('ground')
   const [selectedCoord, setSelectedCoord] = useState<Coord>(() => ({ ...getPlayer(state).position }))
   const [hoverCoord, setHoverCoord] = useState<Coord | undefined>()
@@ -193,8 +193,8 @@ export function HexPrototype() {
   const objectives = useMemo(() => [
     { done: timeline.worldTimeAt > 0, label: 'AT 推进全局时间' },
     { done: spatialInertia.chainOpen, label: 'Drive 生成 Chain Window' },
-    { done: lastUt2ActionId === 'rush-strike', label: 'Rush Strike 读取 Momentum' },
-  ], [timeline.worldTimeAt, spatialInertia.chainOpen, lastUt2ActionId])
+    { done: lastUt3ActionId === 'rush-strike', label: 'Rush Strike 读取 Momentum' },
+  ], [timeline.worldTimeAt, spatialInertia.chainOpen, lastUt3ActionId])
 
   const nextThermalSequence = () => {
     thermalRuntimeSequenceRef.current += 1
@@ -221,7 +221,7 @@ export function HexPrototype() {
     timeline: structuredClone(timeline),
     spatialInertia: structuredClone(spatialInertia),
     lastActionPhases: structuredClone(lastActionPhases),
-    lastUt2ActionId,
+    lastUt3ActionId,
     mode,
     travelPath: travelPath.map((coord) => ({ ...coord })),
     travelTarget: travelTarget ? { ...travelTarget } : undefined,
@@ -265,7 +265,7 @@ export function HexPrototype() {
     const actionTime = actionTimeFor(actionId)
     const committed = structuredClone(immediate)
     if (spatialInertia.chainOpen) {
-      committed.logs.unshift(`[UT2] 放弃 Pending Momentum ${spatialInertia.pendingMomentum} / ${spatialInertia.axis}，按常规 Intro 执行动作。`)
+      committed.logs.unshift(`[UT3] 放弃 Pending Momentum ${spatialInertia.pendingMomentum} / ${spatialInertia.axis}，按常规 Intro 执行动作。`)
     }
     const resolution = resolveUnifiedPlayerAction(
       committed,
@@ -296,30 +296,37 @@ export function HexPrototype() {
     return resolution
   }
 
-  const resolveUt2Action = (
-    actionId: 'drive' | 'rush-strike',
-    direction: HexDirection,
+  const resolveUt3Action = (
+    actionId: 'drive' | 'rush-strike' | 'brake',
+    direction?: HexDirection,
     targetActorId?: string,
   ) => {
     if (playbackActive || mode !== 'tactical' || state.status !== 'active') return
-    if (actionId === 'drive') {
+    if (actionId === 'drive' && direction) {
       const plan = drivePlans.find((entry) => entry.direction === direction)
       if (!plan?.valid) {
         const invalid = structuredClone(state)
-        invalid.logs.unshift(`[UT2] Drive 失败：${plan?.reason ?? '路线不可用'}。`)
+        invalid.logs.unshift(`[UT3] Drive 失败：${plan?.reason ?? '路线不可用'}。`)
         setState(invalid)
         return
       }
     }
 
-    const evaluated = evaluateUt2Action(actionId, spatialInertia, direction)
+    const actionDirection = direction ?? spatialInertia.axis ?? 'E'
+    const evaluated = evaluateUt3Action(actionId, spatialInertia, actionDirection)
+    if (evaluated.brakeRequired) {
+      const invalid = structuredClone(state)
+      invalid.logs.unshift('[UT3] 180° 反向受 Axis 承诺限制：请先使用 Brake（1 AT）。')
+      setState(invalid)
+      return
+    }
     const before = state
     const historyEntry = captureHistory(before, true)
     const resolution = resolveUnifiedPlayerPhasedAction(
       before,
       timeline,
       evaluated.phases,
-      (value, phase) => applyUt2ActionPhase(value, evaluated, phase, direction, targetActorId),
+      (value, phase) => applyUt3ActionPhase(value, evaluated, phase, actionDirection, targetActorId),
       {
         resolveActor: runHexActorReady,
         resolveEnvironment: runHexGlobalEnvironment,
@@ -327,11 +334,11 @@ export function HexPrototype() {
     )
     resolution.value.phase = 'player'
     resolution.value.phaseQueue = []
-    const nextSpatial = spatialAfterUt2Action(evaluated, direction)
+    const nextSpatial = spatialAfterUt3Action(evaluated, actionDirection)
     setTimeline(resolution.timeline)
     setSpatialInertia(nextSpatial)
     setLastActionPhases(resolution.phases)
-    setLastUt2ActionId(actionId)
+    setLastUt3ActionId(actionId)
     setWorldTicks((value) => value + resolution.interveningEvents.filter((event) => event.type === 'environment').length)
     emitThermalAction({
       source: 'card',
@@ -344,12 +351,17 @@ export function HexPrototype() {
     queueTransition(
       before,
       resolution.value,
-      actionId === 'drive' ? 'move' : 'attack',
-      actionId === 'drive' ? getPlayer(resolution.value).position : state.actors.find((actor) => actor.id === targetActorId)?.position,
+      actionId === 'drive' || actionId === 'brake' ? 'move' : 'attack',
+      actionId === 'drive' || actionId === 'brake' ? getPlayer(resolution.value).position : state.actors.find((actor) => actor.id === targetActorId)?.position,
       historyEntry,
       resolution.elapsedAt,
     )
-    setSelection({ kind: 'inspect' })
+    if (actionId === 'drive') {
+      const chainTargets = rushStrikeTargets(resolution.value, nextSpatial).filter((target) => !target.brakeRequired)
+      setSelection({ kind: 'momentum', action: 'rush-strike', validCoords: chainTargets.map((target) => target.actor.position) })
+    } else {
+      setSelection({ kind: 'inspect' })
+    }
   }
 
   const resolveCardAttempt = (
@@ -504,6 +516,18 @@ export function HexPrototype() {
       if (cardPlayed) setSelection({ kind: 'inspect' })
       return
     }
+    if (selection.kind === 'momentum') {
+      const valid = selection.validCoords.some((target) => target.x === coord.x && target.y === coord.y)
+      if (!valid) return
+      if (selection.action === 'drive') {
+        const plan = drivePlans.find((entry) => entry.endpoint.x === coord.x && entry.endpoint.y === coord.y)
+        if (plan) resolveUt3Action('drive', plan.direction)
+        return
+      }
+      const target = rushTargets.find((entry) => entry.actor.position.x === coord.x && entry.actor.position.y === coord.y)
+      if (target) resolveUt3Action('rush-strike', target.direction, target.actor.id)
+      return
+    }
 
     const clickedActor = actorAt(state, coord)
     if (clickedActor?.faction === 'enemy' && hexDistance(player.position, coord) === 1) {
@@ -519,6 +543,27 @@ export function HexPrototype() {
   const chooseBasicAction = (action: BasicAction) => {
     if (playbackActive || mode !== 'tactical') return
     setSelection((current) => current.kind === 'basic' && current.action === action ? { kind: 'inspect' } : { kind: 'basic', action })
+  }
+
+  const chooseMomentumAction = (action: 'drive' | 'rush-strike') => {
+    if (playbackActive || mode !== 'tactical') return
+    if (selection.kind === 'momentum' && selection.action === action) {
+      setSelection({ kind: 'inspect' })
+      return
+    }
+    if (action === 'drive') {
+      setSelection({
+        kind: 'momentum',
+        action,
+        validCoords: drivePlans.filter((plan) => plan.valid).map((plan) => plan.endpoint),
+      })
+      return
+    }
+    setSelection({
+      kind: 'momentum',
+      action,
+      validCoords: rushTargets.filter((target) => !target.brakeRequired).map((target) => target.actor.position),
+    })
   }
 
   const chooseCard = (card: Card) => {
@@ -577,7 +622,7 @@ export function HexPrototype() {
     setTimeline(previous.timeline)
     setSpatialInertia(previous.spatialInertia)
     setLastActionPhases(previous.lastActionPhases)
-    setLastUt2ActionId(previous.lastUt2ActionId)
+    setLastUt3ActionId(previous.lastUt3ActionId)
     setMode(previous.mode)
     setTravelPath(previous.travelPath)
     setTravelTarget(previous.travelTarget)
@@ -596,15 +641,16 @@ export function HexPrototype() {
     const scenarioState = structure === 'room'
       ? createHexRoomState(radius, { turnMode: state.config.turnMode, baseAP: state.config.baseAP })
       : createHexTravelState({ turnMode: state.config.turnMode, baseAP: state.config.baseAP })
-    const next = applyUnifiedFixedHand(prepareUt2ChainScenario(scenarioState))
+    const prepared = prepareUt3MomentumScenario(scenarioState, 'chain')
+    const next = applyUnifiedFixedHand(prepared.state)
     const start = getPlayer(next).position
     setMapStructure(structure)
     setRoomRadius(radius)
     setState(next)
     setTimeline(createUnifiedTimeline())
-    setSpatialInertia(createSpatialInertiaState())
+    setSpatialInertia(prepared.spatial)
     setLastActionPhases([])
-    setLastUt2ActionId(undefined)
+    setLastUt3ActionId(undefined)
     setUndoStack([])
     setTravelPath([])
     setTravelTarget(undefined)
@@ -630,17 +676,21 @@ export function HexPrototype() {
       ? selection.action === 'move'
         ? '连续移动：六个方向中选择相邻格'
         : '选择六边邻接敌人'
-      : `为「${selection.card.name}」选择六边距离目标`
+      : selection.kind === 'momentum'
+        ? selection.action === 'drive' ? 'Drive：点击棋盘高亮落点' : 'Rush Strike：点击高亮 Actor'
+        : `为「${selection.card.name}」选择六边距离目标`
   const previewActionId = selection.kind === 'basic'
     ? selection.action
+    : selection.kind === 'momentum'
+      ? selection.action
     : selection.kind === 'card'
       ? selection.card.id
       : spatialInertia.chainOpen ? 'rush-strike' : 'drive'
   const previewRushDirection = rushTargets.find((target) => target.chained)?.direction ?? spatialInertia.axis ?? 'E'
-  const previewUt2Action = previewActionId === 'drive' || previewActionId === 'rush-strike'
-    ? evaluateUt2Action(previewActionId, spatialInertia, previewActionId === 'drive' ? 'E' : previewRushDirection)
+  const previewUt3Action = previewActionId === 'drive' || previewActionId === 'rush-strike'
+    ? evaluateUt3Action(previewActionId, spatialInertia, previewActionId === 'drive' ? 'E' : previewRushDirection)
     : undefined
-  const previewActionTime = previewUt2Action?.actionTimeAt ?? actionTimeFor(previewActionId)
+  const previewActionTime = previewUt3Action?.actionTimeAt ?? actionTimeFor(previewActionId)
   const previewEvents = previewInterveningEvents(timeline, previewActionTime)
   const topActionDisabled = state.status !== 'active' || playbackActive || (mode === 'travel' && travelPath.length <= 1)
 
@@ -673,8 +723,8 @@ export function HexPrototype() {
       >
         <header className="visual-hud">
           <div className="visual-brand">
-            <p className="eyebrow">ProjectC · VAL-012-UT2 · action-chain-phase-v1</p>
-            <h1>{mapStructure === 'room' ? 'Hex6 动作链与统一时间验证' : '连续世界动作时间验证'}</h1>
+            <p className="eyebrow">ProjectC · VAL-012-UT3 · momentum-collision-lab-v1</p>
+            <h1>{mapStructure === 'room' ? 'Hex6 Momentum 与统一时间验证' : '连续世界动作时间验证'}</h1>
           </div>
           <div className="hex-mode-switch" role="tablist" aria-label="地图操作模式">
             <button className={mode === 'travel' ? 'active' : ''} onClick={() => mode === 'travel' ? undefined : resumeTravel()}>旅行 Travel</button>
@@ -774,7 +824,7 @@ export function HexPrototype() {
 
           <section className="visual-board-column hex-board-column">
             <div className="hex-comparison-strip">
-              <strong>{mapStructure === 'room' ? `UT2 动作链房间 · R${roomRadius}` : mode === 'travel' ? '连续地图旅行' : '同坐标战术局部'}</strong>
+              <strong>{mapStructure === 'room' ? `UT3 Momentum 实验房间 · R${roomRadius}` : mode === 'travel' ? '连续地图旅行' : '同坐标战术局部'}</strong>
               <span>{mapStructure === 'room'
                 ? `${activeCellCount} 个有效 Cell、${mountainCellCount} 个山体；比较隘口、侧翼和视线。`
                 : mode === 'travel'
@@ -784,9 +834,9 @@ export function HexPrototype() {
             </div>
             <section className="unified-time-preview" aria-label="统一行动预览">
               <div><span>Now</span><strong>{timeline.worldTimeAt} AT</strong></div>
-              <div><span>选择</span><strong>{previewActionTime} AT · {previewUt2Action?.definition.label ?? actionKindFor(previewActionId)}</strong></div>
+              <div><span>选择</span><strong>{previewActionTime} AT · {previewUt3Action?.definition.label ?? actionKindFor(previewActionId)}</strong></div>
               <div><span>再次就绪</span><strong>{timeline.worldTimeAt + previewActionTime} AT</strong></div>
-              <div className="ut2-phase-preview"><span>Action Phases</span><strong>{previewUt2Action ? previewUt2Action.phases.map((phase, index) => `[${index + 1}] ${phase.label}`).join(' → ') : 'Legacy atomic compatibility'}</strong></div>
+              <div className="ut2-phase-preview"><span>Action Phases</span><strong>{previewUt3Action ? previewUt3Action.phases.map((phase, index) => `[${index + 1}] ${phase.label}`).join(' → ') : 'Legacy atomic compatibility'}</strong></div>
               <div className="unified-time-preview-events"><span>期间事件</span><strong>{previewEvents.length ? previewEvents.map((event) => `${event.timeAt}:${event.sourceId}`).join(' · ') : '无'}</strong></div>
             </section>
             <div className="visual-board-toolbar">
@@ -850,7 +900,7 @@ export function HexPrototype() {
                 <div className="ut2-chain-window" role="status" aria-live="polite">
                   <small>CHAIN WINDOW · 世界暂停 · 不限时</small>
                   <strong>Pending Momentum {spatialInertia.pendingMomentum} <b>→ {spatialInertia.axis}</b></strong>
-                  <span>选择同轴 Rush Strike：跳过 Start，AT2 → AT1</span>
+                  <span>Rush Strike 已进入棋盘选目标状态：同轴 Carry 跳过 Start，AT2 → AT1</span>
                 </div>
               )}
               {mode === 'tactical' && travelMessage.startsWith('旅行被打断') && <div className="hex-interrupt-banner">{travelMessage}</div>}
@@ -859,26 +909,42 @@ export function HexPrototype() {
 
             {mode === 'tactical' ? (
               <section className="visual-hand">
-                <div className="visual-hand-heading"><div><h2>UT2 动作链</h2><p>Action = Intro → AT Phases → Outro；先完成 Drive，再在暂停节点选择顺势攻击。</p></div><span>{spatialInertia.chainOpen ? 'Chain Open' : 'Player Ready'}</span></div>
+                <div className="visual-hand-heading"><div><h2>UT3 Momentum 动作</h2><p>先选择行动卡，再直接点击棋盘高亮落点或 Actor；方向由棋盘路径决定。</p></div><span>{spatialInertia.chainOpen ? 'Chain Open' : selection.kind === 'momentum' ? 'Choose on board' : 'Player Ready'}</span></div>
                 <div className="ut2-action-grid">
-                  <article className="ut2-action-card drive">
+                  <button
+                    type="button"
+                    data-action-id="drive"
+                    className={`ut2-action-card drive ${selection.kind === 'momentum' && selection.action === 'drive' ? 'selected-action' : ''}`}
+                    aria-pressed={selection.kind === 'momentum' && selection.action === 'drive'}
+                    disabled={playbackActive || state.status !== 'active'}
+                    onClick={() => chooseMomentumAction('drive')}
+                  >
                     <div className="ut2-action-title"><div><b>2<small>AT</small></b><span>Drive</span></div><em>Outro · Chain</em></div>
                     <div className="ut2-phase-row"><span>[1] Step 1 <b>M1</b></span><i>→</i><span>[2] Dash 2 <b>M2</b></span></div>
-                    <p>选择三格无阻直线。每个 Phase 后世界处理到点事件。</p>
-                    <div className="ut2-direction-buttons" aria-label="Drive Axis">
-                      {drivePlans.map((plan) => <button data-action-id="drive" data-axis={plan.direction} key={plan.direction} disabled={playbackActive || !plan.valid} title={plan.valid ? `沿 ${plan.direction} 推进三格` : plan.reason} onClick={() => resolveUt2Action('drive', plan.direction)}>{plan.direction}</button>)}
-                    </div>
-                  </article>
-                  <article className={`ut2-action-card rush ${rushTargets.some((target) => target.chained) ? 'chain-ready' : ''}`}>
+                    <p>点击卡牌后，棋盘显示所有三格无阻落点；点击落点提交 Axis。</p>
+                    <span className="ut3-card-cta">{selection.kind === 'momentum' && selection.action === 'drive' ? `${drivePlans.filter((plan) => plan.valid).length} 个落点已高亮` : '选择 Drive'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-action-id="rush-strike"
+                    className={`ut2-action-card rush ${rushTargets.some((target) => target.chained) ? 'chain-ready' : ''} ${selection.kind === 'momentum' && selection.action === 'rush-strike' ? 'selected-action' : ''}`}
+                    aria-pressed={selection.kind === 'momentum' && selection.action === 'rush-strike'}
+                    disabled={playbackActive || state.status !== 'active'}
+                    onClick={() => chooseMomentumAction('rush-strike')}
+                  >
                     <div className="ut2-action-title"><div><b>{rushTargets.some((target) => target.chained) ? 1 : 2}<small>AT</small></b><span>Rush Strike</span></div><em>{rushTargets.some((target) => target.chained) ? 'Intro skipped' : 'Base AT2'}</em></div>
                     <div className="ut2-phase-row"><span className={rushTargets.some((target) => target.chained) ? 'skipped' : ''}>[1] Start</span><i>→</i><span>[2] Strike</span></div>
-                    <p>{spatialInertia.chainOpen ? `读取 Pending M${spatialInertia.pendingMomentum} / ${spatialInertia.axis}；同轴目标可顺势出手。` : '从静止使用时保留 Start，完整占用 2 AT。'}</p>
-                    <div className="ut2-rush-targets">
-                      {rushTargets.length > 0
-                        ? rushTargets.map((target) => <button className={target.chained ? 'chain-target' : ''} data-action-id="rush-strike" data-axis={target.direction} data-chain-compatible={target.chained} data-target-actor={target.actor.id} disabled={playbackActive} key={target.actor.id} onClick={() => resolveUt2Action('rush-strike', target.direction, target.actor.id)}>{target.actor.name}<small>{target.direction} · {target.chained ? 'Chain AT1' : 'AT2'}</small></button>)
-                        : <span>需要一个相邻敌人；固定场景先向 E 使用 Drive。</span>}
-                    </div>
-                  </article>
+                    <p>{spatialInertia.chainOpen ? `Pending M${spatialInertia.pendingMomentum} / ${spatialInertia.axis}；M0 Normal · M1 Push · M2 Launch · M3 Pierce。` : '攻击轴线上两格内首个 Actor；从静止使用时保留 Start。'}</p>
+                    <span className="ut3-card-cta">{selection.kind === 'momentum' && selection.action === 'rush-strike' ? `${rushTargets.filter((target) => !target.brakeRequired).length} 个目标已高亮` : '选择 Rush Strike'}</span>
+                  </button>
+                  {spatialInertia.chainOpen && rushTargets.some((target) => target.brakeRequired) && (
+                    <button type="button" data-action-id="brake" className="ut2-action-card brake" disabled={playbackActive} onClick={() => resolveUt3Action('brake')}>
+                      <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Brake</span></div><em>Contextual</em></div>
+                      <div className="ut2-phase-row"><span>[1] Skid Stop <b>M→0</b></span></div>
+                      <p>180° 反向前先解除 Axis 承诺；清空 Active / Pending Momentum。</p>
+                      <span className="ut3-card-cta">执行 Brake</span>
+                    </button>
+                  )}
                 </div>
                 <details className="ut2-legacy-actions">
                   <summary>UT1 Thermal 介入动作 · {handCards.length}</summary>

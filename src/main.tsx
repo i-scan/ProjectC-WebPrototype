@@ -51,7 +51,7 @@ function Root() {
         </div>
         <nav aria-label="Prototype views">
           <button className={view === 'rules' ? 'selected' : ''} onClick={() => navigate('rules')}>
-            规则实验室
+            Momentum 实验场景
           </button>
           <button className={view === 'visual' ? 'selected' : ''} onClick={() => navigate('visual')}>
             Square4

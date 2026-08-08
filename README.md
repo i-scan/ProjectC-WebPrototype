@@ -35,7 +35,7 @@ https://i-scan.github.io/ProjectC-WebPrototype/?revision=<full-commit-sha>#hex-p
 当前主要验证：
 
 - Square4 历史规则与 Hex6 空间对照；
-- `VAL-012-UT2`：Hex6 在统一 `worldTimeAt` 与全局 Event Queue 上验证分段动作和动量链；
+- `VAL-012-UT3`：Hex6 在统一 `worldTimeAt` 与全局 Event Queue 上验证 Momentum、动作链、制动与最小碰撞；
 - 玩家、敌人、NPC、环境与 Thermal Clock 共享 AT 时间基准；
 - Hex6 当前实验移除通用 AP，动作使用 `Intro → Core AT Phase[] → Outro`；
 - 固定场景验证 `Drive AT2 → Pending Momentum 2 / Axis → Chain Window → 同轴 Rush Strike AT1`；
@@ -89,13 +89,13 @@ GameState
 其他职责：
 
 - `config/core-rules.schema.json`：配置结构约束；
-- `config/experiments/val-012-action-chain.v2.json`：当前 Hex6 分段动作与动量链实验的声明配置；
+- `config/experiments/val-012-momentum-lab.v3.json`：当前 Momentum、动作链、制动与最小碰撞实验的声明配置；
 - `config/experiments/val-012-unified-at-timeline.v1.json`：上一轮 UT1 统一时间实验的历史对照；
 - `config/CHANGELOG.md`：每次影响玩法结果的机制、数值和地图变化；
 - 测试：配置、拓扑和规则回归；
 - 页面：体验和信息表达验证。
 
-全局 ruleset `0.1.0` 仍属于旧快照；Hex6 当前运行独立实验 ruleset `VAL-012-UT2`。实验配置与执行核心已直接接入 `#hex-prototype`，但状态仍是候选 / prototype snapshot，不会自动晋升为正式规则。
+全局 ruleset `0.1.0` 仍属于旧快照；当前 `#rules-lab` 与 `#hex-prototype` 运行独立实验 ruleset `VAL-012-UT3`。实验配置与执行核心已直接接入页面，但状态仍是候选 / prototype snapshot，不会自动晋升为正式规则。
 
 ---
 
@@ -120,7 +120,7 @@ GameState
 
 当前原型包含：
 
-- Square4 历史 Rules Lab；
+- UT3 Momentum 诊断场景（取代旧 Square4 Rules Lab 页面内容）；
 - Hex6 规则与视觉原型；
 - 2D / 3D Travel / Tactical；
 - World 与可调 R2～R7 Room；
@@ -130,11 +130,11 @@ GameState
 - Three.js / PixiJS Player View；
 - intent、悔棋、重开、统一事件队列、速度控制和状态导出。
 
-`#hex-prototype` 顶部可直接看到 `World Time`、玩家再次就绪时间和下一事件；动作预览会列出 Phase 与各边界之间插入的敌人 / NPC / 环境事件。固定 UT2 房间可先沿 E 轴执行 Drive：两个 1 AT Phase 分别结算后打开不计时的 Chain Window，再对轴线目标使用 Rush Strike，跳过 Start 并只消耗 1 AT。Thermal Inspector 使用同一 AT 增量推进，不再显示通用 AP。基础移动和攻击仍保留，并支持直接点击相邻空格或敌人格。
+`#hex-prototype` 顶部可直接看到 `World Time`、玩家再次就绪时间和下一事件；动作预览会列出 Phase 与边界间事件。操作改为先选 Drive / Rush Strike 卡牌，再点击棋盘高亮落点或 Actor；Drive 完成后自动进入可衔接 Rush 的棋盘选目标状态。同轴 Carry 跳过 Start，Momentum 通过 Normal / Push / Launch / Pierce、受击稳定性、转向损耗、Brake、Crash 与 Bounce 产生可辨识结果。Thermal Inspector 使用同一 AT 增量推进，不显示通用 AP。
 
 右上角的 `AT 播放速度` 只控制表现层节奏：`1× = 680 ms/AT`，自动播放可在 `0.25×～4×` 间按 `0.25×` 调整，`0` 保留为旅行单步。速度不会进入规则函数，因此不会改变 Event Queue 顺序、世界时间、Actor 决策或 Cell 结果。当前时间轴按“到期事件”推进，并不在每个 AT 强制唤醒全部对象；现有约 200 Cell / 4 Actor 的实验规模没有明显计算压力。若扩大到大型地图，应以活动区域、坐标索引和 dirty-cell 邻域更新替代全图扫描，并让渲染器只消费状态差异。
 
-当前 UT2 只验证上述最短闭环；Raikiri、Anchor、完整碰撞、复杂转向/制动和条件化 Thermal 交互明确延期，避免把原型行为误写成已验证规则。
+`#rules-lab` 已改造成 T1–T11 UT3 实验场景，可直接设置 M0–M3、触发 Normal Hit / Intercept，并切换 Hard / Reflect / Brake 诊断。当前仍不实现 Raikiri、Anchor、连续物理反射、无限二次碰撞、质量体系与条件化 Thermal 交互，避免把候选实验行为误写成已验证规则。
 
 Three.js 是当前主可玩视觉验证方向；PixiJS / 2D 保留为地图总览、对照和潜在低配置表现。正式引擎尚未决定。
 

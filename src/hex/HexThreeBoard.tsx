@@ -5,7 +5,7 @@ import type { VisualSelection } from '../visual/InteractiveThreeBoard'
 import type { PlaybackEvent } from '../visual/visualPlayback'
 import { buildHexPath, getHexWind, hexDistance, type HexDirection } from './hexRules'
 import { hasHexLineOfSight, isMountainCell } from './hexTerrain'
-import { hexDirectionYaw, hexWorldOffset } from './hexTopology'
+import { hexDirectionOnLine, hexDirectionYaw, hexRay, hexWorldOffset } from './hexTopology'
 import type { HexMode, TravelPreference } from './hexTravel'
 
 const HEX_RADIUS = 0.56
@@ -15,6 +15,9 @@ const TILE_HEIGHT = 0.18
 const temperatureColors = [0x3e7bd6, 0x5e9de0, 0x75b8ca, 0xa7a89f, 0xd3a55f, 0xdf7545, 0xef493e]
 const actorColors = { player: 0x4ba7df, hunter: 0xd25463, elite: 0x8f62c7, npc: 0xd4a05a }
 
+export type HexBoardSelection = VisualSelection
+  | { kind: 'momentum'; action: 'drive' | 'rush-strike'; validCoords: Coord[]; route?: Coord[] }
+
 type Props = {
   state: GameState
   mode?: HexMode
@@ -23,7 +26,7 @@ type Props = {
   travelPreference?: TravelPreference
   selectedCoord: Coord
   hoverCoord?: Coord
-  selection: VisualSelection
+  selection: HexBoardSelection
   targetLayer: Layer
   cameraResetToken: number
   showSky: boolean
@@ -43,7 +46,7 @@ type RainAnimation = {
   phase: number
   speed: number
 }
-type MoveAnimation = { object: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number }
+type MoveAnimation = { object: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; arcHeight: number }
 type PulseAnimation = {
   object: THREE.Object3D
   material: THREE.MeshBasicMaterial
@@ -212,6 +215,40 @@ function createMountain(cell: Cell) {
   return group
 }
 
+function createMomentumSurface(cell: Cell) {
+  const group = new THREE.Group()
+  const hard = cell.tags.includes('UT3Hard')
+  const left = cell.tags.includes('UT3ReflectLeft')
+  const color = hard ? 0x69717c : left ? 0x43c7d7 : 0xeea74a
+  const wall = new THREE.Mesh(
+    new THREE.BoxGeometry(hard ? 0.78 : 0.62, hard ? 1.05 : 0.78, hard ? 0.2 : 0.12),
+    new THREE.MeshStandardMaterial({
+      color,
+      emissive: hard ? 0x111820 : left ? 0x0a4d59 : 0x5c3107,
+      emissiveIntensity: 0.55,
+      metalness: hard ? 0.35 : 0.62,
+      roughness: hard ? 0.72 : 0.28,
+      transparent: !hard,
+      opacity: hard ? 1 : 0.82,
+    }),
+  )
+  wall.position.y = hard ? 0.58 : 0.47
+  wall.rotation.y = hard ? 0 : left ? -Math.PI / 6 : Math.PI / 6
+  wall.castShadow = true
+  group.add(wall)
+  if (!hard) {
+    const chevron = new THREE.Mesh(
+      new THREE.TorusGeometry(0.22, 0.035, 7, 20, Math.PI * 1.45),
+      new THREE.MeshBasicMaterial({ color: 0xeafcff, transparent: true, opacity: 0.9 }),
+    )
+    chevron.rotation.x = Math.PI / 2
+    chevron.rotation.z = left ? 0.45 : -0.45
+    chevron.position.set(0, 0.88, 0.03)
+    group.add(chevron)
+  }
+  return group
+}
+
 function createActorPawn(actor: Actor, billboards: THREE.Group[]) {
   const group = new THREE.Group()
   group.userData.actorId = actor.id
@@ -292,11 +329,14 @@ function createActorPawn(actor: Actor, billboards: THREE.Group[]) {
   return group
 }
 
-function isValidTarget(state: GameState, selection: VisualSelection, coord: Coord) {
+function isValidTarget(state: GameState, selection: HexBoardSelection, coord: Coord) {
   const cell = cellAt(state, coord)
   if (!cell || cell.tags.includes('Blocked') || cell.tags.includes('Void')) return false
   const player = getPlayer(state)
   if (selection.kind === 'inspect') return false
+  if (selection.kind === 'momentum') {
+    return selection.validCoords.some((target) => sameCoord(target, coord))
+  }
   if (selection.kind === 'basic') {
     if (selection.action === 'move') return hexDistance(player.position, coord) === 1 && !actorAt(state, coord)
     return hexDistance(player.position, coord) === 1 && Boolean(actorAt(state, coord, false))
@@ -611,7 +651,7 @@ export function HexThreeBoard({
         const progress = clamp((now - item.startedAt) / item.duration, 0, 1)
         const eased = 1 - Math.pow(1 - progress, 3)
         item.object.position.lerpVectors(item.from, item.to, eased)
-        item.object.position.y += Math.sin(progress * Math.PI) * 0.18
+        item.object.position.y += Math.sin(progress * Math.PI) * item.arcHeight
         return progress < 1
       })
       attackRef.current = attackRef.current.filter((item) => {
@@ -724,6 +764,13 @@ export function HexThreeBoard({
       tile.add(createTopOutline(cell))
       content.add(tile)
 
+      if (cell.tags.some((tag) => ['UT3Hard', 'UT3ReflectLeft', 'UT3ReflectRight'].includes(tag))) {
+        const surface = createMomentumSurface(cell)
+        surface.position.x = position.x
+        surface.position.z = position.z
+        content.add(surface)
+      }
+
       if (isMountainCell(cell)) {
         const mountain = createMountain(cell)
         mountain.position.x = position.x
@@ -732,7 +779,9 @@ export function HexThreeBoard({
       }
 
       if (isValidTarget(state, selection, cell.coord)) {
-        const color = selection.kind === 'basic' && selection.action === 'attack'
+        const color = selection.kind === 'momentum'
+          ? selection.action === 'drive' ? 0xe8bd45 : 0xff704f
+          : selection.kind === 'basic' && selection.action === 'attack'
           ? 0xf05b68
           : selection.kind === 'card' && selection.card.effect.includes('cool')
             ? 0x57bfff
@@ -943,7 +992,37 @@ export function HexThreeBoard({
       if (previous && !sameCoord(previous, actor.position)) {
         const from = hexWorldPosition(previous, state, 0.1)
         pawn.position.copy(from)
-        moveRef.current.push({ object: pawn, from, to: target, startedAt: performance.now(), duration: 430 })
+        const momentumLog = state.logs.find((log) => log.includes('[UT3] Rush Strike'))
+          ?? state.logs.find((log) => log.includes('[UT3] Drive'))
+          ?? ''
+        const isLaunch = momentumLog.includes('Launch') && actor.id !== 'player'
+        const isBounce = momentumLog.includes('Bounce') && actor.id !== 'player'
+        const isPierce = momentumLog.includes('Pierce') && actor.id === 'player'
+        const isPush = momentumLog.includes('Push') && actor.id !== 'player'
+        moveRef.current.push({
+          object: pawn,
+          from,
+          to: target,
+          startedAt: performance.now(),
+          duration: isPierce ? 280 : isLaunch || isBounce ? 620 : isPush ? 360 : 430,
+          arcHeight: isLaunch ? 0.92 : isBounce ? 0.42 : isPierce ? 0.08 : isPush ? 0.04 : 0.18,
+        })
+        if (momentumLog.includes('[UT3]')) {
+          const trailColor = momentumLog.includes('M3') ? 0xff4b51 : momentumLog.includes('M2') ? 0xffa34d : 0xf1d061
+          const trail = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([from.clone().setY(0.22), target.clone().setY(0.22)]),
+            new THREE.LineDashedMaterial({
+              color: trailColor,
+              transparent: true,
+              opacity: momentumLog.includes('M3') ? 0.95 : 0.72,
+              dashSize: momentumLog.includes('M3') ? 0.28 : 0.16,
+              gapSize: 0.08,
+            }),
+          )
+          trail.computeLineDistances()
+          trail.renderOrder = 18
+          content.add(trail)
+        }
       } else {
         pawn.position.copy(target)
       }
@@ -1008,13 +1087,16 @@ export function HexThreeBoard({
       layer.add(hover)
 
       const player = getPlayer(state)
-      if (selection.kind === 'basic' && selection.action === 'move' && isValidTarget(state, selection, hoverCoord)) {
-        const path = buildHexPath(state, player.position, hoverCoord, 8, player.id)
-          .map((coord) => hexWorldPosition(coord, state, 0.18))
+      if (((selection.kind === 'basic' && selection.action === 'move') || selection.kind === 'momentum') && isValidTarget(state, selection, hoverCoord)) {
+        const momentumDirection = selection.kind === 'momentum' ? hexDirectionOnLine(player.position, hoverCoord) : null
+        const pathCoords = selection.kind === 'momentum' && momentumDirection
+          ? [player.position, ...hexRay(player.position, momentumDirection, hexDistance(player.position, hoverCoord))]
+          : buildHexPath(state, player.position, hoverCoord, 8, player.id)
+        const path = pathCoords.map((coord) => hexWorldPosition(coord, state, 0.18))
         const line = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints(path),
           new THREE.LineDashedMaterial({
-            color: 0x76e5b0,
+            color: selection.kind === 'momentum' ? 0xf2c85a : 0x76e5b0,
             dashSize: 0.14,
             gapSize: 0.09,
             transparent: true,
