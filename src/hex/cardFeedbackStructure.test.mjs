@@ -21,7 +21,7 @@ describe('card playback feedback boundary', () => {
     expect(earlyReturn).toBeGreaterThan(stateUpdate)
     expect(transition).toBeGreaterThan(earlyReturn)
     expect(source).toContain('const historyEntry = captureHistory(before, true)')
-    expect(source).toContain('queueTransition(before, resolution.value, fallbackKind, fallbackTarget, historyEntry)')
+    expect(source).toContain('queueTransition(before, resolution.value, fallbackKind, fallbackTarget, historyEntry, resolution.elapsedAt)')
   })
 
   it('clears a targeted card selection only after a successful play', () => {

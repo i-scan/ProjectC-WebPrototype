@@ -241,6 +241,8 @@ const actionChainSnapshotExpression = `(() => {
   const driveEast = root?.querySelector('[data-action-id="drive"][data-axis="E"]')
   const chainedRush = root?.querySelector('[data-action-id="rush-strike"][data-chain-compatible="true"]')
   const board = root?.querySelector('.hex-board-frame')
+  const playbackControl = root?.querySelector('[data-at-playback-control="v1"]')
+  const playbackInput = playbackControl?.querySelector('input[type="range"]')
   const objectives = [...(root?.querySelectorAll('.visual-objectives > div') ?? [])]
   const boardRect = board?.getBoundingClientRect()
   return {
@@ -250,6 +252,13 @@ const actionChainSnapshotExpression = `(() => {
     chainOpen: root?.dataset.chainOpen === 'true',
     boardHeight: boardRect?.height ?? 0,
     driveEastEnabled: Boolean(driveEast && !driveEast.disabled),
+    playback: playbackInput ? {
+      min: playbackInput.min,
+      max: playbackInput.max,
+      step: playbackInput.step,
+      value: playbackInput.value,
+      text: playbackControl.textContent.trim(),
+    } : null,
     chainWindowText: root?.querySelector('.ut2-chain-window')?.textContent.trim() ?? null,
     chainedRush: chainedRush ? {
       enabled: !chainedRush.disabled,
@@ -272,6 +281,10 @@ async function verifyActionChain(client) {
   assert(initial.worldTimeAt === 0, 'UT2 fixed scenario did not start at world time 0', initial)
   assert(initial.boardHeight >= 300, 'Hex board collapsed below its playable height', initial)
   assert(initial.driveEastEnabled, 'Fixed scenario must allow Drive on the E axis', initial)
+  assert(initial.playback?.min === '0' && initial.playback?.max === '4', 'AT playback range is incorrect', initial)
+  assert(initial.playback?.step === '0.25', 'AT playback must use quarter-rate steps', initial)
+  assert(initial.playback?.value === '1', 'AT playback baseline must start at 1x', initial)
+  assert(initial.playback?.text.includes('680 ms/AT'), 'AT playback duration is not visible', initial)
 
   await evaluate(client, `document.querySelector('[data-action-id="drive"][data-axis="E"]').click(); true`)
   await waitFor('Drive chain window', async () => {

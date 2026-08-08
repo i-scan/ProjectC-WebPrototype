@@ -23,6 +23,7 @@ export type VisualEffect =
 
 export type PlaybackEvent = VisualEvent & {
   label?: string
+  durationAt?: number
   amount?: number
   actorId?: string
   sourceActorId?: string
