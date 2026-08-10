@@ -8,11 +8,13 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const configPath = path.join(root, 'config', 'core-rules.v0.json')
 const schemaPath = path.join(root, 'config', 'core-rules.schema.json')
 const unifiedTimelinePath = path.join(root, 'config', 'experiments', 'val-012-momentum-lab.v3.json')
+const coupledInertiaPath = path.join(root, 'config', 'experiments', 'val-012-coupled-inertia-lab.v4.json')
 
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'))
 const config = readJson(configPath)
 const schema = readJson(schemaPath)
 const unifiedTimeline = readJson(unifiedTimelinePath)
+const coupledInertia = readJson(coupledInertiaPath)
 
 const ajv = new Ajv2020({ allErrors: true, strict: false })
 const validate = ajv.compile(schema)
@@ -61,6 +63,7 @@ if (config.temperature.directMaximum > config.temperature.maximum) {
   fail('Direct maximum temperature is above the complete maximum.')
 }
 
+// UT3 remains a supported historical/reference experiment used by Hex6.
 if (unifiedTimeline.rulesetId !== 'VAL-012-UT3') fail('Unified timeline ruleset ID must be VAL-012-UT3.')
 if (unifiedTimeline.previousRulesetId !== 'VAL-012-UT2') fail('VAL-012-UT3 must name VAL-012-UT2 as its previous ruleset.')
 if (unifiedTimeline.genericActionPoints !== false) fail('VAL-012-UT3 must not enable generic AP.')
@@ -106,4 +109,38 @@ const timelineActorIds = unifiedTimeline.actors.map((actor) => actor.id)
 if (new Set(timelineActorIds).size !== timelineActorIds.length) fail('Unified timeline actor IDs must be unique.')
 if (!timelineActorIds.includes('player')) fail('Unified timeline must define the player actor.')
 
-console.log(`Validated ProjectC ruleset ${config.rulesetVersion} (schema ${config.schemaVersion}) and ${unifiedTimeline.rulesetId}.`)
+// UT4 is the active Inertia Lab candidate. Balance-sensitive values remain
+// tunable, but the structural contracts from the handoff are fixed here.
+if (coupledInertia.rulesetVersion !== 'VAL-012-UT4') fail('Coupled Inertia ruleset must be VAL-012-UT4.')
+if (coupledInertia.implementationId !== 'coupled-inertia-sandbox-v1') fail('UT4 implementation ID must be coupled-inertia-sandbox-v1.')
+if (coupledInertia.thermal.coldDomainThreshold !== -3 || coupledInertia.thermal.hotDomainThreshold !== 3) {
+  fail('UT4 absolute Thermal Domain thresholds must be -3 and +3.')
+}
+if (coupledInertia.thermal.setPointMin !== -2 || coupledInertia.thermal.setPointMax !== 2) {
+  fail('UT4 Set Point diagnostic range must remain -2 to +2.')
+}
+if (!(coupledInertia.thermal.damping >= 0)) fail('UT4 Damping must be non-negative.')
+if (!(coupledInertia.thermal.thermalPeriodAt > 0)) fail('UT4 Thermal Period must be positive.')
+if (!Number.isInteger(coupledInertia.thermal.integrationSubstepsPerAt) || coupledInertia.thermal.integrationSubstepsPerAt < 4) {
+  fail('UT4 Thermal solver must use at least four integration substeps per AT.')
+}
+if (coupledInertia.spatial.maxLevel !== 3) fail('UT4 Spatial Inertia must remain M0-M3.')
+if (coupledInertia.spatial.steeringLoss60 < 0 || coupledInertia.spatial.steeringLoss120 < coupledInertia.spatial.steeringLoss60) {
+  fail('UT4 steering loss must be monotonic from 60 to 120 degrees.')
+}
+if (coupledInertia.actions.basicMoveAt !== 1 || coupledInertia.actions.defaultWeaponAt !== 1 || coupledInertia.actions.holdPositionAt !== 1) {
+  fail('UT4 baseline Move / Default Weapon / Hold actions must be 1 AT.')
+}
+if (coupledInertia.actions.drivePhaseAt !== 1 || coupledInertia.actions.drivePhaseCount !== 3) {
+  fail('UT4 Drive baseline must be three committed 1 AT phases.')
+}
+if (coupledInertia.actions.heavyReleaseAt !== 2) fail('UT4 Heavy Release baseline must be 2 AT.')
+if (coupledInertia.actions.brakeAt !== 1) fail('UT4 Brake baseline must be 1 AT.')
+for (const hitType of ['normal', 'push', 'heavy']) {
+  if (!coupledInertia.hits[hitType]) fail(`UT4 missing hit profile: ${hitType}`)
+  if (coupledInertia.hits[hitType].damage < 0 || coupledInertia.hits[hitType].forcedStrength < 0) {
+    fail(`UT4 hit profile ${hitType} contains a negative value.`)
+  }
+}
+
+console.log(`Validated ProjectC ruleset ${config.rulesetVersion} (schema ${config.schemaVersion}), ${unifiedTimeline.rulesetId}, and ${coupledInertia.rulesetVersion}.`)

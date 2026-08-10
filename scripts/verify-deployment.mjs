@@ -17,10 +17,7 @@ if (!Number.isInteger(retryDelayMs) || retryDelayMs < 0) {
 
 function verificationUrl(url, label, attempt) {
   const requestUrl = new URL(url)
-  requestUrl.searchParams.set(
-    'verify',
-    `${expectedCommit}-${label}-${attempt}-${Date.now()}`,
-  )
+  requestUrl.searchParams.set('verify', `${expectedCommit}-${label}-${attempt}-${Date.now()}`)
   return requestUrl
 }
 
@@ -57,9 +54,7 @@ async function retry(label, operation, attempts = maxAttempts) {
 const infoUrl = new URL('build-info.json', pageUrl)
 const info = await retry('build-info.json', async (attempt) => {
   const candidate = JSON.parse(await fetchFreshText(infoUrl, 'build-info', attempt))
-  if (candidate.commit !== expectedCommit) {
-    throw new Error(`published commit is ${candidate.commit}`)
-  }
+  if (candidate.commit !== expectedCommit) throw new Error(`published commit is ${candidate.commit}`)
   if (candidate.status !== 'verified') throw new Error(`published status is ${candidate.status}`)
   if (candidate.branch !== 'main') throw new Error(`published branch is ${candidate.branch}`)
   return candidate
@@ -85,22 +80,28 @@ await retry('published JavaScript bundle', async (attempt) => {
   const script = await fetchFreshText(scriptUrl, 'javascript', attempt)
   if (!script.includes('data-build-revision')) throw new Error('visible revision marker is missing from the published app')
   if (!script.includes(expectedCommit)) throw new Error('published app bundle does not contain the expected commit')
+
+  // Active UT4 Inertia Lab contract.
+  if (!script.includes('VAL-012-UT4')) throw new Error('current UT4 ruleset marker is missing')
+  if (!script.includes('coupled-inertia-sandbox-v1')) throw new Error('current UT4 implementation marker is missing')
+  if (!script.includes('惯性实验室 · 双惯性 Sandbox')) throw new Error('UT4 Inertia Lab route is missing')
+  if (!script.includes('Thermal Debug')) throw new Error('UT4 Thermal Debug controls are missing')
+  if (!script.includes('Spatial Debug')) throw new Error('UT4 Spatial Debug controls are missing')
+  if (!script.includes('Event Log')) throw new Error('UT4 Event Log is missing')
+  if (!script.includes('Hold Position')) throw new Error('UT4 Hold Position action is missing')
+  if (!script.includes('Heavy Release')) throw new Error('UT4 Heavy Release action is missing')
+  if (!script.includes('受击 / Hit Player')) throw new Error('UT4 Inject Hit control is missing')
+  if (!script.includes('Queue Dummy Move')) throw new Error('UT4 queued dummy control is missing')
+  if (!script.includes('Damping')) throw new Error('UT4 damping control is missing')
+
+  // Hex6 route remains deployed and verified separately in browser CI.
   if (!script.includes('hex-inspector-coordinate')) throw new Error('React-owned inspector coordinate is missing')
   if (!script.includes('inspector-panel-')) throw new Error('React-owned inspector panel mode is missing')
   if (!script.includes('thermal-clock-config-label')) throw new Error('rebuilt Thermal configuration controls are missing')
   if (!script.includes('data-inspector-layout-contract')) throw new Error('runtime inspector layout contract marker is missing')
   if (!script.includes('runtime-v3')) throw new Error('stable-width inspector layout contract version is missing')
-  if (!script.includes('VAL-012-UT3')) throw new Error('current UT3 ruleset marker is missing')
-  if (!script.includes('momentum-collision-lab-v1')) throw new Error('current Momentum implementation marker is missing')
-  if (!script.includes('惯性实验室')) throw new Error('UT3 inertia lab is missing')
-  if (!script.includes('AT PHASE')) throw new Error('phase-by-phase AT playback is missing')
-  if (!script.includes('momentumByActorId')) throw new Error('actor Momentum indicator data is missing')
-  if (!script.includes('Active Momentum')) throw new Error('Active Momentum UI is missing')
-  if (!script.includes('Pending Momentum')) throw new Error('Pending Momentum UI is missing')
+  if (!script.includes('momentumByActorId')) throw new Error('actor Spatial/Momentum indicator data is missing')
   if (!script.includes('Chain Window')) throw new Error('Chain Window UI is missing')
-  if (!script.includes('data-action-id')) throw new Error('action-chain browser verification hooks are missing')
-  if (!script.includes('data-at-playback-control')) throw new Error('AT playback speed control is missing')
-  if (!script.includes('ms/AT')) throw new Error('AT playback duration readout is missing')
   if (!script.includes('460px')) throw new Error('desktop unified inspector width is missing')
   if (!script.includes('430px')) throw new Error('laptop unified inspector width is missing')
   if (!script.includes('--tc-body: 10px')) throw new Error('compact Thermal base type scale is missing')
@@ -115,6 +116,8 @@ if (!styleMatch) throw new Error('published CSS entry was not found')
 const styleUrl = new URL(styleMatch[1], pageUrl.origin)
 await retry('published stylesheet', async (attempt) => {
   const style = await fetchFreshText(styleUrl, 'stylesheet', attempt)
+  if (!/\.coupled-inertia-lab/.test(style)) throw new Error('UT4 sandbox styling is missing from CSS')
+  if (!/\.ut4-board-frame/.test(style)) throw new Error('UT4 board frame styling is missing from CSS')
   if (!/\.inspector-thermal/.test(style)) throw new Error('shared Thermal inspector styling is missing from CSS')
   if (!/hex-inspector-coordinate/.test(style)) throw new Error('shared coordinate styling is missing from CSS')
   if (/font-size\s*:\s*6px\s*!important/.test(style)) throw new Error('obsolete 6px Thermal override is still deployed')
