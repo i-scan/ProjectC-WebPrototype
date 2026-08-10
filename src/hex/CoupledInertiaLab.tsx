@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { actorAt, getPlayer, type Coord, type Mass } from '../game'
 import type { PlaybackEvent } from '../visual/visualPlayback'
+import { CoupledThermalPendulumPortal } from './CoupledThermalPendulumPortal'
 import { HexThreeBoard, type HexBoardSelection } from './HexThreeBoard'
 import { HexTravelMap } from './HexTravelMap'
-import { ThermalPendulumPortal } from './ThermalPendulumPortal'
 import {
   basicMove,
   brake,
@@ -389,58 +389,23 @@ export function CoupledInertiaLab() {
                 <span>{busy ? 'AT PHASE playback' : pendingBoardAction ? 'Choose on board' : 'Player Ready'}</span>
               </div>
               <div className="ut4-action-card-row">
-                <button
-                  type="button"
-                  data-action-id="basic-move"
-                  className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'move' ? 'selected-action' : ''}`}
-                  disabled={busy}
-                  onClick={() => setPendingBoardAction((current) => current === 'move' ? null : 'move')}
-                >
-                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Basic Move</span></div><em>Contest</em></div>
-                  <p>点击任意目标格。目标格被占用时改走 Cell Contest。</p>
-                  <span className="ut3-card-cta">{pendingBoardAction === 'move' ? '点击棋盘提交' : '选择移动'}</span>
+                <button type="button" data-action-id="basic-move" className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'move' ? 'selected-action' : ''}`} disabled={busy} onClick={() => setPendingBoardAction((current) => current === 'move' ? null : 'move')}>
+                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Basic Move</span></div><em>Contest</em></div><p>点击任意目标格。目标格被占用时改走 Cell Contest。</p><span className="ut3-card-cta">{pendingBoardAction === 'move' ? '点击棋盘提交' : '选择移动'}</span>
                 </button>
-
-                <button
-                  type="button"
-                  data-action-id="default-weapon"
-                  className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'weapon' ? 'selected-action' : ''}`}
-                  disabled={busy}
-                  onClick={() => setPendingBoardAction((current) => current === 'weapon' ? null : 'weapon')}
-                >
-                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Default Weapon</span></div><em>{lab.weapon}</em></div>
-                  <p>点击 Dummy 攻击。与移动争格分离，不触发 Cell Contest。</p>
-                  <span className="ut3-card-cta">{pendingBoardAction === 'weapon' ? '点击 Dummy' : `使用 ${lab.weapon}`}</span>
+                <button type="button" data-action-id="default-weapon" className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'weapon' ? 'selected-action' : ''}`} disabled={busy} onClick={() => setPendingBoardAction((current) => current === 'weapon' ? null : 'weapon')}>
+                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Default Weapon</span></div><em>{lab.weapon}</em></div><p>点击 Dummy 攻击。与移动争格分离，不触发 Cell Contest。</p><span className="ut3-card-cta">{pendingBoardAction === 'weapon' ? '点击 Dummy' : `使用 ${lab.weapon}`}</span>
                 </button>
-
                 <button type="button" data-action-id="hold-position" className="ut2-action-card ut4-action-card" disabled={busy} onClick={() => updateLab((current) => holdPosition(current, tuning), 'Hold Position')}>
-                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Hold Position</span></div><em>Cold Build</em></div>
-                  <p>全过程保持 Cold 且不换格：Position M +1，单次最多 +1。</p>
-                  <span className="ut3-card-cta">执行 Hold</span>
+                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Hold Position</span></div><em>Cold Build</em></div><p>全过程保持 Cold 且不换格：Position M +1，单次最多 +1。</p><span className="ut3-card-cta">执行 Hold</span>
                 </button>
-
                 <div className="ut2-action-card ut4-action-card ut4-drive-card" data-action-id="drive">
-                  <div className="ut2-action-title"><div><b>3<small>AT</small></b><span>Drive</span></div><em>Axis Commit</em></div>
-                  <p>3 × 1 AT 分段推进；点击方向直接提交，途中按 Phase 结算碰撞。</p>
-                  <div className="ut4-card-direction-grid">{directions.map((direction) => <button type="button" key={direction} disabled={busy} onClick={() => startDrive(direction)}>{direction}</button>)}</div>
+                  <div className="ut2-action-title"><div><b>3<small>AT</small></b><span>Drive</span></div><em>Axis Commit</em></div><p>3 × 1 AT 分段推进；点击方向直接提交，途中按 Phase 结算碰撞。</p><div className="ut4-card-direction-grid">{directions.map((direction) => <button type="button" key={direction} disabled={busy} onClick={() => startDrive(direction)}>{direction}</button>)}</div>
                 </div>
-
-                <button
-                  type="button"
-                  data-action-id="heavy-release"
-                  className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'heavy' ? 'selected-action' : ''}`}
-                  disabled={busy}
-                  onClick={() => setPendingBoardAction((current) => current === 'heavy' ? null : 'heavy')}
-                >
-                  <div className="ut2-action-title"><div><b>2<small>AT</small></b><span>Heavy Release</span></div><em>Position M</em></div>
-                  <p>消耗 Position M，将其转为 Push / Strong Push / Launch，并产生自身热偏移。</p>
-                  <span className="ut3-card-cta">{pendingBoardAction === 'heavy' ? '点击 Dummy' : '选择释放'}</span>
+                <button type="button" data-action-id="heavy-release" className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'heavy' ? 'selected-action' : ''}`} disabled={busy} onClick={() => setPendingBoardAction((current) => current === 'heavy' ? null : 'heavy')}>
+                  <div className="ut2-action-title"><div><b>2<small>AT</small></b><span>Heavy Release</span></div><em>Position M</em></div><p>消耗 Position M，将其转为 Push / Strong Push / Launch，并产生自身热偏移。</p><span className="ut3-card-cta">{pendingBoardAction === 'heavy' ? '点击 Dummy' : '选择释放'}</span>
                 </button>
-
                 <button type="button" data-action-id="brake" className="ut2-action-card ut4-action-card" disabled={busy} onClick={() => updateLab((current) => brake(current, tuning), 'Brake')}>
-                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Brake</span></div><em>M → 0</em></div>
-                  <p>主动解除当前 Spatial Momentum 与 Axis 承诺。</p>
-                  <span className="ut3-card-cta">执行 Brake</span>
+                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Brake</span></div><em>M → 0</em></div><p>主动解除当前 Spatial Momentum 与 Axis 承诺。</p><span className="ut3-card-cta">执行 Brake</span>
                 </button>
               </div>
             </section>
@@ -450,13 +415,7 @@ export function CoupledInertiaLab() {
               <div className="ut4-diagnostics-body">
                 <div className="ut4-log-list">
                   {lab.logs.length === 0 && <p className="ut4-empty">执行动作、受击或 Step AT 后记录 T / Drift / Spatial / Contest 因果。</p>}
-                  {lab.logs.map((entry) => (
-                    <article key={entry.id}>
-                      <header><strong>{entry.timeAt.toFixed(1)} AT · {entry.label}</strong><span>{entry.spatialBefore.mode} M{entry.spatialBefore.level} → {entry.spatialAfter.mode} M{entry.spatialAfter.level}</span></header>
-                      <p>T {entry.thermalBefore.temperature.toFixed(2)} → {entry.thermalAfter.temperature.toFixed(2)} · Drift {entry.thermalBefore.drift.toFixed(2)} → {entry.thermalAfter.drift.toFixed(2)}</p>
-                      <small>{entry.detail}</small>
-                    </article>
-                  ))}
+                  {lab.logs.map((entry) => <article key={entry.id}><header><strong>{entry.timeAt.toFixed(1)} AT · {entry.label}</strong><span>{entry.spatialBefore.mode} M{entry.spatialBefore.level} → {entry.spatialAfter.mode} M{entry.spatialAfter.level}</span></header><p>T {entry.thermalBefore.temperature.toFixed(2)} → {entry.thermalAfter.temperature.toFixed(2)} · Drift {entry.thermalBefore.drift.toFixed(2)} → {entry.thermalAfter.drift.toFixed(2)}</p><small>{entry.detail}</small></article>)}
                 </div>
                 <div className="ut4-test-strip"><strong>快速验证</strong><span>Damping</span><span>Hot Build</span><span>Cold Build</span><span>Hit Heat</span><span>Heavy Release</span><span>Attack ≠ Contest</span><span>Cold → Hot → Cold</span></div>
               </div>
@@ -511,19 +470,14 @@ export function CoupledInertiaLab() {
         </section>
       </main>
 
-      <ThermalPendulumPortal
+      <CoupledThermalPendulumPortal
         enabled
-        inspectorActive={false}
-        liveState={{
-          temperature: lab.thermal.temperature,
-          setPoint: lab.thermal.setPoint,
-          drift: lab.thermal.drift,
-          elapsedAt: lab.worldTimeAt,
-          thermalPeriodAt: tuning.thermalPeriodAt,
-        }}
-        modeLabel="UT4 Thermal"
-        hideDebugDetails
-        onOpenInspector={openThermalDebug}
+        temperature={lab.thermal.temperature}
+        setPoint={lab.thermal.setPoint}
+        drift={lab.thermal.drift}
+        elapsedAt={lab.worldTimeAt}
+        thermalPeriodAt={tuning.thermalPeriodAt}
+        onOpenDebug={openThermalDebug}
       />
     </>
   )
