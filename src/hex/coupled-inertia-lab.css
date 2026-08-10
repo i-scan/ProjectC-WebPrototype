@@ -13,7 +13,6 @@
   flex: 0 0 auto;
   grid-template-columns: minmax(290px, 1fr) auto minmax(520px, auto);
 }
-
 .ut4-header-state { min-width: 0; }
 .ut4-header-state > div { min-width: 92px; }
 .ut4-header-state .domain-hot strong { color: #ff9a64; }
@@ -34,7 +33,6 @@
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
-
 .ut4-left-panel { padding-bottom: 10px; }
 .ut4-player-card { align-items: start; }
 .ut4-player-card > div:last-child { min-width: 0; }
@@ -47,7 +45,6 @@
   gap: 4px;
   margin-top: -2px;
 }
-
 .ut4-pendulum-readout span {
   min-width: 0;
   padding: 4px 5px;
@@ -57,7 +54,6 @@
   background: rgba(6, 16, 24, .5);
   font-size: 7px;
 }
-
 .ut4-pendulum-readout b { color: #d7e9ee; font-weight: 650; }
 
 .ut4-state-summary dl { display: grid; gap: 4px; margin: 0; }
@@ -73,9 +69,6 @@
 .ut4-state-summary dd { margin: 0; color: #d5e7ec; font-size: 8px; text-align: right; }
 .ut4-test-guide p { margin: 4px 0 0; }
 
-/* Hex6 defines its own five-row center grid. UT4 deliberately uses the third
-   row as the flexible board and reserves a compact fixed row for persistent
-   action cards, so the hand can never consume the board viewport. */
 .coupled-inertia-lab .visual-board-column.hex-board-column.ut4-board-column {
   min-width: 0;
   min-height: 0;
@@ -104,7 +97,6 @@
     radial-gradient(ellipse at 50% 28%, rgba(71, 130, 161, .24), transparent 46%),
     linear-gradient(180deg, #172c40 0%, #0c1927 68%, #08111b 100%);
 }
-
 .ut4-board-frame .hex-board-host,
 .ut4-board-frame .hex-travel-map-host { position: absolute; inset: 0; }
 
@@ -142,7 +134,6 @@
   border-top: 1px solid rgba(116, 165, 188, .14);
   background: rgba(8, 18, 28, .96);
 }
-
 .ut4-action-hand .visual-hand-heading { margin-bottom: 4px; }
 .ut4-action-hand .visual-hand-heading h2 { font-size: 12px; }
 .ut4-action-hand .visual-hand-heading p { margin-top: 1px; font-size: 7px; }
@@ -152,10 +143,8 @@
   height: 106px;
   display: flex;
   gap: 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   padding: 1px 1px 3px;
-  scrollbar-gutter: stable;
 }
 
 .ut4-action-card {
@@ -327,8 +316,13 @@ button:disabled { opacity: .45; cursor: default; }
 @media (max-width: 1500px) {
   .ut4-hud { grid-template-columns: minmax(240px, 1fr) auto minmax(440px, auto); }
   .ut4-visual-layout { grid-template-columns: 220px minmax(0, 1fr) 274px; }
-  .ut4-action-card { flex-basis: 146px; min-width: 146px; }
-  .ut4-drive-card { flex-basis: 188px; min-width: 188px; }
+  /* 842px center at the 1366 CI viewport: 5×128 + 172 + 5×6 = 842. */
+  .ut4-action-card { flex-basis: 128px; min-width: 128px; padding-inline: 6px; }
+  .ut4-drive-card { flex-basis: 172px; min-width: 172px; }
+  .ut2-action-title { gap: 4px; }
+  .ut2-action-title > div { gap: 4px; }
+  .ut2-action-title span { font-size: 9px; }
+  .ut2-action-title em { font-size: 6px; }
 }
 
 @media (max-width: 1180px) {
@@ -342,6 +336,7 @@ button:disabled { opacity: .45; cursor: default; }
   .ut4-visual-layout { grid-template-columns: 205px minmax(0, 1fr); overflow: visible; }
   .ut4-debug-panel { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
   .coupled-inertia-lab .visual-board-column.hex-board-column.ut4-board-column { min-height: 720px; }
+  .ut4-action-card-row { overflow-x: auto; }
 }
 
 @media (max-width: 820px) {
