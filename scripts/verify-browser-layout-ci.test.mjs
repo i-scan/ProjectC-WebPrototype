@@ -18,7 +18,8 @@ describe('browser verification CI resilience', () => {
     expect(ut4).toContain('VAL-012-UT4')
     expect(ut4).toContain('coupled-inertia-sandbox-v1')
     expect(ut4).toContain('3D Hex canvas is not visible')
-    expect(ut4).toContain('UT4 coupled inertia sandbox verified in real Chrome')
+    expect(ut4).toContain('primary UT4 page still requires vertical page scrolling')
+    expect(ut4).toContain('UT4 Hex6-shaped inertia lab verified in real Chrome')
   })
 
   it('does not retry deterministic Hex layout failures', () => {
