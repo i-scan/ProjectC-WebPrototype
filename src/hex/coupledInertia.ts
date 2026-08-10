@@ -329,8 +329,15 @@ function setActorSpatial(state: CoupledInertiaLabState, actorId: string, spatial
   state.spatialByActorId[actorId] = spatial
 }
 
-function spatialPowerForMove(spatial: SpatialInertiaState, direction: HexDirection): number {
-  return spatial.mode === 'movement' && spatial.axis === direction ? spatial.level : 0
+export function effectiveMovementInertiaForDirection(
+  spatial: SpatialInertiaState,
+  direction: HexDirection,
+  tuning: RuntimeTuning,
+): number {
+  if (spatial.mode !== 'movement' || spatial.level <= 0) return 0
+  const loss = steeringLossFor(spatial.axis, direction, tuning)
+  if (loss >= 99) return 0
+  return Math.max(0, spatial.level - loss)
 }
 
 function spatialPowerForDefense(spatial: SpatialInertiaState, coord: Coord): number {
@@ -425,19 +432,22 @@ function contestCell(
   attackerId: string,
   defenderId: string,
   direction: HexDirection,
+  tuning: RuntimeTuning,
 ): { winner: 'attacker' | 'defender'; detail: string } {
   const attacker = state.game.actors.find((actor) => actor.id === attackerId)!
   const defender = state.game.actors.find((actor) => actor.id === defenderId)!
   const attackerSpatial = actorSpatial(state, attackerId)
   const defenderSpatial = actorSpatial(state, defenderId)
-  const attackerPower = massPower(attacker.mass) + spatialPowerForMove(attackerSpatial, direction)
-  const defenderPower = massPower(defender.mass) + spatialPowerForDefense(defenderSpatial, defender.position)
+  const effectiveMovementM = effectiveMovementInertiaForDirection(attackerSpatial, direction, tuning)
+  const defenderPositionM = spatialPowerForDefense(defenderSpatial, defender.position)
+  const attackerPower = massPower(attacker.mass) + effectiveMovementM
+  const defenderPower = massPower(defender.mass) + defenderPositionM
   const difference = attackerPower - defenderPower
 
   if (difference <= 0) {
     return {
       winner: 'defender',
-      detail: `Cell Contest ${attackerPower} vs ${defenderPower}: Clash，入侵者未占格`,
+      detail: `Cell Contest ${attackerPower} vs ${defenderPower}: Clash，入侵者未占格 · Move M${effectiveMovementM} / Position M${defenderPositionM}`,
     }
   }
 
@@ -449,7 +459,7 @@ function contestCell(
   if (sameCoord(defender.position, defenderOrigin)) {
     return {
       winner: 'defender',
-      detail: `Cell Contest ${attackerPower} vs ${defenderPower}: defender 无法被推出，Clash`,
+      detail: `Cell Contest ${attackerPower} vs ${defenderPower}: defender 无法被推出，Clash · Move M${effectiveMovementM} / Position M${defenderPositionM}`,
     }
   }
   const attackerOrigin = { ...attacker.position }
@@ -457,7 +467,7 @@ function contestCell(
   clearPositionIfAnchorBroken(state, attackerId, attackerOrigin, attacker.position)
   return {
     winner: 'attacker',
-    detail: `Cell Contest ${attackerPower} vs ${defenderPower}: attacker 占格；${pushed.detail}`,
+    detail: `Cell Contest ${attackerPower} vs ${defenderPower}: attacker 占格；${pushed.detail} · Move M${effectiveMovementM} / Position M${defenderPositionM}`,
   }
 }
 
@@ -496,7 +506,7 @@ function advancePlayerThermal(
   return trace
 }
 
-function processQueuedDummyMove(state: CoupledInertiaLabState) {
+function processQueuedDummyMove(state: CoupledInertiaLabState, tuning: RuntimeTuning) {
   const queued = state.queuedDummyMove
   if (!queued || queued.executeAt > state.worldTimeAt) return ''
   const actor = state.game.actors.find((candidate) => candidate.id === queued.actorId && candidate.alive)
@@ -505,7 +515,7 @@ function processQueuedDummyMove(state: CoupledInertiaLabState) {
   const target = hexAdvance(actor.position, queued.direction)
   const occupant = actorAt(state.game, target)
   if (occupant && occupant.id !== actor.id) {
-    return `Queued Dummy Move: ${contestCell(state, actor.id, occupant.id, queued.direction).detail}`
+    return `Queued Dummy Move: ${contestCell(state, actor.id, occupant.id, queued.direction, tuning).detail}`
   }
   if (!traversable(state.game, target, actor.id)) return 'Queued Dummy Move blocked'
   const previous = { ...actor.position }
@@ -524,7 +534,7 @@ export function stepWorld(
   const thermalBefore = clone(state.thermal)
   const spatialBefore = clone(actorSpatial(state, 'player'))
   const trace = advancePlayerThermal(state, Math.max(0, deltaAt), tuning)
-  const queuedDetail = processQueuedDummyMove(state)
+  const queuedDetail = processQueuedDummyMove(state, tuning)
   appendLog(
     state,
     label,
@@ -595,7 +605,7 @@ export function holdPosition(
   const trace = advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.holdPositionAt, tuning)
   const built = positionBuild(actorSpatial(state, 'player'), player.position, trace)
   setActorSpatial(state, 'player', built)
-  const queued = processQueuedDummyMove(state)
+  const queued = processQueuedDummyMove(state, tuning)
   appendLog(
     state,
     'Hold Position',
@@ -615,7 +625,7 @@ export function brake(
   const spatialBefore = clone(actorSpatial(state, 'player'))
   setActorSpatial(state, 'player', createSpatialInertiaState())
   advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.brakeAt, tuning)
-  const queued = processQueuedDummyMove(state)
+  const queued = processQueuedDummyMove(state, tuning)
   appendLog(state, 'Brake', thermalBefore, spatialBefore, `Movement/Position M 清零${queued ? ` · ${queued}` : ''}`)
   return state
 }
@@ -639,7 +649,7 @@ export function basicMove(
   const occupant = actorAt(state.game, destination)
   let actionDetail = ''
   if (occupant && occupant.id !== player.id) {
-    actionDetail = contestCell(state, player.id, occupant.id, direction).detail
+    actionDetail = contestCell(state, player.id, occupant.id, direction, tuning).detail
   } else if (traversable(state.game, destination, player.id)) {
     player.position = destination
     clearPositionIfAnchorBroken(state, 'player', origin, destination)
@@ -653,7 +663,7 @@ export function basicMove(
   if (!sameCoord(origin, player.position)) {
     setActorSpatial(state, 'player', movementBuild(actorSpatial(state, 'player'), direction, trace, tuning))
   }
-  const queued = processQueuedDummyMove(state)
+  const queued = processQueuedDummyMove(state, tuning)
   appendLog(state, 'Basic Move', thermalBefore, spatialBefore, `${actionDetail}${queued ? ` · ${queued}` : ''}`)
   return state
 }
@@ -686,7 +696,7 @@ export function defaultWeaponAction(
   damageDiagnostic(target, 1)
   const trace = advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.defaultWeaponAt, tuning)
   setActorSpatial(state, 'player', positionBuild(actorSpatial(state, 'player'), player.position, trace))
-  const queued = processQueuedDummyMove(state)
+  const queued = processQueuedDummyMove(state, tuning)
   appendLog(
     state,
     `Default Weapon · ${state.weapon}`,
@@ -736,7 +746,7 @@ export function heavyRelease(
   }
   state.thermal.drift += tuning.heavyReleaseSelfHotwardDrift
   advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.heavyReleaseAt, tuning)
-  const queued = processQueuedDummyMove(state)
+  const queued = processQueuedDummyMove(state, tuning)
   appendLog(
     state,
     'Heavy Release',
@@ -772,7 +782,7 @@ function drivePhase(
 
   if (surface === 'hard') {
     const trace = advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.drivePhaseAt, tuning)
-    const queued = processQueuedDummyMove(state)
+    const queued = processQueuedDummyMove(state, tuning)
     setActorSpatial(state, 'player', reconcileSpatialWithTemperature(actorSpatial(state, 'player'), trace.state.temperature).spatial)
     detail += ` · Hard Crash${queued ? ` · ${queued}` : ''}`
     appendLog(state, 'Drive Contact', thermalBefore, spatialBefore, detail)
@@ -787,7 +797,7 @@ function drivePhase(
     const redirect = candidates.find((candidate) => traversable(state.game, hexAdvance(player.position, candidate.direction), player.id))
     if (!redirect) {
       const trace = advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.drivePhaseAt, tuning)
-      const queued = processQueuedDummyMove(state)
+      const queued = processQueuedDummyMove(state, tuning)
       setActorSpatial(state, 'player', reconcileSpatialWithTemperature(actorSpatial(state, 'player'), trace.state.temperature).spatial)
       detail += ` · Blocked · no redirect candidate${queued ? ` · ${queued}` : ''}`
       appendLog(state, 'Drive Contact', thermalBefore, spatialBefore, detail)
@@ -804,7 +814,7 @@ function drivePhase(
 
   const occupant = actorAt(state.game, destination)
   if (occupant && occupant.id !== player.id) {
-    detail += ` · ${contestCell(state, player.id, occupant.id, direction).detail}`
+    detail += ` · ${contestCell(state, player.id, occupant.id, direction, tuning).detail}`
   } else if (traversable(state.game, destination, player.id)) {
     const origin = { ...player.position }
     player.position = destination
@@ -820,7 +830,7 @@ function drivePhase(
   } else {
     setActorSpatial(state, 'player', reconcileSpatialWithTemperature(actorSpatial(state, 'player'), trace.state.temperature).spatial)
   }
-  const queued = processQueuedDummyMove(state)
+  const queued = processQueuedDummyMove(state, tuning)
   if (queued) detail += ` · ${queued}`
   appendLog(state, `Drive · AT Phase ${phaseIndex + 1}`, thermalBefore, spatialBefore, detail)
   return { state, phaseIndex, direction, detail }
