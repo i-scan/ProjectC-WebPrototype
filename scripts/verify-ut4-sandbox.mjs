@@ -50,7 +50,6 @@ class CdpClient {
   constructor(url) {
     this.nextId = 1
     this.pending = new Map()
-    this.events = new Map()
     this.socket = new WebSocket(url)
   }
 
@@ -99,27 +98,35 @@ const snapshotExpression = `(() => {
   const root = document.querySelector('.coupled-inertia-lab')
   const board = root?.querySelector('.ut4-board-frame')
   const canvas = board?.querySelector('.hex-board-host canvas')
-  const header = root?.querySelector('.ut4-header')
-  const lower = root?.querySelector('.ut4-lower-layout')
+  const actionHand = root?.querySelector('.ut4-action-hand')
+  const debugPanel = root?.querySelector('.ut4-debug-panel')
+  const thermalDebug = root?.querySelector('#ut4-thermal-debug')
+  const pendulum = root?.querySelector('.ut4-controlled-pendulum')
+  const diagnostics = root?.querySelector('.ut4-diagnostics')
   const text = root?.textContent ?? ''
   const rect = (element) => {
     if (!element) return null
     const value = element.getBoundingClientRect()
     return { left: value.left, top: value.top, width: value.width, height: value.height, right: value.right, bottom: value.bottom }
   }
-  const stateCards = [...(root?.querySelectorAll('.ut4-header-state > div') ?? [])].map((node) => node.textContent.trim())
   return {
     root: rect(root),
-    header: rect(header),
     board: rect(board),
     canvas: rect(canvas),
-    lower: rect(lower),
+    actionHand: rect(actionHand),
+    debugPanel: rect(debugPanel),
+    thermalDebug: rect(thermalDebug),
+    pendulum: rect(pendulum),
+    diagnostics: rect(diagnostics),
+    viewportHeight: window.innerHeight,
+    pageScrollHeight: document.scrollingElement?.scrollHeight ?? 0,
     ruleset: root?.getAttribute('data-ruleset') ?? null,
     implementation: root?.getAttribute('data-implementation') ?? null,
-    stateCards,
+    actionCards: root?.querySelectorAll('.ut4-action-card').length ?? 0,
+    duplicateThermalEditor: Boolean(root?.querySelector('.thermal-clock-inline-root')),
     hasThermalDebug: text.includes('Thermal Debug'),
     hasSpatialDebug: text.includes('Spatial Debug'),
-    hasEventLog: text.includes('Event Log'),
+    hasActionLog: text.includes('Action / Event Log'),
     hasHeavyRelease: text.includes('Heavy Release'),
     hasHoldPosition: text.includes('Hold Position'),
     hasHitControl: text.includes('受击 / Hit Player'),
@@ -131,13 +138,20 @@ function verifySnapshot(snapshot, label) {
   assert(snapshot.ruleset === 'VAL-012-UT4', `${label}: active ruleset marker is not UT4`, snapshot)
   assert(snapshot.implementation === 'coupled-inertia-sandbox-v1', `${label}: implementation marker is missing`, snapshot)
   assert(snapshot.root && snapshot.root.width > 700, `${label}: sandbox root is collapsed`, snapshot)
-  assert(snapshot.header && snapshot.header.height > 50, `${label}: sandbox header is collapsed`, snapshot)
-  assert(snapshot.board && snapshot.board.width > 400 && snapshot.board.height > 400, `${label}: central board frame is collapsed`, snapshot)
-  assert(snapshot.canvas && snapshot.canvas.width > 390 && snapshot.canvas.height > 390, `${label}: 3D Hex canvas is not visible`, snapshot)
-  assert(snapshot.lower && snapshot.lower.height > 200, `${label}: Thermal/Event Log lower region is collapsed`, snapshot)
+  assert(snapshot.board && snapshot.board.width > 400 && snapshot.board.height > 280, `${label}: central board frame is collapsed`, snapshot)
+  assert(snapshot.canvas && snapshot.canvas.width > 390 && snapshot.canvas.height > 270, `${label}: 3D Hex canvas is not visible`, snapshot)
+  assert(snapshot.actionHand && snapshot.actionHand.height > 95, `${label}: Player Actions hand is missing`, snapshot)
+  assert(snapshot.actionHand.bottom <= snapshot.viewportHeight + 2, `${label}: Player Actions fell below the viewport`, snapshot)
+  assert(snapshot.debugPanel && snapshot.debugPanel.height > 400, `${label}: right Debug panel is collapsed`, snapshot)
+  assert(snapshot.thermalDebug && snapshot.thermalDebug.top < snapshot.viewportHeight, `${label}: Thermal Debug starts below the viewport`, snapshot)
+  assert(snapshot.pendulum && snapshot.pendulum.width > 120 && snapshot.pendulum.height > 120, `${label}: UT4 pendulum is not mounted in the actor panel`, snapshot)
+  assert(snapshot.pendulum.bottom <= snapshot.viewportHeight + 2, `${label}: UT4 pendulum fell below the viewport`, snapshot)
+  assert(snapshot.pageScrollHeight <= snapshot.viewportHeight + 8, `${label}: primary UT4 page still requires vertical page scrolling`, snapshot)
+  assert(snapshot.actionCards >= 6, `${label}: persistent Player Action cards are missing`, snapshot)
+  assert(!snapshot.duplicateThermalEditor, `${label}: duplicate bottom Thermal editor is still mounted`, snapshot)
   assert(snapshot.hasThermalDebug, `${label}: Thermal Debug controls are missing`, snapshot)
   assert(snapshot.hasSpatialDebug, `${label}: Spatial Debug controls are missing`, snapshot)
-  assert(snapshot.hasEventLog, `${label}: Event Log is missing`, snapshot)
+  assert(snapshot.hasActionLog, `${label}: Action / Event Log is missing`, snapshot)
   assert(snapshot.hasHeavyRelease, `${label}: Heavy Release control is missing`, snapshot)
   assert(snapshot.hasHoldPosition, `${label}: Hold Position control is missing`, snapshot)
   assert(snapshot.hasHitControl, `${label}: Inject Hit control is missing`, snapshot)
@@ -187,12 +201,7 @@ try {
   await client.open()
   await client.send('Page.enable')
   await client.send('Runtime.enable')
-  await client.send('Emulation.setDeviceMetricsOverride', {
-    width: 1366,
-    height: 1080,
-    deviceScaleFactor: 1,
-    mobile: false,
-  })
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 1366, height: 1080, deviceScaleFactor: 1, mobile: false })
   await client.send('Page.navigate', { url: pageUrl })
 
   await waitFor('UT4 sandbox root', async () => {
@@ -203,6 +212,11 @@ try {
   await waitFor('UT4 3D board canvas', async () => {
     const ready = await evaluate(client, `Boolean(document.querySelector('.coupled-inertia-lab .ut4-board-frame .hex-board-host canvas'))`)
     if (!ready) throw new Error('3D board canvas not mounted')
+    return true
+  })
+  await waitFor('UT4 pendulum', async () => {
+    const ready = await evaluate(client, `Boolean(document.querySelector('.coupled-inertia-lab .ut4-controlled-pendulum'))`)
+    if (!ready) throw new Error('controlled UT4 pendulum not mounted')
     return true
   })
   await sleep(450)
@@ -236,7 +250,7 @@ try {
   })
 
   await evaluate(client, `(() => {
-    const button = [...document.querySelectorAll('.ut4-board-toolbar button')].find((node) => node.textContent.trim() === '2D')
+    const button = [...document.querySelectorAll('.hex-view-switch button')].find((node) => node.textContent.trim() === '2D')
     if (!button) throw new Error('2D button missing')
     button.click()
     return true
@@ -248,7 +262,7 @@ try {
   })
 
   await evaluate(client, `(() => {
-    const button = [...document.querySelectorAll('.ut4-board-toolbar button')].find((node) => node.textContent.trim() === '3D')
+    const button = [...document.querySelectorAll('.hex-view-switch button')].find((node) => node.textContent.trim() === '3D')
     if (!button) throw new Error('3D button missing')
     button.click()
     return true
@@ -268,7 +282,7 @@ try {
   await writeFile(join(artifactDir, 'ut4-sandbox.png'), Buffer.from(screenshot.data, 'base64'))
   await writeFile(join(artifactDir, 'ut4-sandbox.json'), `${JSON.stringify({ domainBefore, initial, finalSnapshot }, null, 2)}\n`)
 
-  console.log('UT4 coupled inertia sandbox verified in real Chrome at 1366x1080.')
+  console.log('UT4 Hex6-shaped inertia lab verified in real Chrome at 1366x1080 without primary-page scrolling.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')
