@@ -11,12 +11,12 @@ import {
   holdPosition,
   injectHit,
   reconcileSpatialWithTemperature,
-  resolveDrive,
   setSpatialDebug,
   setThermalDebug,
   stepWorld,
   thermalDomainFor,
 } from './coupledInertia'
+import { resolveDriveRuntime, setSpatialDebugRuntime } from './coupledInertiaRuntime'
 import { hexAdvance } from './hexTopology'
 
 const tuning = () => defaultRuntimeTuning()
@@ -48,7 +48,7 @@ describe('VAL-012 UT4 coupled inertia', () => {
     expect(reconcileSpatialWithTemperature(position, 0.01).spatial.mode).toBe('none')
   })
 
-  it('builds at most one Position M for a fully cold stationary action', () => {
+  it('builds at most one Position M for each fully cold stationary action', () => {
     let lab = createCoupledInertiaLabState()
     lab = setThermalDebug(lab, { temperature: -4, drift: 0, setPoint: -2 })
     lab = holdPosition(lab, tuning())
@@ -56,6 +56,10 @@ describe('VAL-012 UT4 coupled inertia', () => {
     expect(lab.spatialByActorId.player.level).toBe(1)
     const anchor = lab.spatialByActorId.player.anchorCellId
 
+    // Reconstruct a fully Cold start for the next diagnostic action. The
+    // damped solver is allowed to leave Cold between actions; that must not be
+    // confused with the per-action +1 cap.
+    lab = setThermalDebug(lab, { temperature: -4, drift: 0, setPoint: -2 })
     lab = holdPosition(lab, tuning())
     expect(lab.spatialByActorId.player.level).toBe(2)
     expect(lab.spatialByActorId.player.anchorCellId).toBe(anchor)
@@ -118,10 +122,32 @@ describe('VAL-012 UT4 coupled inertia', () => {
   it('executes Drive as three committed AT phases instead of invalidating the whole action', () => {
     let lab = createCoupledInertiaLabState()
     lab = setThermalDebug(lab, { temperature: 4, drift: 0, setPoint: 2 })
-    const frames = resolveDrive(lab, 'E', tuning())
+    const frames = resolveDriveRuntime(lab, 'E', tuning())
     expect(frames).toHaveLength(3)
     expect(frames.at(-1)!.state.worldTimeAt).toBe(3)
     expect(frames.some((frame) => /Contest|Redirect|Crash|Stop|Move/.test(frame.detail))).toBe(true)
+  })
+
+  it('does not mint Movement M for a Drive phase that consumes AT without changing Cell', () => {
+    let lab = createCoupledInertiaLabState()
+    lab = setThermalDebug(lab, { temperature: 4.5, drift: 0, setPoint: 2 })
+    const player = getPlayer(lab.game)
+    const dummy = lab.game.actors.find((actor) => actor.id !== 'player' && actor.position.x === hexAdvance(player.position, 'E').x && actor.position.y === hexAdvance(player.position, 'E').y)!
+    lab = setSpatialDebug(lab, dummy.id, { level: 3, mode: 'position', anchorCellId: `${dummy.position.x},${dummy.position.y}` })
+    const frames = resolveDriveRuntime(lab, 'E', tuning())
+    const blockedFrame = frames.find((frame, index) => {
+      const before = index === 0 ? lab : frames[index - 1].state
+      return getPlayer(before.game).position.x === getPlayer(frame.state.game).position.x
+        && getPlayer(before.game).position.y === getPlayer(frame.state.game).position.y
+    })
+    if (blockedFrame) expect(blockedFrame.state.spatialByActorId.player.level).toBe(0)
+  })
+
+  it('lets the sandbox explicitly construct Spatial Mode None without recursion', () => {
+    let lab = createCoupledInertiaLabState()
+    lab = setSpatialDebug(lab, 'player', { level: 2, mode: 'movement', axis: 'E' })
+    lab = setSpatialDebugRuntime(lab, 'player', { mode: 'none' })
+    expect(lab.spatialByActorId.player).toEqual(createSpatialInertiaState())
   })
 
   it('lets manual world steps advance damping without selecting a player action', () => {
