@@ -359,6 +359,11 @@ function clearPositionIfAnchorBroken(state: CoupledInertiaLabState, actorId: str
   setActorSpatial(state, actorId, createSpatialInertiaState())
 }
 
+function brakeStaticMovement(state: CoupledInertiaLabState, actorId: string) {
+  const spatial = actorSpatial(state, actorId)
+  if (spatial.mode === 'movement') setActorSpatial(state, actorId, createSpatialInertiaState())
+}
+
 function forcedMove(
   state: CoupledInertiaLabState,
   actorId: string,
@@ -553,6 +558,7 @@ export function injectHit(
   const stability = anchoredPositionLevel * coupledInertiaExperimentConfig.spatial.positionStabilityPerLevel
   const remainingStrength = Math.max(0, hit.forcedStrength - stability)
   const forceDirection = oppositeDirection(incomingDirection)
+  const positionBeforeHit = { ...player.position }
   let forcedDetail = '位置未改变'
 
   if (remainingStrength > 0) {
@@ -560,8 +566,9 @@ export function injectHit(
     forcedDetail = motion.detail
   }
   damageDiagnostic(player, hit.damage)
+  const actualForcedMotion = !sameCoord(positionBeforeHit, player.position)
   const driftGain = tuning.hitHotwardDrift[hitType]
-    + (hit.forcedStrength > 0 ? tuning.forcedMotionExtraHotwardDrift : 0)
+    + (actualForcedMotion ? tuning.forcedMotionExtraHotwardDrift : 0)
   state.thermal.drift += driftGain
   const reconciled = reconcileSpatialWithTemperature(actorSpatial(state, 'player'), state.thermal.temperature)
   setActorSpatial(state, 'player', reconciled.spatial)
@@ -584,6 +591,7 @@ export function holdPosition(
   const player = getPlayer(state.game)
   const thermalBefore = clone(state.thermal)
   const spatialBefore = clone(actorSpatial(state, 'player'))
+  brakeStaticMovement(state, 'player')
   const trace = advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.holdPositionAt, tuning)
   const built = positionBuild(actorSpatial(state, 'player'), player.position, trace)
   setActorSpatial(state, 'player', built)
@@ -593,7 +601,7 @@ export function holdPosition(
     'Hold Position',
     thermalBefore,
     spatialBefore,
-    `${trace.maximumTemperature <= coupledInertiaExperimentConfig.thermal.coldDomainThreshold ? `Cold stationary build → M${built.level}` : '未保持完整 Cold Domain，不 Build'}${queued ? ` · ${queued}` : ''}`,
+    `${spatialBefore.mode === 'movement' ? 'Static Brake · ' : ''}${trace.maximumTemperature <= coupledInertiaExperimentConfig.thermal.coldDomainThreshold ? `Cold stationary build → M${built.level}` : '未保持完整 Cold Domain，不 Build'}${queued ? ` · ${queued}` : ''}`,
   )
   return state
 }
@@ -674,6 +682,7 @@ export function defaultWeaponAction(
     return state
   }
 
+  brakeStaticMovement(state, 'player')
   damageDiagnostic(target, 1)
   const trace = advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.defaultWeaponAt, tuning)
   setActorSpatial(state, 'player', positionBuild(actorSpatial(state, 'player'), player.position, trace))
@@ -683,7 +692,7 @@ export function defaultWeaponAction(
     `Default Weapon · ${state.weapon}`,
     thermalBefore,
     spatialBefore,
-    `Damage 1 · attacker Cell unchanged · no Cell Contest${queued ? ` · ${queued}` : ''}`,
+    `${spatialBefore.mode === 'movement' ? 'Static Brake · ' : ''}Damage 1 · attacker Cell unchanged · no Cell Contest${queued ? ` · ${queued}` : ''}`,
   )
   return state
 }
@@ -707,6 +716,7 @@ export function heavyRelease(
     && spatialBefore.anchorCellId === keyOf(player.position)
     ? spatialBefore.level
     : 0
+  if (spatialBefore.mode === 'movement') brakeStaticMovement(state, 'player')
   damageDiagnostic(target, coupledInertiaExperimentConfig.heavyRelease.damage)
   let distance = 0
   let mode = 'Damage only'
@@ -721,7 +731,7 @@ export function heavyRelease(
     mode = 'Launch'
   }
   const motion = distance > 0 ? forcedMove(state, targetActorId, direction, distance) : undefined
-  if (coupledInertiaExperimentConfig.heavyRelease.consumeAllPositionInertia) {
+  if (coupledInertiaExperimentConfig.heavyRelease.consumeAllPositionInertia || spatialBefore.mode === 'movement') {
     setActorSpatial(state, 'player', createSpatialInertiaState())
   }
   state.thermal.drift += tuning.heavyReleaseSelfHotwardDrift
@@ -732,7 +742,7 @@ export function heavyRelease(
     'Heavy Release',
     thermalBefore,
     spatialBefore,
-    `Position M${availablePositionM} → ${mode}${motion ? ` · ${motion.detail}` : ''} · self Drift +${tuning.heavyReleaseSelfHotwardDrift.toFixed(2)}${queued ? ` · ${queued}` : ''}`,
+    `${spatialBefore.mode === 'movement' ? 'Static Brake · ' : ''}Position M${availablePositionM} → ${mode}${motion ? ` · ${motion.detail}` : ''} · self Drift +${tuning.heavyReleaseSelfHotwardDrift.toFixed(2)}${queued ? ` · ${queued}` : ''}`,
   )
   return state
 }
@@ -752,6 +762,7 @@ function drivePhase(
 ): DriveFrame {
   const state = clone(input)
   const player = getPlayer(state.game)
+  const phaseOrigin = { ...player.position }
   const thermalBefore = clone(state.thermal)
   const spatialBefore = clone(actorSpatial(state, 'player'))
   let direction = directionInput
@@ -759,17 +770,28 @@ function drivePhase(
   let detail = `Phase ${phaseIndex + 1}`
   const surface = surfaceAt(state.game, destination)
 
-  if (surface === 'hard' || (!traversable(state.game, destination, player.id) && !actorAt(state.game, destination))) {
+  if (surface === 'hard') {
+    const trace = advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.drivePhaseAt, tuning)
+    const queued = processQueuedDummyMove(state)
+    setActorSpatial(state, 'player', reconcileSpatialWithTemperature(actorSpatial(state, 'player'), trace.state.temperature).spatial)
+    detail += ` · Hard Crash${queued ? ` · ${queued}` : ''}`
+    appendLog(state, 'Drive Contact', thermalBefore, spatialBefore, detail)
+    return { state, phaseIndex, direction, detail }
+  }
+
+  if (!traversable(state.game, destination, player.id) && !actorAt(state.game, destination)) {
     const candidates: Array<{ direction: HexDirection; label: string }> = [
       { direction: rotateDirection(direction, -1), label: 'Redirect -60°' },
       { direction: rotateDirection(direction, 1), label: 'Redirect +60°' },
     ]
     const redirect = candidates.find((candidate) => traversable(state.game, hexAdvance(player.position, candidate.direction), player.id))
     if (!redirect) {
-      advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.drivePhaseAt, tuning)
-      setActorSpatial(state, 'player', reconcileSpatialWithTemperature(actorSpatial(state, 'player'), state.thermal.temperature).spatial)
-      appendLog(state, 'Drive Contact', thermalBefore, spatialBefore, `${surface === 'hard' ? 'Hard Crash' : 'Blocked'} · no redirect candidate`)
-      return { state, phaseIndex, direction, detail: 'Crash / Stop' }
+      const trace = advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.drivePhaseAt, tuning)
+      const queued = processQueuedDummyMove(state)
+      setActorSpatial(state, 'player', reconcileSpatialWithTemperature(actorSpatial(state, 'player'), trace.state.temperature).spatial)
+      detail += ` · Blocked · no redirect candidate${queued ? ` · ${queued}` : ''}`
+      appendLog(state, 'Drive Contact', thermalBefore, spatialBefore, detail)
+      return { state, phaseIndex, direction, detail: `${detail} · Stop` }
     }
     direction = redirect.direction
     destination = hexAdvance(player.position, direction)
@@ -793,9 +815,13 @@ function drivePhase(
   }
 
   const trace = advancePlayerThermal(state, coupledInertiaExperimentConfig.actions.drivePhaseAt, tuning)
-  if (!sameCoord(player.position, hexAdvance(player.position, oppositeDirection(direction)))) {
+  if (!sameCoord(phaseOrigin, player.position)) {
     setActorSpatial(state, 'player', movementBuild(actorSpatial(state, 'player'), direction, trace, tuning))
+  } else {
+    setActorSpatial(state, 'player', reconcileSpatialWithTemperature(actorSpatial(state, 'player'), trace.state.temperature).spatial)
   }
+  const queued = processQueuedDummyMove(state)
+  if (queued) detail += ` · ${queued}`
   appendLog(state, `Drive · AT Phase ${phaseIndex + 1}`, thermalBefore, spatialBefore, detail)
   return { state, phaseIndex, direction, detail }
 }
@@ -858,6 +884,10 @@ export function setSpatialDebug(
   patch: Partial<SpatialInertiaState>,
 ): CoupledInertiaLabState {
   const state = clone(input)
+  if (patch.mode === 'none') {
+    setActorSpatial(state, actorId, createSpatialInertiaState())
+    return state
+  }
   const next = { ...actorSpatial(state, actorId), ...patch }
   next.level = clampSpatialLevel(next.level)
   next.pendingLevel = clampSpatialLevel(next.pendingLevel)
@@ -867,7 +897,10 @@ export function setSpatialDebug(
     const actor = state.game.actors.find((candidate) => candidate.id === actorId)
     next.anchorCellId = next.anchorCellId ?? (actor ? keyOf(actor.position) : null)
   }
-  if (next.mode === 'none') return setSpatialDebug(state, actorId, createSpatialInertiaState())
+  if (next.mode === 'none') {
+    setActorSpatial(state, actorId, createSpatialInertiaState())
+    return state
+  }
   setActorSpatial(state, actorId, next)
   return state
 }
