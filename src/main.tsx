@@ -1,8 +1,8 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { App } from './App'
 import { BuildRevision } from './BuildRevision'
 import { GraphicsLab } from './graphics/GraphicsLab'
+import { CoupledInertiaLab } from './hex/CoupledInertiaLab'
 import { HexPrototype } from './hex/HexPrototype'
 import { InspectorLayoutContract } from './hex/InspectorLayoutContract'
 import { VisualFeedbackObserver } from './visual/VisualFeedbackObserver'
@@ -51,7 +51,7 @@ function Root() {
         </div>
         <nav aria-label="Prototype views">
           <button className={view === 'rules' ? 'selected' : ''} onClick={() => navigate('rules')}>
-            惯性实验室
+            惯性实验室 UT4
           </button>
           <button className={view === 'visual' ? 'selected' : ''} onClick={() => navigate('visual')}>
             Square4
@@ -64,7 +64,7 @@ function Root() {
           </button>
         </nav>
       </div>
-      {view === 'rules' && <App />}
+      {view === 'rules' && <CoupledInertiaLab />}
       {view === 'visual' && <VisualPrototype />}
       {view === 'hex' && <HexPrototype />}
       {view === 'graphics' && <GraphicsLab />}
