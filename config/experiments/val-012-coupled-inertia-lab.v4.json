@@ -13,7 +13,7 @@
     "setPointMax": 2,
     "hotDomainThreshold": 3,
     "coldDomainThreshold": -3,
-    "damping": 0.42,
+    "damping": 1,
     "thermalPeriodAt": 8,
     "ambientThermalBias": 0,
     "settleTemperatureEpsilon": 0.025,
