@@ -4,10 +4,12 @@ import type { PlaybackEvent } from '../visual/visualPlayback'
 import { CoupledThermalPendulumPortal } from './CoupledThermalPendulumPortal'
 import { HexThreeBoard, type HexBoardSelection } from './HexThreeBoard'
 import { HexTravelMap } from './HexTravelMap'
+import { Ut4DiagnosticSurfaceOverlay } from './Ut4DiagnosticSurfaceOverlay'
 import { Ut4MovementAxisOverlay } from './Ut4MovementAxisOverlay'
 import {
   basicMove,
   brake,
+  coupledInertiaExperimentConfig,
   createCoupledInertiaLabState,
   createSpatialInertiaState,
   defaultRuntimeTuning,
@@ -42,9 +44,11 @@ import './coupled-inertia-lab.css'
 
 type PendingBoardAction = 'move' | 'drive' | 'weapon' | 'heavy' | null
 type RendererMode = '2d' | '3d'
+type DamageSpec = { actorId: string; amount: number }
 
 const selectionInspect: HexBoardSelection = { kind: 'inspect' }
 const directions = HEX_DIRECTIONS.map((entry) => entry.direction)
+const LAB_MAX_HP = 12
 
 function sameCoord(a: Coord, b: Coord) {
   return a.x === b.x && a.y === b.y
@@ -127,11 +131,49 @@ function domainLabel(domain: ReturnType<typeof thermalDomainFor>) {
 }
 
 function createBaselineLabState() {
-  return setThermalDebug(createCoupledInertiaLabState(), {
+  const state = setThermalDebug(createCoupledInertiaLabState(), {
     temperature: 1,
     drift: 0,
     setPoint: 1,
   })
+  for (const actor of state.game.actors) {
+    actor.maxHp = LAB_MAX_HP
+    actor.hp = LAB_MAX_HP
+    actor.alive = true
+  }
+  return state
+}
+
+function applyLabDamagePolicy(
+  before: CoupledInertiaLabState,
+  after: CoupledInertiaLabState,
+  damage: DamageSpec | undefined,
+  nobodyDies: boolean,
+) {
+  if (!damage || damage.amount <= 0) return after
+  const actorBefore = before.game.actors.find((actor) => actor.id === damage.actorId)
+  if (!actorBefore) return after
+  const next = structuredClone(after)
+  const actorAfter = next.game.actors.find((actor) => actor.id === damage.actorId)
+  if (!actorAfter) return after
+
+  const remainingHp = actorBefore.hp - damage.amount
+  if (remainingHp > 0) {
+    actorAfter.hp = remainingHp
+    actorAfter.alive = true
+    return next
+  }
+
+  if (nobodyDies) {
+    actorAfter.hp = actorAfter.maxHp
+    actorAfter.alive = true
+    if (next.logs[0]) next.logs[0].detail += ` · Nobody Dies: ${actorAfter.name} HP refill → ${actorAfter.maxHp}`
+  } else {
+    actorAfter.hp = 0
+    actorAfter.alive = false
+    if (next.logs[0]) next.logs[0].detail += ` · ${actorAfter.name} HP 0 → defeated`
+  }
+  return next
 }
 
 export function CoupledInertiaLab() {
@@ -148,10 +190,11 @@ export function CoupledInertiaLab() {
   const [driveFrames, setDriveFrames] = useState<DriveFrame[]>([])
   const [playbackRate, setPlaybackRate] = useState(1)
   const [autoRun, setAutoRun] = useState(false)
+  const [nobodyDies, setNobodyDies] = useState(true)
 
   const player = getPlayer(lab.game)
   const playerSpatial = lab.spatialByActorId.player ?? createSpatialInertiaState()
-  const selectedActor = lab.game.actors.find((actor) => actor.id === lab.selectedActorId) ?? player
+  const selectedActor = lab.game.actors.find((actor) => actor.id === lab.selectedActorId && actor.alive) ?? player
   const selectedSpatial = lab.spatialByActorId[selectedActor.id] ?? createSpatialInertiaState()
   const domain = thermalDomainFor(lab.thermal.temperature)
   const momentumByActorId = useMemo(
@@ -202,10 +245,12 @@ export function CoupledInertiaLab() {
     transform: (current: CoupledInertiaLabState) => CoupledInertiaLabState,
     label: string,
     targetActorId?: string,
+    damage?: DamageSpec,
   ) => {
     if (driveFrames.length > 0) return
     setLab((current) => {
-      const next = transform(current)
+      const transformed = transform(current)
+      const next = applyLabDamagePolicy(current, transformed, damage, nobodyDies)
       setSelectedCoord({ ...getPlayer(next.game).position })
       setEvent(eventForStateChange(current, next, label, targetActorId))
       return next
@@ -245,11 +290,21 @@ export function CoupledInertiaLab() {
     }
     if (!clickedActor || clickedActor.id === 'player') return
     if (pendingBoardAction === 'weapon') {
-      updateLab((current) => defaultWeaponAction(current, clickedActor.id, tuning), `Default ${lab.weapon}`, clickedActor.id)
+      updateLab(
+        (current) => defaultWeaponAction(current, clickedActor.id, tuning),
+        `Default ${lab.weapon}`,
+        clickedActor.id,
+        { actorId: clickedActor.id, amount: 1 },
+      )
       setPendingBoardAction(null)
       return
     }
-    updateLab((current) => heavyRelease(current, clickedActor.id, tuning), 'Heavy Release', clickedActor.id)
+    updateLab(
+      (current) => heavyRelease(current, clickedActor.id, tuning),
+      'Heavy Release',
+      clickedActor.id,
+      { actorId: clickedActor.id, amount: coupledInertiaExperimentConfig.heavyRelease.damage },
+    )
     setPendingBoardAction(null)
   }
 
@@ -282,7 +337,12 @@ export function CoupledInertiaLab() {
 
   const injectSelectedHit = () => {
     const direction = hitDirection === 'auto' ? nearestDummyDirection(lab) : hitDirection
-    updateLab((current) => injectHit(current, hitType, direction, tuning), `Inject Hit · ${hitType}`, 'player')
+    updateLab(
+      (current) => injectHit(current, hitType, direction, tuning),
+      `Inject Hit · ${hitType}`,
+      'player',
+      { actorId: 'player', amount: coupledInertiaExperimentConfig.hits[hitType].damage },
+    )
   }
 
   const openThermalDebug = () => {
@@ -291,6 +351,14 @@ export function CoupledInertiaLab() {
 
   const selectedDistance = hexDistance(player.position, selectedCoord)
   const busy = driveFrames.length > 0
+  const latestLog = lab.logs[0]
+  const runtimeFeedback = latestLog?.label.startsWith('Inject Hit')
+    ? 'Hit 是 0 AT：HP / Drift / Forced Motion 已更新；Temperature 要在后续 AT 才沿新 Drift 演化，Forced Motion 不生成 Movement M。'
+    : latestLog?.label.startsWith('Drive') && playerSpatial.level === 0
+      ? 'Drive 当前 M0：只有完整 1 AT Phase 都保持 Hot（T ≥ +3）且实际换格，才会建立 Movement M。'
+      : latestLog?.label.startsWith('Drive')
+        ? `Drive runtime：${spatialModeLabel(playerSpatial.mode)} M${playerSpatial.level} · Axis ${playerSpatial.axis ?? '—'}`
+        : 'Debug 面板只负责写入诊断状态；之后 Thermal / Spatial 都由动作与 world AT 规则继续演化。'
   const pendingLabel = pendingBoardAction === 'move'
     ? 'Basic Move：连续点击高亮相邻格；再次点击卡牌退出'
     : pendingBoardAction === 'drive'
@@ -299,7 +367,7 @@ export function CoupledInertiaLab() {
         ? `Default ${lab.weapon}：点击 Dummy`
         : pendingBoardAction === 'heavy'
           ? 'Heavy Release：点击 Dummy'
-          : '点击 Actor 可切换 Spatial Debug 目标'
+          : runtimeFeedback
   const thermalPercent = Math.max(0, Math.min(100, (lab.thermal.temperature + 6) / 12 * 100))
 
   return (
@@ -334,7 +402,7 @@ export function CoupledInertiaLab() {
                 <p>Coupled Inertia Actor</p>
                 <h2>{player.name}</h2>
                 <div className="visual-bars">
-                  <div><span>HP</span><i><b style={{ width: `${(player.hp / player.maxHp) * 100}%` }} /></i><strong>{player.hp}/{player.maxHp}</strong></div>
+                  <div><span>HP</span><i><b style={{ width: `${Math.max(0, (player.hp / player.maxHp) * 100)}%` }} /></i><strong>{player.hp}/{player.maxHp}</strong></div>
                   <div><span>Thermal</span><i className="temperature"><b style={{ width: `${thermalPercent}%` }} /></i><strong>{lab.thermal.temperature.toFixed(1)}</strong></div>
                 </div>
               </div>
@@ -352,10 +420,11 @@ export function CoupledInertiaLab() {
             </section>
 
             <section className="visual-slice-note ut4-test-guide">
-              <h3>测试逻辑</h3>
-              <p>右侧先构造 Thermal / Spatial 状态，再在中央用动作卡提交操作。</p>
-              <p>Basic Move 保持连续选择；Drive 与 Hex6 一样从棋盘候选落点提交。</p>
-              <p>需要查结算因果时，再展开动作卡下方的 Action / Event Log。</p>
+              <h3>运行逻辑</h3>
+              <p>Thermal / Spatial Debug 只直接构造数值；提交后不持续锁值。</p>
+              <p>Inject Hit 是同一 timeAt 的 0 AT 事件：先改 HP / Drift / Forced Motion，Temperature 等后续 AT 再变化。</p>
+              <p>Forced Motion 不等于 Movement Inertia；被击退不会自动获得 M / Axis。Drive 只有完整 Hot Phase 才 Build M。</p>
+              <p>棋盘上的 Hard / Reflect L / Reflect R 是真实规则表面，会让 Drive Crash / Bounce。</p>
             </section>
           </aside>
 
@@ -369,7 +438,7 @@ export function CoupledInertiaLab() {
             <div className="visual-board-toolbar ut4-board-toolbar">
               <div className="visual-camera-help">
                 <button onClick={() => setCameraResetToken((value) => value + 1)}>重置视图</button>
-                <span>{rendererMode === '3d' ? '拖动旋转 · 滚轮缩放 · 点击高亮格提交动作。' : '2D 用于快速观察 Cell Contest、Forced Motion 与候选格。'}</span>
+                <span>{rendererMode === '3d' ? '拖动旋转 · 滚轮缩放 · 黄色标签是 UT4 Hard / Reflect 规则表面。' : '2D 用于快速观察 Cell Contest、Forced Motion、候选格与规则表面。'}</span>
               </div>
               <div className="visual-session-controls">
                 <button onClick={resetState}>重置状态</button>
@@ -412,6 +481,7 @@ export function CoupledInertiaLab() {
                   onCellHover={setHoverCoord}
                 />
               )}
+              <Ut4DiagnosticSurfaceOverlay state={lab.game} rendererMode={rendererMode} cameraResetToken={cameraResetToken} />
               <Ut4MovementAxisOverlay
                 state={lab.game}
                 spatialByActorId={lab.spatialByActorId}
@@ -436,13 +506,13 @@ export function CoupledInertiaLab() {
                   <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Basic Move</span></div><em>Continuous</em></div><p>选中后持续高亮相邻可移动格；每次点击执行 1 AT，并保持该卡选中。</p><span className="ut3-card-cta">{pendingBoardAction === 'move' ? '连续点击棋盘' : '选择移动'}</span>
                 </button>
                 <button type="button" data-action-id="default-weapon" className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'weapon' ? 'selected-action' : ''}`} disabled={busy} onClick={() => setPendingBoardAction((current) => current === 'weapon' ? null : 'weapon')}>
-                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Default Weapon</span></div><em>{lab.weapon}</em></div><p>点击 Dummy 攻击。与移动争格分离，不触发 Cell Contest。</p><span className="ut3-card-cta">{pendingBoardAction === 'weapon' ? '点击 Dummy' : `使用 ${lab.weapon}`}</span>
+                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Default Weapon</span></div><em>{lab.weapon}</em></div><p>点击 Dummy 攻击并扣 HP。与移动争格分离，不触发 Cell Contest。</p><span className="ut3-card-cta">{pendingBoardAction === 'weapon' ? '点击 Dummy' : `使用 ${lab.weapon}`}</span>
                 </button>
                 <button type="button" data-action-id="hold-position" className="ut2-action-card ut4-action-card" disabled={busy} onClick={() => updateLab((current) => holdPosition(current, tuning), 'Hold Position')}>
                   <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Hold Position</span></div><em>Cold Build</em></div><p>全过程保持 Cold 且不换格：Position M +1，单次最多 +1。</p><span className="ut3-card-cta">执行 Hold</span>
                 </button>
                 <button type="button" data-action-id="drive" className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'drive' ? 'selected-action' : ''}`} disabled={busy} onClick={() => setPendingBoardAction((current) => current === 'drive' ? null : 'drive')}>
-                  <div className="ut2-action-title"><div><b>3<small>AT</small></b><span>Drive</span></div><em>Board Target</em></div><p>选择后棋盘高亮各方向的预测落点；点击落点提交对应 Axis，并播放 3 × 1 AT Phase。</p><span className="ut3-card-cta">{pendingBoardAction === 'drive' ? '点击高亮落点' : '选择 Drive'}</span>
+                  <div className="ut2-action-title"><div><b>3<small>AT</small></b><span>Drive</span></div><em>Hot Build</em></div><p>点击棋盘候选落点提交 Axis；每个实际换格且完整保持 T ≥ +3 的 1 AT Phase 才建立 Movement M。Hard / Reflect 会改变途中结果。</p><span className="ut3-card-cta">{pendingBoardAction === 'drive' ? '点击高亮落点' : '选择 Drive'}</span>
                 </button>
                 <button type="button" data-action-id="heavy-release" className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'heavy' ? 'selected-action' : ''}`} disabled={busy} onClick={() => setPendingBoardAction((current) => current === 'heavy' ? null : 'heavy')}>
                   <div className="ut2-action-title"><div><b>2<small>AT</small></b><span>Heavy Release</span></div><em>Position M</em></div><p>消耗 Position M，将其转为 Push / Strong Push / Launch，并产生自身热偏移。</p><span className="ut3-card-cta">{pendingBoardAction === 'heavy' ? '点击 Dummy' : '选择释放'}</span>
@@ -460,14 +530,14 @@ export function CoupledInertiaLab() {
                   {lab.logs.length === 0 && <p className="ut4-empty">执行动作、受击或 Step AT 后记录 T / Drift / Spatial / Contest 因果。</p>}
                   {lab.logs.map((entry) => <article key={entry.id}><header><strong>{entry.timeAt.toFixed(1)} AT · {entry.label}</strong><span>{entry.spatialBefore.mode} M{entry.spatialBefore.level} → {entry.spatialAfter.mode} M{entry.spatialAfter.level}</span></header><p>T {entry.thermalBefore.temperature.toFixed(2)} → {entry.thermalAfter.temperature.toFixed(2)} · Drift {entry.thermalBefore.drift.toFixed(2)} → {entry.thermalAfter.drift.toFixed(2)}</p><small>{entry.detail}</small></article>)}
                 </div>
-                <div className="ut4-test-strip"><strong>快速验证</strong><span>Damping</span><span>Hot Build</span><span>Cold Build</span><span>Hit Heat</span><span>Heavy Release</span><span>Attack ≠ Contest</span><span>Cold → Hot → Cold</span></div>
+                <div className="ut4-test-strip"><strong>快速验证</strong><span>0 AT Hit</span><span>Hot Build</span><span>Cold Build</span><span>Hit Heat</span><span>Heavy Release</span><span>Visible Reflect</span><span>Nobody Dies</span></div>
               </div>
             </details>
           </section>
 
           <aside className="visual-panel visual-right-panel ut4-debug-panel">
             <section id="ut4-thermal-debug">
-              <div className="visual-section-heading"><h3>Thermal Debug</h3><span>Baseline T1 · Drift0 · Set Point1</span></div>
+              <div className="visual-section-heading"><h3>Thermal Debug</h3><span>直接写入值 · 不锁定</span></div>
               <div className="ut4-quick-row"><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: -4 }))}>T -4</button><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: 1 }))}>T +1</button><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: 4 }))}>T +4</button></div>
               <NumberControl label="Temperature" value={lab.thermal.temperature} min={-6} max={6} step={0.25} onChange={(temperature) => setLab((current) => setThermalDebug(current, { temperature }))} />
               <NumberControl label="Drift" value={lab.thermal.drift} min={-4} max={4} step={0.25} onChange={(drift) => setLab((current) => setThermalDebug(current, { drift }))} />
@@ -479,8 +549,8 @@ export function CoupledInertiaLab() {
             </section>
 
             <section>
-              <div className="visual-section-heading"><h3>Spatial Debug</h3><span>{selectedActor.name}</span></div>
-              <label className="ut4-select-row"><span>Actor</span><select value={selectedActor.id} onChange={(event) => setLab((current) => setSelectedActor(current, event.target.value))}>{lab.game.actors.map((actor) => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
+              <div className="visual-section-heading"><h3>Spatial Debug</h3><span>直接写入值 · 不锁定 · {selectedActor.name}</span></div>
+              <label className="ut4-select-row"><span>Actor</span><select value={selectedActor.id} onChange={(event) => setLab((current) => setSelectedActor(current, event.target.value))}>{lab.game.actors.filter((actor) => actor.alive).map((actor) => <option key={actor.id} value={actor.id}>{actor.name}</option>)}</select></label>
               <div className="ut4-segmented">{(['none', 'movement', 'position'] as SpatialInertiaMode[]).map((mode) => <button key={mode} className={selectedSpatial.mode === mode ? 'active' : ''} onClick={() => setMode(mode)}>{mode}</button>)}</div>
               <label className="ut4-select-row"><span>Spatial M</span><select value={selectedSpatial.level} onChange={(event) => setLab((current) => setSpatialDebug(current, selectedActor.id, { level: Number(event.target.value) as 0 | 1 | 2 | 3 }))}>{[0, 1, 2, 3].map((value) => <option key={value} value={value}>M{value}</option>)}</select></label>
               <label className="ut4-select-row"><span>Axis</span><select disabled={selectedSpatial.mode !== 'movement'} value={selectedSpatial.axis ?? 'E'} onChange={(event) => setLab((current) => setSpatialDebug(current, selectedActor.id, { axis: event.target.value as HexDirection }))}>{directions.map((direction) => <option key={direction}>{direction}</option>)}</select></label>
@@ -490,10 +560,15 @@ export function CoupledInertiaLab() {
 
             <section>
               <div className="visual-section-heading"><h3>Weapon / Inject Hit</h3><span>Combat Test</span></div>
+              <div className="ut4-segmented">
+                <button type="button" data-control="nobody-dies" className={nobodyDies ? 'active' : ''} aria-pressed={nobodyDies} onClick={() => setNobodyDies((value) => !value)}>{nobodyDies ? 'Nobody Dies · ON' : 'Nobody Dies · OFF'}</button>
+              </div>
+              <small style={{ display: 'block', margin: '4px 0 8px', color: '#7188a4', fontSize: 8, lineHeight: 1.35 }}>默认开启：攻击与受击照常扣 HP；当本次伤害会把 HP 扣到 0 或以下时，立即补满。关闭后允许 Actor 真正倒下。</small>
               <label className="ut4-select-row"><span>Weapon</span><select value={lab.weapon} disabled={busy} onChange={(event) => setLab((current) => setWeapon(current, event.target.value as WeaponProfile))}><option value="hammer">Hammer · adjacent</option><option value="spear">Spear · straight Reach 2</option></select></label>
               <div className="ut4-segmented">{(['normal', 'push', 'heavy'] as HitType[]).map((kind) => <button className={hitType === kind ? 'active' : ''} key={kind} onClick={() => setHitType(kind)}>{kind}</button>)}</div>
               <label className="ut4-select-row"><span>Incoming</span><select value={hitDirection} onChange={(event) => setHitDirection(event.target.value as 'auto' | HexDirection)}><option value="auto">Auto nearest Dummy</option>{directions.map((direction) => <option key={direction} value={direction}>{direction}</option>)}</select></label>
               <button className="ut4-primary" disabled={busy} onClick={injectSelectedHit}>受击 / Hit Player</button>
+              <small style={{ display: 'block', marginTop: 5, color: '#7188a4', fontSize: 8, lineHeight: 1.35 }}>Inject Hit = 0 AT：立刻 Damage + Drift + Forced Motion；不会在同一按钮事件里推进 Temperature，也不会把被击退本身转换成 Movement M。</small>
             </section>
 
             <section>
