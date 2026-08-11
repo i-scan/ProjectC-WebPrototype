@@ -32,7 +32,7 @@ import {
   type SpatialInertiaMode,
   type WeaponProfile,
 } from './coupledInertia'
-import { HEX_DIRECTIONS, hexAdvance, hexDistance, type HexDirection } from './hexTopology'
+import { HEX_DIRECTIONS, hexDistance, type HexDirection } from './hexTopology'
 import './hex.css'
 import './hex-travel.css'
 import './hex-view-mode.css'
@@ -126,8 +126,16 @@ function domainLabel(domain: ReturnType<typeof thermalDomainFor>) {
   return 'NEUTRAL'
 }
 
+function createBaselineLabState() {
+  return setThermalDebug(createCoupledInertiaLabState(), {
+    temperature: 1,
+    drift: 0,
+    setPoint: 1,
+  })
+}
+
 export function CoupledInertiaLab() {
-  const [lab, setLab] = useState(createCoupledInertiaLabState)
+  const [lab, setLab] = useState(createBaselineLabState)
   const [tuning, setTuning] = useState<RuntimeTuning>(defaultRuntimeTuning)
   const [rendererMode, setRendererMode] = useState<RendererMode>('3d')
   const [pendingBoardAction, setPendingBoardAction] = useState<PendingBoardAction>(null)
@@ -246,7 +254,7 @@ export function CoupledInertiaLab() {
   }
 
   const resetState = () => {
-    const next = createCoupledInertiaLabState()
+    const next = createBaselineLabState()
     setLab(next)
     setTuning(defaultRuntimeTuning())
     setSelectedCoord({ ...getPlayer(next.game).position })
