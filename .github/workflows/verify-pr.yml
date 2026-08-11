@@ -54,5 +54,6 @@ jobs:
           path: |
             ./artifacts/inspector-layout.*
             ./artifacts/ut4-sandbox.*
+            ./artifacts/ut4-interactions.*
           if-no-files-found: warn
           retention-days: 14
