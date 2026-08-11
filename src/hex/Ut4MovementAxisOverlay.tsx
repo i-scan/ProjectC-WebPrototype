@@ -62,11 +62,12 @@ function axisVector(
   const length = Math.max(1, Math.hypot(dx, dy))
   const ux = dx / length
   const uy = dy / length
+  const arrowLength = Math.min(46, length * 0.72)
   return {
     x1: source.x + ux * 8,
     y1: source.y + uy * 8,
-    x2: source.x + ux * Math.min(46, length * 0.72),
-    y2: source.y + uy * Math.min(46, length * 0.72),
+    x2: source.x + ux * arrowLength,
+    y2: source.y + uy * arrowLength,
   }
 }
 
@@ -90,12 +91,13 @@ export function Ut4MovementAxisOverlay({ state, spatialByActorId, cameraResetTok
     let canvas: HTMLCanvasElement | null = null
     let frameId = 0
     let observer: ResizeObserver | undefined
-
+    let detach: (() => void) | undefined
     const redraw = () => setRevision((value) => value + 1)
-    const attach = () => {
+
+    const tryAttach = () => {
       canvas = frame.querySelector('.hex-board-host canvas')
       if (!canvas) {
-        frameId = requestAnimationFrame(attach)
+        frameId = requestAnimationFrame(tryAttach)
         return
       }
 
@@ -137,7 +139,7 @@ export function Ut4MovementAxisOverlay({ state, spatialByActorId, cameraResetTok
       observer.observe(frame)
       redraw()
 
-      return () => {
+      detach = () => {
         canvas?.removeEventListener('pointerdown', handleDown)
         canvas?.removeEventListener('pointermove', handleMove)
         canvas?.removeEventListener('pointerup', handleUp)
@@ -147,16 +149,10 @@ export function Ut4MovementAxisOverlay({ state, spatialByActorId, cameraResetTok
       }
     }
 
-    let cleanup: (() => void) | undefined
-    const start = () => {
-      const result = attach()
-      if (typeof result === 'function') cleanup = result
-    }
-    frameId = requestAnimationFrame(start)
-
+    frameId = requestAnimationFrame(tryAttach)
     return () => {
       cancelAnimationFrame(frameId)
-      cleanup?.()
+      detach?.()
       observer?.disconnect()
     }
   }, [active])
@@ -174,7 +170,6 @@ export function Ut4MovementAxisOverlay({ state, spatialByActorId, cameraResetTok
       if (spatial?.mode !== 'movement' || !spatial.axis) return []
       return [{
         actorId: actor.id,
-        actorName: actor.name,
         direction: spatial.axis,
         ...axisVector(state, actor.position, spatial.axis, orbitRef.current, width, height),
       }]
