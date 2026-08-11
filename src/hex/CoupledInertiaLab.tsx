@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { actorAt, getPlayer, type Coord, type Mass } from '../game'
+import { actorAt, cellAt, getPlayer, type Coord, type Mass } from '../game'
 import type { PlaybackEvent } from '../visual/visualPlayback'
 import { CoupledThermalPendulumPortal } from './CoupledThermalPendulumPortal'
 import { HexThreeBoard, type HexBoardSelection } from './HexThreeBoard'
 import { HexTravelMap } from './HexTravelMap'
+import { Ut4MovementAxisOverlay } from './Ut4MovementAxisOverlay'
 import {
   basicMove,
   brake,
@@ -31,7 +32,7 @@ import {
   type SpatialInertiaMode,
   type WeaponProfile,
 } from './coupledInertia'
-import { HEX_DIRECTIONS, hexDistance, type HexDirection } from './hexTopology'
+import { HEX_DIRECTIONS, hexAdvance, hexDistance, type HexDirection } from './hexTopology'
 import './hex.css'
 import './hex-travel.css'
 import './hex-view-mode.css'
@@ -39,7 +40,7 @@ import './thermal-clock.css'
 import './thermal-pendulum.css'
 import './coupled-inertia-lab.css'
 
-type PendingBoardAction = 'move' | 'weapon' | 'heavy' | null
+type PendingBoardAction = 'move' | 'drive' | 'weapon' | 'heavy' | null
 type RendererMode = '2d' | '3d'
 
 const selectionInspect: HexBoardSelection = { kind: 'inspect' }
@@ -149,6 +150,25 @@ export function CoupledInertiaLab() {
     () => Object.fromEntries(Object.entries(lab.spatialByActorId).map(([actorId, spatial]) => [actorId, spatial.level])),
     [lab.spatialByActorId],
   )
+  const driveTargets = useMemo(() => {
+    const seen = new Set<string>()
+    return directions.flatMap((direction) => {
+      const frames = resolveDrive(lab, direction, tuning)
+      const final = frames.at(-1)
+      if (!final) return []
+      const endpoint = getPlayer(final.state.game).position
+      if (sameCoord(endpoint, player.position)) return []
+      const key = `${endpoint.x},${endpoint.y}`
+      if (seen.has(key)) return []
+      seen.add(key)
+      return [{ direction, coord: { ...endpoint } }]
+    })
+  }, [lab, player.position.x, player.position.y, tuning])
+  const boardSelection: HexBoardSelection = pendingBoardAction === 'move'
+    ? { kind: 'basic', action: 'move' }
+    : pendingBoardAction === 'drive'
+      ? { kind: 'momentum', action: 'drive', validCoords: driveTargets.map((target) => target.coord) }
+      : selectionInspect
 
   useEffect(() => {
     if (driveFrames.length === 0) return
@@ -184,29 +204,6 @@ export function CoupledInertiaLab() {
     })
   }
 
-  const handleBoardClick = (coord: Coord) => {
-    setSelectedCoord(coord)
-    const clickedActor = actorAt(lab.game, coord)
-    if (!pendingBoardAction) {
-      if (clickedActor) setLab((current) => setSelectedActor(current, clickedActor.id))
-      return
-    }
-
-    if (pendingBoardAction === 'move') {
-      updateLab((current) => basicMove(current, coord, tuning), 'Basic Move')
-      setPendingBoardAction(null)
-      return
-    }
-    if (!clickedActor || clickedActor.id === 'player') return
-    if (pendingBoardAction === 'weapon') {
-      updateLab((current) => defaultWeaponAction(current, clickedActor.id, tuning), `Default ${lab.weapon}`, clickedActor.id)
-      setPendingBoardAction(null)
-      return
-    }
-    updateLab((current) => heavyRelease(current, clickedActor.id, tuning), 'Heavy Release', clickedActor.id)
-    setPendingBoardAction(null)
-  }
-
   const startDrive = (direction: HexDirection) => {
     if (driveFrames.length > 0) return
     const frames = resolveDrive(lab, direction, tuning)
@@ -219,9 +216,39 @@ export function CoupledInertiaLab() {
     setPendingBoardAction(null)
   }
 
+  const handleBoardClick = (coord: Coord) => {
+    setSelectedCoord(coord)
+    const clickedActor = actorAt(lab.game, coord)
+    if (!pendingBoardAction) {
+      if (clickedActor) setLab((current) => setSelectedActor(current, clickedActor.id))
+      return
+    }
+
+    if (pendingBoardAction === 'move') {
+      const targetCell = cellAt(lab.game, coord)
+      if (!targetCell || targetCell.tags.some((tag) => ['Void', 'Blocked', 'Mountain'].includes(tag))) return
+      updateLab((current) => basicMove(current, coord, tuning), 'Basic Move')
+      return
+    }
+    if (pendingBoardAction === 'drive') {
+      const target = driveTargets.find((candidate) => sameCoord(candidate.coord, coord))
+      if (target) startDrive(target.direction)
+      return
+    }
+    if (!clickedActor || clickedActor.id === 'player') return
+    if (pendingBoardAction === 'weapon') {
+      updateLab((current) => defaultWeaponAction(current, clickedActor.id, tuning), `Default ${lab.weapon}`, clickedActor.id)
+      setPendingBoardAction(null)
+      return
+    }
+    updateLab((current) => heavyRelease(current, clickedActor.id, tuning), 'Heavy Release', clickedActor.id)
+    setPendingBoardAction(null)
+  }
+
   const resetState = () => {
     const next = createCoupledInertiaLabState()
     setLab(next)
+    setTuning(defaultRuntimeTuning())
     setSelectedCoord({ ...getPlayer(next.game).position })
     setHoverCoord(undefined)
     setPendingBoardAction(null)
@@ -257,12 +284,14 @@ export function CoupledInertiaLab() {
   const selectedDistance = hexDistance(player.position, selectedCoord)
   const busy = driveFrames.length > 0
   const pendingLabel = pendingBoardAction === 'move'
-    ? 'Basic Move：点击目标格'
-    : pendingBoardAction === 'weapon'
-      ? `Default ${lab.weapon}：点击 Dummy`
-      : pendingBoardAction === 'heavy'
-        ? 'Heavy Release：点击 Dummy'
-        : '点击 Actor 可切换 Spatial Debug 目标'
+    ? 'Basic Move：连续点击高亮相邻格；再次点击卡牌退出'
+    : pendingBoardAction === 'drive'
+      ? 'Drive：点击棋盘高亮候选落点'
+      : pendingBoardAction === 'weapon'
+        ? `Default ${lab.weapon}：点击 Dummy`
+        : pendingBoardAction === 'heavy'
+          ? 'Heavy Release：点击 Dummy'
+          : '点击 Actor 可切换 Spatial Debug 目标'
   const thermalPercent = Math.max(0, Math.min(100, (lab.thermal.temperature + 6) / 12 * 100))
 
   return (
@@ -317,7 +346,7 @@ export function CoupledInertiaLab() {
             <section className="visual-slice-note ut4-test-guide">
               <h3>测试逻辑</h3>
               <p>右侧先构造 Thermal / Spatial 状态，再在中央用动作卡提交操作。</p>
-              <p>进入占用格会走 Cell Contest；Default Weapon 只攻击，不争格。</p>
+              <p>Basic Move 保持连续选择；Drive 与 Hex6 一样从棋盘候选落点提交。</p>
               <p>需要查结算因果时，再展开动作卡下方的 Action / Event Log。</p>
             </section>
           </aside>
@@ -332,7 +361,7 @@ export function CoupledInertiaLab() {
             <div className="visual-board-toolbar ut4-board-toolbar">
               <div className="visual-camera-help">
                 <button onClick={() => setCameraResetToken((value) => value + 1)}>重置视图</button>
-                <span>{rendererMode === '3d' ? '拖动旋转 · 滚轮缩放 · 点击格/Actor 提交已选动作。' : '2D 用于快速观察 Cell Contest、Forced Motion 与 Axis。'}</span>
+                <span>{rendererMode === '3d' ? '拖动旋转 · 滚轮缩放 · 点击高亮格提交动作。' : '2D 用于快速观察 Cell Contest、Forced Motion 与候选格。'}</span>
               </div>
               <div className="visual-session-controls">
                 <button onClick={resetState}>重置状态</button>
@@ -348,7 +377,7 @@ export function CoupledInertiaLab() {
                   path={[]}
                   selectedCoord={selectedCoord}
                   hoverCoord={hoverCoord}
-                  selection={selectionInspect}
+                  selection={boardSelection}
                   targetLayer="ground"
                   preference="fastest"
                   event={event}
@@ -363,7 +392,7 @@ export function CoupledInertiaLab() {
                   travelPath={[]}
                   selectedCoord={selectedCoord}
                   hoverCoord={hoverCoord}
-                  selection={selectionInspect}
+                  selection={boardSelection}
                   targetLayer="ground"
                   cameraResetToken={cameraResetToken}
                   showSky={false}
@@ -375,6 +404,12 @@ export function CoupledInertiaLab() {
                   onCellHover={setHoverCoord}
                 />
               )}
+              <Ut4MovementAxisOverlay
+                state={lab.game}
+                spatialByActorId={lab.spatialByActorId}
+                cameraResetToken={cameraResetToken}
+                active={rendererMode === '3d'}
+              />
               {event && <div className={`visual-event-banner ${event.kind}`}><strong>{event.label ?? 'UT4 状态更新'}</strong></div>}
               <div className={`ut4-chain-window ${playerSpatial.chainOpen ? 'open' : ''}`}>
                 <span>Chain Window</span>
@@ -390,7 +425,7 @@ export function CoupledInertiaLab() {
               </div>
               <div className="ut4-action-card-row">
                 <button type="button" data-action-id="basic-move" className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'move' ? 'selected-action' : ''}`} disabled={busy} onClick={() => setPendingBoardAction((current) => current === 'move' ? null : 'move')}>
-                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Basic Move</span></div><em>Contest</em></div><p>点击任意目标格。目标格被占用时改走 Cell Contest。</p><span className="ut3-card-cta">{pendingBoardAction === 'move' ? '点击棋盘提交' : '选择移动'}</span>
+                  <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Basic Move</span></div><em>Continuous</em></div><p>选中后持续高亮相邻可移动格；每次点击执行 1 AT，并保持该卡选中。</p><span className="ut3-card-cta">{pendingBoardAction === 'move' ? '连续点击棋盘' : '选择移动'}</span>
                 </button>
                 <button type="button" data-action-id="default-weapon" className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'weapon' ? 'selected-action' : ''}`} disabled={busy} onClick={() => setPendingBoardAction((current) => current === 'weapon' ? null : 'weapon')}>
                   <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Default Weapon</span></div><em>{lab.weapon}</em></div><p>点击 Dummy 攻击。与移动争格分离，不触发 Cell Contest。</p><span className="ut3-card-cta">{pendingBoardAction === 'weapon' ? '点击 Dummy' : `使用 ${lab.weapon}`}</span>
@@ -398,9 +433,9 @@ export function CoupledInertiaLab() {
                 <button type="button" data-action-id="hold-position" className="ut2-action-card ut4-action-card" disabled={busy} onClick={() => updateLab((current) => holdPosition(current, tuning), 'Hold Position')}>
                   <div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Hold Position</span></div><em>Cold Build</em></div><p>全过程保持 Cold 且不换格：Position M +1，单次最多 +1。</p><span className="ut3-card-cta">执行 Hold</span>
                 </button>
-                <div className="ut2-action-card ut4-action-card ut4-drive-card" data-action-id="drive">
-                  <div className="ut2-action-title"><div><b>3<small>AT</small></b><span>Drive</span></div><em>Axis Commit</em></div><p>3 × 1 AT 分段推进；点击方向直接提交，途中按 Phase 结算碰撞。</p><div className="ut4-card-direction-grid">{directions.map((direction) => <button type="button" key={direction} disabled={busy} onClick={() => startDrive(direction)}>{direction}</button>)}</div>
-                </div>
+                <button type="button" data-action-id="drive" className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'drive' ? 'selected-action' : ''}`} disabled={busy} onClick={() => setPendingBoardAction((current) => current === 'drive' ? null : 'drive')}>
+                  <div className="ut2-action-title"><div><b>3<small>AT</small></b><span>Drive</span></div><em>Board Target</em></div><p>选择后棋盘高亮各方向的预测落点；点击落点提交对应 Axis，并播放 3 × 1 AT Phase。</p><span className="ut3-card-cta">{pendingBoardAction === 'drive' ? '点击高亮落点' : '选择 Drive'}</span>
+                </button>
                 <button type="button" data-action-id="heavy-release" className={`ut2-action-card ut4-action-card ${pendingBoardAction === 'heavy' ? 'selected-action' : ''}`} disabled={busy} onClick={() => setPendingBoardAction((current) => current === 'heavy' ? null : 'heavy')}>
                   <div className="ut2-action-title"><div><b>2<small>AT</small></b><span>Heavy Release</span></div><em>Position M</em></div><p>消耗 Position M，将其转为 Push / Strong Push / Launch，并产生自身热偏移。</p><span className="ut3-card-cta">{pendingBoardAction === 'heavy' ? '点击 Dummy' : '选择释放'}</span>
                 </button>
@@ -424,14 +459,15 @@ export function CoupledInertiaLab() {
 
           <aside className="visual-panel visual-right-panel ut4-debug-panel">
             <section id="ut4-thermal-debug">
-              <div className="visual-section-heading"><h3>Thermal Debug</h3><span>Damped Solver</span></div>
-              <div className="ut4-quick-row"><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: -4 }))}>T -4</button><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: 0 }))}>T 0</button><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: 4 }))}>T +4</button></div>
-              <NumberControl label="Temperature" value={lab.thermal.temperature} min={-6} max={6} step={0.1} onChange={(temperature) => setLab((current) => setThermalDebug(current, { temperature }))} />
-              <NumberControl label="Drift" value={lab.thermal.drift} min={-4} max={4} step={0.1} onChange={(drift) => setLab((current) => setThermalDebug(current, { drift }))} />
+              <div className="visual-section-heading"><h3>Thermal Debug</h3><span>Baseline T1 · Drift0 · Set Point1</span></div>
+              <div className="ut4-quick-row"><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: -4 }))}>T -4</button><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: 1 }))}>T +1</button><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: 4 }))}>T +4</button></div>
+              <NumberControl label="Temperature" value={lab.thermal.temperature} min={-6} max={6} step={0.25} onChange={(temperature) => setLab((current) => setThermalDebug(current, { temperature }))} />
+              <NumberControl label="Drift" value={lab.thermal.drift} min={-4} max={4} step={0.25} onChange={(drift) => setLab((current) => setThermalDebug(current, { drift }))} />
               <NumberControl label="Set Point" value={lab.thermal.setPoint} min={-2} max={2} step={0.25} onChange={(setPoint) => setLab((current) => setThermalDebug(current, { setPoint }))} />
               <NumberControl label="Damping" value={tuning.damping} min={0} max={2} step={0.02} onChange={(damping) => setTuning((current) => ({ ...current, damping }))} />
               <label className="ut4-select-row"><span>Period</span><select value={tuning.thermalPeriodAt} onChange={(event) => setTuning((current) => ({ ...current, thermalPeriodAt: Number(event.target.value) }))}><option value="4">4 AT</option><option value="8">8 AT</option><option value="12">12 AT</option></select></label>
-              <NumberControl label="Ambient Bias" value={tuning.ambientThermalBias} min={-2} max={2} step={0.05} onChange={(ambientThermalBias) => setTuning((current) => ({ ...current, ambientThermalBias }))} />
+              <NumberControl label="Ambient Force" value={tuning.ambientThermalBias} min={-2} max={2} step={0.05} onChange={(ambientThermalBias) => setTuning((current) => ({ ...current, ambientThermalBias }))} />
+              <small style={{ display: 'block', marginTop: 4, color: '#7188a4', fontSize: 8, lineHeight: 1.35 }}>持续外部热力推力：正值持续推向 Hot，负值推向 Cold，并会使最终平衡点偏离 Set Point。</small>
             </section>
 
             <section>
