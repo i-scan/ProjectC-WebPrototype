@@ -53,7 +53,6 @@ jobs:
           name: browser-evidence-pr-${{ github.event.pull_request.number || github.run_id }}
           path: |
             ./artifacts/inspector-layout.*
-            ./artifacts/ut4-sandbox.*
-            ./artifacts/ut4-interactions.*
+            ./artifacts/ut5-axis-inertia.*
           if-no-files-found: warn
           retention-days: 14

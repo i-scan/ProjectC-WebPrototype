@@ -25,7 +25,7 @@ const driftRadius = 101
 const armLength = 72
 
 function findActorPanelTarget(): HTMLElement | null {
-  const bars = document.querySelector<HTMLElement>('.ut4-hex-layout .visual-actor-card .visual-bars')
+  const bars = document.querySelector<HTMLElement>('.coupled-inertia-lab .visual-actor-card .visual-bars')
   return bars?.parentElement ?? null
 }
 
@@ -112,14 +112,14 @@ function CoupledThermalPendulum({
   return (
     <section
       className="thermal-pendulum thermal-clock-pendulum ut4-controlled-pendulum"
-      aria-label={`UT4 热力钟摆，当前温度 ${formatThermalNumber(temperature, 1)}，Set Point ${formatThermalNumber(setPoint, 1)}，Drift ${formatThermalNumber(drift, 1)}，周期 ${thermalPeriodAt} AT`}
+      aria-label={`热力钟摆，当前温度 ${formatThermalNumber(temperature, 1)}，Set Point ${formatThermalNumber(setPoint, 1)}，Drift ${formatThermalNumber(drift, 1)}，周期 ${thermalPeriodAt} AT`}
     >
       <div className="thermal-pendulum-heading">
         <strong>热力钟摆</strong>
-        <button type="button" onClick={onOpenDebug}>UT4 Thermal</button>
+        <button type="button" onClick={onOpenDebug}>Thermal Debug</button>
       </div>
       <div className="thermal-pendulum-dial">
-        <svg viewBox="0 0 260 158" role="img" aria-label="UT4 damped thermal state">
+        <svg viewBox="0 0 260 158" role="img" aria-label="damped thermal state">
           <g className="thermal-zone-ring">
             {zonePaths.map((zone) => <path key={zone.value} className={`thermal-zone ${zone.className}`} d={zone.path} />)}
           </g>

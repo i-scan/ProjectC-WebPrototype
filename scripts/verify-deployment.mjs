@@ -8,12 +8,8 @@ const pageUrl = new URL(pageUrlArgument.endsWith('/') ? pageUrlArgument : `${pag
 const maxAttempts = Number.parseInt(process.env.DEPLOY_VERIFY_ATTEMPTS || '60', 10)
 const retryDelayMs = Number.parseInt(process.env.DEPLOY_VERIFY_DELAY_MS || '5000', 10)
 
-if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
-  throw new Error(`DEPLOY_VERIFY_ATTEMPTS must be a positive integer; received ${process.env.DEPLOY_VERIFY_ATTEMPTS}`)
-}
-if (!Number.isInteger(retryDelayMs) || retryDelayMs < 0) {
-  throw new Error(`DEPLOY_VERIFY_DELAY_MS must be a non-negative integer; received ${process.env.DEPLOY_VERIFY_DELAY_MS}`)
-}
+if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new Error(`DEPLOY_VERIFY_ATTEMPTS must be a positive integer; received ${process.env.DEPLOY_VERIFY_ATTEMPTS}`)
+if (!Number.isInteger(retryDelayMs) || retryDelayMs < 0) throw new Error(`DEPLOY_VERIFY_DELAY_MS must be a non-negative integer; received ${process.env.DEPLOY_VERIFY_DELAY_MS}`)
 
 function verificationUrl(url, label, attempt) {
   const requestUrl = new URL(url)
@@ -43,9 +39,7 @@ async function retry(label, operation, attempts = maxAttempts) {
     } catch (error) {
       lastError = error
       console.log(`${label} is not ready (${attempt}/${attempts}): ${error.message}`)
-      if (attempt < attempts && retryDelayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
-      }
+      if (attempt < attempts && retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
     }
   }
   throw lastError
@@ -64,12 +58,8 @@ const revisionUrl = new URL(info.revisionUrl)
 revisionUrl.searchParams.set('revision', expectedCommit)
 const html = await retry('revision page', async (attempt) => {
   const candidate = await fetchFreshText(revisionUrl, 'revision-html', attempt)
-  if (!candidate.includes(`name="projectc-build-commit" content="${expectedCommit}"`)) {
-    throw new Error('HTML commit metadata does not match')
-  }
-  if (!candidate.includes('name="projectc-build-status" content="verified"')) {
-    throw new Error('HTML is not marked as verified')
-  }
+  if (!candidate.includes(`name="projectc-build-commit" content="${expectedCommit}"`)) throw new Error('HTML commit metadata does not match')
+  if (!candidate.includes('name="projectc-build-status" content="verified"')) throw new Error('HTML is not marked as verified')
   return candidate
 })
 
@@ -81,20 +71,22 @@ await retry('published JavaScript bundle', async (attempt) => {
   if (!script.includes('data-build-revision')) throw new Error('visible revision marker is missing from the published app')
   if (!script.includes(expectedCommit)) throw new Error('published app bundle does not contain the expected commit')
 
-  // Active UT4 Inertia Lab contract.
-  if (!script.includes('VAL-012-UT4')) throw new Error('current UT4 ruleset marker is missing')
-  if (!script.includes('coupled-inertia-sandbox-v1')) throw new Error('current UT4 implementation marker is missing')
-  if (!script.includes('惯性实验室 · Hex6 Layout')) throw new Error('UT4 Hex6-shaped route is missing')
-  if (!script.includes('Player Actions')) throw new Error('UT4 persistent action hand is missing')
-  if (!script.includes('UT4 Thermal')) throw new Error('UT4 controlled pendulum marker is missing')
-  if (!script.includes('Thermal Debug')) throw new Error('UT4 Thermal Debug controls are missing')
-  if (!script.includes('Spatial Debug')) throw new Error('UT4 Spatial Debug controls are missing')
-  if (!script.includes('Action / Event Log')) throw new Error('UT4 diagnostic log is missing')
-  if (!script.includes('Hold Position')) throw new Error('UT4 Hold Position action is missing')
-  if (!script.includes('Heavy Release')) throw new Error('UT4 Heavy Release action is missing')
-  if (!script.includes('受击 / Hit Player')) throw new Error('UT4 Inject Hit control is missing')
-  if (!script.includes('Queue Dummy Move')) throw new Error('UT4 queued dummy control is missing')
-  if (!script.includes('Damping')) throw new Error('UT4 damping control is missing')
+  // Active UT5 Inertia Lab contract.
+  if (!script.includes('VAL-012-UT5')) throw new Error('current UT5 ruleset marker is missing')
+  if (!script.includes('axis-inertia-sandbox-v1')) throw new Error('current UT5 implementation marker is missing')
+  if (!script.includes('惯性实验室 · UT5')) throw new Error('UT5 live route is missing')
+  if (!script.includes('Unified Axis Inertia')) throw new Error('UT5 unified axis identity is missing')
+  if (!script.includes('Player Actions')) throw new Error('UT5 persistent action hand is missing')
+  if (!script.includes('Thermal Debug')) throw new Error('UT5 Thermal Debug controls are missing')
+  if (!script.includes('Spatial Debug')) throw new Error('UT5 Spatial Debug controls are missing')
+  if (!script.includes('Reaction A/B')) throw new Error('UT5 Reaction experiment controls are missing')
+  if (!script.includes('Inject 0 AT')) throw new Error('UT5 event-only Hit control is missing')
+  if (!script.includes('Hit + Resolve 1 AT')) throw new Error('UT5 same-AT Hit control is missing')
+  if (!script.includes('Nobody Dies')) throw new Error('UT5 survival convenience is missing')
+  if (!script.includes('Blocked Crash · no auto redirect')) throw new Error('UT5 no-auto-redirect Drive rule is missing')
+  if (!script.includes('Failed Occupancy Fallback')) throw new Error('UT5 failed occupancy A/B rule is missing')
+  if (!script.includes('Reaction Sidestep')) throw new Error('UT5 reaction sidestep A/B rule is missing')
+  if (!script.includes('same-AT Thermal Evolution')) throw new Error('UT5 same-AT thermal ordering marker is missing')
 
   // Hex6 route remains deployed and verified separately in browser CI.
   if (!script.includes('hex-inspector-coordinate')) throw new Error('React-owned inspector coordinate is missing')
@@ -118,9 +110,9 @@ if (!styleMatch) throw new Error('published CSS entry was not found')
 const styleUrl = new URL(styleMatch[1], pageUrl.origin)
 await retry('published stylesheet', async (attempt) => {
   const style = await fetchFreshText(styleUrl, 'stylesheet', attempt)
-  if (!/\.coupled-inertia-lab/.test(style)) throw new Error('UT4 sandbox styling is missing from CSS')
-  if (!/\.ut4-action-hand/.test(style)) throw new Error('UT4 action hand styling is missing from CSS')
-  if (!/\.ut4-controlled-pendulum/.test(style)) throw new Error('UT4 pendulum styling is missing from CSS')
+  if (!/\.coupled-inertia-lab/.test(style)) throw new Error('inertia lab styling is missing from CSS')
+  if (!/\.ut4-action-hand/.test(style)) throw new Error('shared inertia action hand styling is missing from CSS')
+  if (!/\.ut4-controlled-pendulum/.test(style)) throw new Error('shared pendulum styling is missing from CSS')
   if (!/\.inspector-thermal/.test(style)) throw new Error('shared Thermal inspector styling is missing from CSS')
   if (!/hex-inspector-coordinate/.test(style)) throw new Error('shared coordinate styling is missing from CSS')
   if (/font-size\s*:\s*6px\s*!important/.test(style)) throw new Error('obsolete 6px Thermal override is still deployed')

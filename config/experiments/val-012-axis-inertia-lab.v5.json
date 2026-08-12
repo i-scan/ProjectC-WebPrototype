@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "1.0.0",
+  "rulesetVersion": "VAL-012-UT5",
+  "updatedAt": "2026-08-12",
+  "status": "candidate-experiment",
+  "validationId": "VAL-012",
+  "implementationId": "axis-inertia-sandbox-v1",
+  "designReference": "i-scan/ProjectC:docs/VAL-012-unified-time-system-program-handoff.md",
+  "thermal": {
+    "temperatureMin": -6,
+    "temperatureMax": 6,
+    "setPointMin": -2,
+    "setPointMax": 2,
+    "hotDomainThreshold": 3,
+    "coldDomainThreshold": -3,
+    "damping": 1,
+    "thermalPeriodAt": 8,
+    "ambientThermalBias": 0,
+    "settleTemperatureEpsilon": 0.025,
+    "settleDriftEpsilon": 0.025,
+    "integrationSubstepsPerAt": 24
+  },
+  "spatial": {
+    "maxLevel": 3,
+    "momentumExchangeCap": 1,
+    "steeringCost60": 1,
+    "steeringCost120": 2,
+    "downStabilityDistanceReduction": 1,
+    "contestPushDistancePlus1": 1,
+    "contestPushDistancePlus2": 2,
+    "driveIntroExchangeCap": 1,
+    "driveStartMomentum": 1,
+    "minReactionSidestepM": 2,
+    "reactionSidestepCostM": 1,
+    "minFallbackM": 2,
+    "fallbackCostM": 1
+  },
+  "thermalInputs": {
+    "normalHitHotwardDrift": 0.8,
+    "pushHitHotwardDrift": 1.2,
+    "heavyHitHotwardDrift": 1.8,
+    "forcedMotionExtraHotwardDrift": 0.6,
+    "heavyReleaseSelfHotwardDrift": 1.5
+  },
+  "actions": {
+    "basicMoveAt": 1,
+    "defaultWeaponAt": 1,
+    "holdPositionAt": 1,
+    "drivePhaseAt": 1,
+    "drivePhaseCount": 3,
+    "heavyReleaseAt": 2,
+    "brakeAt": 1
+  },
+  "heavyRelease": {
+    "damage": 1,
+    "pushDistanceM1": 1,
+    "pushDistanceM2": 2,
+    "launchDistanceM3": 2,
+    "consumeAllDownMomentum": true
+  },
+  "hits": {
+    "normal": { "damage": 1, "forcedStrength": 0 },
+    "push": { "damage": 1, "forcedStrength": 1 },
+    "heavy": { "damage": 2, "forcedStrength": 2 }
+  }
+}

@@ -10,7 +10,7 @@
     "test": "node scripts/validate-rules.mjs && vitest run",
     "test:watch": "vitest",
     "verify:dist": "node scripts/verify-dist.mjs",
-    "verify:browser": "node scripts/verify-browser-layout-ci.mjs && node scripts/verify-ut4-sandbox.mjs && node scripts/verify-ut4-interactions.mjs && node scripts/verify-ut4-runtime-feedback.mjs"
+    "verify:browser": "node scripts/verify-browser-layout-ci.mjs && node scripts/verify-ut5-axis-inertia.mjs"
   },
   "dependencies": {
     "pixi.js": "8.19.0",
