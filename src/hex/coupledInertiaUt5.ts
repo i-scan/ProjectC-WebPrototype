@@ -24,8 +24,8 @@ export type WeaponProfile = 'spear' | 'hammer'
 export type SurfaceRule = 'hard' | 'reflect-left' | 'reflect-right'
 export type SpatialAxis =
   | { kind: 'horizontal'; dir: HexDirection }
-  | { kind: 'down' }
-  | { kind: 'up' }
+  | { kind: 'down'; dir?: never }
+  | { kind: 'up'; dir?: never }
 
 export type ThermalInertiaState = {
   temperature: number
