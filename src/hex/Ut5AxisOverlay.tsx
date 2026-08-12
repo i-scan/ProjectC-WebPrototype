@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { GameState } from '../game'
-import type { SpatialInertiaState } from './coupledInertiaUt5'
+import type { MomentumLevel, SpatialInertiaState } from './coupledInertiaUt5'
 import { hexWorldPosition } from './HexThreeBoard'
 import { hexAdvance, type HexDirection } from './hexTopology'
 
@@ -14,6 +14,25 @@ type Props = {
 
 type OrbitState = { yaw: number; pitch: number; zoom: number }
 type Projected = { x: number; y: number }
+type HorizontalMarker = {
+  actorId: string
+  kind: 'horizontal'
+  axis: HexDirection
+  level: MomentumLevel
+  source: Projected
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+type DownMarker = {
+  actorId: string
+  kind: 'down'
+  axis: 'Down'
+  level: MomentumLevel
+  source: Projected
+}
+type AxisMarker = HorizontalMarker | DownMarker
 
 const DEFAULT_ORBIT: OrbitState = { yaw: Math.PI * 0.25, pitch: 0.74, zoom: 1 }
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
@@ -141,32 +160,32 @@ export function Ut5AxisOverlay({ state, spatialByActorId, cameraResetToken, acti
     }
   }, [active])
 
-  const markers = useMemo(() => {
+  const markers = useMemo<AxisMarker[]>(() => {
     if (!active) return []
     const overlay = overlayRef.current
     const width = overlay?.clientWidth ?? 0
     const height = overlay?.clientHeight ?? 0
     if (width <= 0 || height <= 0) return []
-    return state.actors.flatMap((actor) => {
-      if (!actor.alive) return []
+    const result: AxisMarker[] = []
+    for (const actor of state.actors) {
+      if (!actor.alive) continue
       const spatial = spatialByActorId[actor.id]
-      if (!spatial?.axis || spatial.level <= 0) return []
+      if (!spatial?.axis || spatial.level <= 0) continue
       const source = projectedPoint(hexWorldPosition(actor.position, state, 1.25), orbitRef.current, width, height)
       if (spatial.axis.kind === 'horizontal') {
-        return [{
+        result.push({
           actorId: actor.id,
-          kind: 'horizontal' as const,
+          kind: 'horizontal',
           axis: spatial.axis.dir,
           level: spatial.level,
           source,
           ...horizontalVector(state, actor.position, spatial.axis.dir, orbitRef.current, width, height),
-        }]
+        })
+      } else if (spatial.axis.kind === 'down') {
+        result.push({ actorId: actor.id, kind: 'down', axis: 'Down', level: spatial.level, source })
       }
-      if (spatial.axis.kind === 'down') {
-        return [{ actorId: actor.id, kind: 'down' as const, axis: 'Down', level: spatial.level, source }]
-      }
-      return []
-    })
+    }
+    return result
   }, [active, revision, spatialByActorId, state])
 
   if (!active) return null
