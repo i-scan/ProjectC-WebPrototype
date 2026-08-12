@@ -189,6 +189,7 @@ try {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json()
   })
+
   const targetResponse = await fetch(`${debuggingOrigin}/json/new?${encodeURIComponent(pageUrl)}`, { method: 'PUT' })
   assert(targetResponse.ok, 'Failed to create UT5 Chrome target')
   const target = await targetResponse.json()
@@ -214,7 +215,6 @@ try {
   assert(new Set(initial.surfaceLabels).size === 3 && initial.surfaceLabels.includes('Hard') && initial.surfaceLabels.includes('Reflect L') && initial.surfaceLabels.includes('Reflect R'), 'UT5 diagnostic surfaces are not visibly labelled', initial)
   assert(initial.reactionText.includes('Reaction Sidestep') && initial.reactionText.includes('Failed Fallback'), 'UT5 independent Reaction A/B controls missing', initial)
 
-  // Cold complete grounded AT: build Down M through the unified resolver.
   await evaluate(client, clickButtonExpression('T -4'))
   await evaluate(client, setRangeExpression('#ut5-thermal-debug', 'Set Point', -2))
   await sleep(70)
@@ -226,7 +226,6 @@ try {
     return { snapshot, arrow }
   })
 
-  // Neutral does not erase an existing horizontal M/Axis.
   await reset(client)
   await evaluate(client, setSelectExpression('Spatial Debug', 'Axis', 'E'))
   await sleep(70)
@@ -240,7 +239,6 @@ try {
     return { snapshot, arrow }
   })
 
-  // Hit event-only inspection: Spatial + Damage + Drift, no time/thermal evolution yet.
   await reset(client)
   await evaluate(client, clickButtonExpression('heavy'))
   await evaluate(client, clickButtonExpression('Inject 0 AT'))
@@ -250,7 +248,6 @@ try {
     return snapshot
   })
 
-  // Formal hit sequence: same hit then use its new Drift inside the same resolved AT.
   await reset(client)
   await evaluate(client, clickButtonExpression('heavy'))
   await evaluate(client, clickButtonExpression('Hit + Resolve 1 AT'))
@@ -260,7 +257,9 @@ try {
     return snapshot
   })
 
-  // Reaction Sidestep is an opt-in player choice; the same-AT resolution waits for the choice.
+  // Reaction remains a choice while the 3D board is active. Validate the live
+  // choice state via the enabled Decline control rather than querying 2D-only
+  // SVG cell DOM.
   await reset(client)
   await evaluate(client, clickButtonExpression('Reaction Sidestep'))
   await evaluate(client, setSelectExpression('Spatial Debug', 'Axis', 'E'))
@@ -271,9 +270,12 @@ try {
   await evaluate(client, clickButtonExpression('Hit + Resolve 1 AT'))
   const reaction = await waitFor('UT5 Reaction Sidestep choice', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    const count = await evaluate(client, `document.querySelectorAll('.hex-travel-cell.valid-target.drive').length`)
-    if (!snapshot.strip.includes('Reaction Sidestep') || !snapshot.header.includes('0.0 AT') || count < 1) throw new Error(JSON.stringify({ snapshot, count }))
-    return { snapshot, count }
+    const declineEnabled = await evaluate(client, `(() => {
+      const button = [...document.querySelectorAll('.ut4-debug-panel button')].find((node) => node.textContent.trim() === 'Decline Reaction')
+      return Boolean(button && !button.disabled)
+    })()`)
+    if (!snapshot.strip.includes('Reaction Sidestep') || !snapshot.header.includes('0.0 AT') || !declineEnabled) throw new Error(JSON.stringify({ snapshot, declineEnabled }))
+    return { snapshot, declineEnabled }
   })
   await evaluate(client, clickButtonExpression('Decline Reaction'))
   await waitFor('UT5 declined reaction completes same AT', async () => {
@@ -282,7 +284,6 @@ try {
     return snapshot
   })
 
-  // Drive: select Axis from the adjacent W cell. Hover preview and click commit use the same DrivePlan.
   await reset(client)
   await evaluate(client, clickButtonExpression('2D'))
   await waitFor('UT5 2D board', async () => {
