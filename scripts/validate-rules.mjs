@@ -9,12 +9,14 @@ const configPath = path.join(root, 'config', 'core-rules.v0.json')
 const schemaPath = path.join(root, 'config', 'core-rules.schema.json')
 const unifiedTimelinePath = path.join(root, 'config', 'experiments', 'val-012-momentum-lab.v3.json')
 const coupledInertiaPath = path.join(root, 'config', 'experiments', 'val-012-coupled-inertia-lab.v4.json')
+const axisInertiaPath = path.join(root, 'config', 'experiments', 'val-012-axis-inertia-lab.v5.json')
 
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'))
 const config = readJson(configPath)
 const schema = readJson(schemaPath)
 const unifiedTimeline = readJson(unifiedTimelinePath)
 const coupledInertia = readJson(coupledInertiaPath)
+const axisInertia = readJson(axisInertiaPath)
 
 const ajv = new Ajv2020({ allErrors: true, strict: false })
 const validate = ajv.compile(schema)
@@ -55,13 +57,8 @@ const room = config.mapProfiles.room
 if (room.defaultRadius < room.minimumRadius || room.defaultRadius > room.maximumRadius) {
   fail('Room default radius is outside the supported range.')
 }
-
-if (config.temperature.directMinimum < config.temperature.minimum) {
-  fail('Direct minimum temperature is below the complete minimum.')
-}
-if (config.temperature.directMaximum > config.temperature.maximum) {
-  fail('Direct maximum temperature is above the complete maximum.')
-}
+if (config.temperature.directMinimum < config.temperature.minimum) fail('Direct minimum temperature is below the complete minimum.')
+if (config.temperature.directMaximum > config.temperature.maximum) fail('Direct maximum temperature is above the complete maximum.')
 
 // UT3 remains a supported historical/reference experiment used by Hex6.
 if (unifiedTimeline.rulesetId !== 'VAL-012-UT3') fail('Unified timeline ruleset ID must be VAL-012-UT3.')
@@ -76,30 +73,14 @@ const timelineActionIds = [
   ...unifiedTimeline.actions.map((action) => action.id),
 ]
 if (new Set(timelineActionIds).size !== timelineActionIds.length) fail('Unified timeline action IDs must be unique.')
-if (unifiedTimeline.legacyActions.some((action) => ![1, 2, 3].includes(action.actionTimeAt))) {
-  fail('Unified timeline legacy actions must use 1, 2 or 3 AT.')
-}
-if (unifiedTimeline.actions.some((action) => ![1, 2, 3].includes(action.baseActionTimeAt))) {
-  fail('UT3 actions must use 1, 2 or 3 base AT.')
-}
-if (unifiedTimeline.actions.some((action) => action.phases.length === 0 || action.phases.some((phase) => phase.durationAt !== 1))) {
-  fail('Every UT3 action must contain one or more 1 AT phases.')
-}
-if (!unifiedTimeline.actions.some((action) => action.id === 'drive' && action.outro?.opensChainWindow)) {
-  fail('VAL-012-UT3 must define Drive with a Chain Window outro.')
-}
-if (!unifiedTimeline.actions.some((action) => action.id === 'rush-strike' && action.intro?.skipPhaseIdWhenChained === 'start')) {
-  fail('VAL-012-UT3 must define Rush Strike skipping Start when chained.')
-}
-if (!unifiedTimeline.actions.some((action) => action.id === 'brake' && action.baseActionTimeAt === 1)) {
-  fail('VAL-012-UT3 must define the contextual Brake action at 1 AT.')
-}
-if (unifiedTimeline.spatialMomentum?.formalTerms?.includes('Active Momentum') !== true) {
-  fail('VAL-012-UT3 must distinguish Active Momentum from Pending Momentum.')
-}
-if (unifiedTimeline.forcedMotion?.secondaryImpactLimit !== 1) {
-  fail('VAL-012-UT3 must cap secondary impact at one.')
-}
+if (unifiedTimeline.legacyActions.some((action) => ![1, 2, 3].includes(action.actionTimeAt))) fail('Unified timeline legacy actions must use 1, 2 or 3 AT.')
+if (unifiedTimeline.actions.some((action) => ![1, 2, 3].includes(action.baseActionTimeAt))) fail('UT3 actions must use 1, 2 or 3 base AT.')
+if (unifiedTimeline.actions.some((action) => action.phases.length === 0 || action.phases.some((phase) => phase.durationAt !== 1))) fail('Every UT3 action must contain one or more 1 AT phases.')
+if (!unifiedTimeline.actions.some((action) => action.id === 'drive' && action.outro?.opensChainWindow)) fail('VAL-012-UT3 must define Drive with a Chain Window outro.')
+if (!unifiedTimeline.actions.some((action) => action.id === 'rush-strike' && action.intro?.skipPhaseIdWhenChained === 'start')) fail('VAL-012-UT3 must define Rush Strike skipping Start when chained.')
+if (!unifiedTimeline.actions.some((action) => action.id === 'brake' && action.baseActionTimeAt === 1)) fail('VAL-012-UT3 must define the contextual Brake action at 1 AT.')
+if (unifiedTimeline.spatialMomentum?.formalTerms?.includes('Active Momentum') !== true) fail('VAL-012-UT3 must distinguish Active Momentum from Pending Momentum.')
+if (unifiedTimeline.forcedMotion?.secondaryImpactLimit !== 1) fail('VAL-012-UT3 must cap secondary impact at one.')
 if (unifiedTimeline.fixedHandActionIds.length !== 5) fail('VAL-012-UT3 comparison hand must contain five actions.')
 for (const actionId of unifiedTimeline.fixedHandActionIds) {
   if (!timelineActionIds.includes(actionId)) fail(`Fixed hand references missing timeline action: ${actionId}`)
@@ -109,38 +90,31 @@ const timelineActorIds = unifiedTimeline.actors.map((actor) => actor.id)
 if (new Set(timelineActorIds).size !== timelineActorIds.length) fail('Unified timeline actor IDs must be unique.')
 if (!timelineActorIds.includes('player')) fail('Unified timeline must define the player actor.')
 
-// UT4 is the active Inertia Lab candidate. Balance-sensitive values remain
-// tunable, but the structural contracts from the handoff are fixed here.
-if (coupledInertia.rulesetVersion !== 'VAL-012-UT4') fail('Coupled Inertia ruleset must be VAL-012-UT4.')
-if (coupledInertia.implementationId !== 'coupled-inertia-sandbox-v1') fail('UT4 implementation ID must be coupled-inertia-sandbox-v1.')
-if (coupledInertia.thermal.coldDomainThreshold !== -3 || coupledInertia.thermal.hotDomainThreshold !== 3) {
-  fail('UT4 absolute Thermal Domain thresholds must be -3 and +3.')
-}
-if (coupledInertia.thermal.setPointMin !== -2 || coupledInertia.thermal.setPointMax !== 2) {
-  fail('UT4 Set Point diagnostic range must remain -2 to +2.')
-}
-if (!(coupledInertia.thermal.damping >= 0)) fail('UT4 Damping must be non-negative.')
-if (!(coupledInertia.thermal.thermalPeriodAt > 0)) fail('UT4 Thermal Period must be positive.')
-if (!Number.isInteger(coupledInertia.thermal.integrationSubstepsPerAt) || coupledInertia.thermal.integrationSubstepsPerAt < 4) {
-  fail('UT4 Thermal solver must use at least four integration substeps per AT.')
-}
-if (coupledInertia.spatial.maxLevel !== 3) fail('UT4 Spatial Inertia must remain M0-M3.')
-if (coupledInertia.spatial.steeringLoss60 < 0 || coupledInertia.spatial.steeringLoss120 < coupledInertia.spatial.steeringLoss60) {
-  fail('UT4 steering loss must be monotonic from 60 to 120 degrees.')
-}
-if (coupledInertia.actions.basicMoveAt !== 1 || coupledInertia.actions.defaultWeaponAt !== 1 || coupledInertia.actions.holdPositionAt !== 1) {
-  fail('UT4 baseline Move / Default Weapon / Hold actions must be 1 AT.')
-}
-if (coupledInertia.actions.drivePhaseAt !== 1 || coupledInertia.actions.drivePhaseCount !== 3) {
-  fail('UT4 Drive baseline must be three committed 1 AT phases.')
-}
-if (coupledInertia.actions.heavyReleaseAt !== 2) fail('UT4 Heavy Release baseline must be 2 AT.')
-if (coupledInertia.actions.brakeAt !== 1) fail('UT4 Brake baseline must be 1 AT.')
+// UT4 remains historical so existing comparisons stay reproducible.
+if (coupledInertia.rulesetVersion !== 'VAL-012-UT4') fail('Historical coupled inertia ruleset must remain VAL-012-UT4.')
+if (coupledInertia.implementationId !== 'coupled-inertia-sandbox-v1') fail('Historical UT4 implementation ID changed unexpectedly.')
+
+// UT5 is the live Inertia Lab candidate. Structural contracts are fixed;
+// balance-sensitive values remain intentionally tunable.
+if (axisInertia.rulesetVersion !== 'VAL-012-UT5') fail('Axis Inertia ruleset must be VAL-012-UT5.')
+if (axisInertia.implementationId !== 'axis-inertia-sandbox-v1') fail('UT5 implementation ID must be axis-inertia-sandbox-v1.')
+if (axisInertia.thermal.coldDomainThreshold !== -3 || axisInertia.thermal.hotDomainThreshold !== 3) fail('UT5 absolute Thermal Domain thresholds must be -3 and +3.')
+if (axisInertia.thermal.setPointMin !== -2 || axisInertia.thermal.setPointMax !== 2) fail('UT5 Set Point diagnostic range must remain -2 to +2.')
+if (!(axisInertia.thermal.damping >= 0)) fail('UT5 Damping must be non-negative.')
+if (!(axisInertia.thermal.thermalPeriodAt > 0)) fail('UT5 Thermal Period must be positive.')
+if (!Number.isInteger(axisInertia.thermal.integrationSubstepsPerAt) || axisInertia.thermal.integrationSubstepsPerAt < 4) fail('UT5 Thermal solver must use at least four integration substeps per AT.')
+if (axisInertia.spatial.maxLevel !== 3) fail('UT5 unified Momentum must remain M0-M3.')
+if (axisInertia.spatial.momentumExchangeCap < 0 || axisInertia.spatial.momentumExchangeCap > axisInertia.spatial.maxLevel) fail('UT5 Momentum Exchange Cap must be within M0-M3.')
+if (axisInertia.spatial.steeringCost60 < 0 || axisInertia.spatial.steeringCost120 < axisInertia.spatial.steeringCost60) fail('UT5 Steering cost must be monotonic from 60 to 120 degrees.')
+if (axisInertia.spatial.minReactionSidestepM < axisInertia.spatial.reactionSidestepCostM) fail('UT5 Reaction Sidestep minimum M must cover its M cost.')
+if (axisInertia.spatial.minFallbackM < axisInertia.spatial.fallbackCostM) fail('UT5 Failed Occupancy Fallback minimum M must cover its M cost.')
+if (axisInertia.actions.basicMoveAt !== 1 || axisInertia.actions.defaultWeaponAt !== 1 || axisInertia.actions.holdPositionAt !== 1) fail('UT5 baseline Move / Default Weapon / Hold actions must be 1 AT.')
+if (axisInertia.actions.drivePhaseAt !== 1 || axisInertia.actions.drivePhaseCount !== 3) fail('UT5 Drive baseline must remain three committed 1 AT phases.')
+if (axisInertia.actions.heavyReleaseAt !== 2) fail('UT5 Heavy Release baseline must be 2 AT.')
+if (axisInertia.actions.brakeAt !== 1) fail('UT5 Brake baseline must be 1 AT.')
 for (const hitType of ['normal', 'push', 'heavy']) {
-  if (!coupledInertia.hits[hitType]) fail(`UT4 missing hit profile: ${hitType}`)
-  if (coupledInertia.hits[hitType].damage < 0 || coupledInertia.hits[hitType].forcedStrength < 0) {
-    fail(`UT4 hit profile ${hitType} contains a negative value.`)
-  }
+  if (!axisInertia.hits[hitType]) fail(`UT5 missing hit profile: ${hitType}`)
+  if (axisInertia.hits[hitType].damage < 0 || axisInertia.hits[hitType].forcedStrength < 0) fail(`UT5 hit profile ${hitType} contains a negative value.`)
 }
 
-console.log(`Validated ProjectC ruleset ${config.rulesetVersion} (schema ${config.schemaVersion}), ${unifiedTimeline.rulesetId}, and ${coupledInertia.rulesetVersion}.`)
+console.log(`Validated ProjectC ruleset ${config.rulesetVersion} (schema ${config.schemaVersion}), ${unifiedTimeline.rulesetId}, historical ${coupledInertia.rulesetVersion}, and live ${axisInertia.rulesetVersion}.`)
