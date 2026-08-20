@@ -1,0 +1,1 @@
+Attack feedback regression checklist: one committed PlaybackEvent id must produce at most one Three.js attack playback; hover-only preview changes must not replay it; Basic Attack must still reduce target HP by the configured damage; real HP loss should create one short screen-impact cue.
