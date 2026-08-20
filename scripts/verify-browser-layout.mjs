@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const previewOrigin = 'http://127.0.0.1:4173'
-const pageUrl = `${previewOrigin}/ProjectC-WebPrototype/#hex-prototype`
+const pageUrl = `${previewOrigin}/ProjectC-WebPrototype/#hex-legacy`
 const debuggingOrigin = 'http://127.0.0.1:9222'
 const artifactDir = resolve('artifacts')
 
@@ -335,7 +335,7 @@ async function loadViewport(client, width) {
     deviceScaleFactor: 1,
     mobile: false,
   })
-  const viewportUrl = `${previewOrigin}/ProjectC-WebPrototype/?viewport=${width}#hex-prototype`
+  const viewportUrl = `${previewOrigin}/ProjectC-WebPrototype/?viewport=${width}#hex-legacy`
   await client.send('Page.navigate', { url: viewportUrl })
   await waitFor(`Hex prototype at ${width}px`, async () => {
     const ready = await evaluate(client, `Boolean(document.querySelector('.hex-prototype .hex-inspector-tabs'))`)
