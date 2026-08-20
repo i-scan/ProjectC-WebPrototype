@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const hexPrototypePath = fileURLToPath(new URL('./HexPrototype.tsx', import.meta.url))
+const actorLoopPath = fileURLToPath(new URL('./ActorLoopPlayground.tsx', import.meta.url))
 const thermalLabPath = fileURLToPath(new URL('./ThermalClockLab.tsx', import.meta.url))
 const inspectorCssPath = fileURLToPath(new URL('./right-inspector.css', import.meta.url))
 const runtimeContractPath = fileURLToPath(new URL('./InspectorLayoutContract.tsx', import.meta.url))
@@ -12,6 +13,7 @@ const browserVerificationPath = fileURLToPath(new URL('../../scripts/verify-brow
 const mainPath = fileURLToPath(new URL('../main.tsx', import.meta.url))
 
 const hexPrototypeSource = readFileSync(hexPrototypePath, 'utf8')
+const actorLoopSource = readFileSync(actorLoopPath, 'utf8')
 const thermalLabSource = readFileSync(thermalLabPath, 'utf8')
 const inspectorCssSource = readFileSync(inspectorCssPath, 'utf8')
 const runtimeContractSource = readFileSync(runtimeContractPath, 'utf8')
@@ -19,7 +21,7 @@ const browserVerificationSource = readFileSync(browserVerificationPath, 'utf8')
 const mainSource = readFileSync(mainPath, 'utf8')
 
 describe('right inspector component boundaries', () => {
-  it('keeps tab state, width mode, and coordinate in HexPrototype', () => {
+  it('keeps historical tab state, width mode, and coordinate in HexPrototype', () => {
     expect(hexPrototypeSource).toContain('inspector-${rightInspectorTab}')
     expect(hexPrototypeSource).toContain('className="hex-inspector-coordinate"')
     expect(hexPrototypeSource).toContain("rightInspectorTab === 'hex' ?")
@@ -37,9 +39,12 @@ describe('right inspector component boundaries', () => {
     expect(inspectorCssSource).not.toContain('font-size: 6px')
   })
 
-  it('mounts one stable-width final contract after the Hex page', () => {
+  it('keeps the stable-width inspector contract on the hidden historical Hex route only', () => {
     expect(mainSource).toContain("import { InspectorLayoutContract } from './hex/InspectorLayoutContract'")
-    expect(mainSource).toContain("{view === 'hex' && <InspectorLayoutContract />}")
+    expect(mainSource).toContain("{view === 'hex-legacy' && <InspectorLayoutContract />}")
+    expect(mainSource).toContain("{view === 'hex' && <ActorLoopPlayground />}")
+    expect(actorLoopSource).toContain('VAL-012-UT6-candidate')
+    expect(mainSource).not.toContain("{view === 'hex' && <InspectorLayoutContract />}")
     expect(mainSource).not.toContain("import './hex/right-inspector-contract.css'")
     expect(runtimeContractSource).toContain('data-inspector-layout-contract="runtime-v3"')
     expect(runtimeContractSource).toContain('.inspector-hex > .visual-layout,')
@@ -49,7 +54,7 @@ describe('right inspector component boundaries', () => {
     expect(runtimeContractSource).toContain('white-space: nowrap !important')
   })
 
-  it('uses a compact Thermal hierarchy close to the Hex inspector scale', () => {
+  it('uses a compact Thermal hierarchy close to the historical Hex inspector scale', () => {
     expect(runtimeContractSource).toContain('--tc-body: 10px')
     expect(runtimeContractSource).toContain('--tc-title: 10px')
     expect(runtimeContractSource).toContain('--tc-value: 12px')
@@ -58,7 +63,7 @@ describe('right inspector component boundaries', () => {
     expect(runtimeContractSource).not.toContain('--tc-value-emphasis: 20px')
   })
 
-  it('checks computed stable width and typography in a real browser', () => {
+  it('checks computed stable width and typography in the historical Hex browser contract', () => {
     expect(browserVerificationSource).toContain('for (const width of [1920, 1366])')
     expect(browserVerificationSource).toContain('tab buttons are not on the same row')
     expect(browserVerificationSource).toContain('inspector width changes when switching tabs')

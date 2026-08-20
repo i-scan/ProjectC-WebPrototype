@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { GameState } from '../game'
-import type { MomentumLevel, SpatialInertiaState } from './coupledInertiaUt5'
 import { hexWorldPosition } from './HexThreeBoard'
 import { hexAdvance, type HexDirection } from './hexTopology'
 
+type MomentumLevel = 0 | 1 | 2 | 3
+type OverlaySpatialState = {
+  level: MomentumLevel
+  axis: { kind: 'horizontal'; dir: HexDirection } | { kind: 'down' } | { kind: 'up' } | null
+}
+
 type Props = {
   state: GameState
-  spatialByActorId: Record<string, SpatialInertiaState>
+  spatialByActorId: Record<string, OverlaySpatialState>
   cameraResetToken: number
   active: boolean
+  showAxisAtZero?: boolean
 }
 
 type OrbitState = { yaw: number; pitch: number; zoom: number }
@@ -85,7 +91,7 @@ function horizontalVector(
   }
 }
 
-export function Ut5AxisOverlay({ state, spatialByActorId, cameraResetToken, active }: Props) {
+export function Ut5AxisOverlay({ state, spatialByActorId, cameraResetToken, active, showAxisAtZero = false }: Props) {
   const overlayRef = useRef<SVGSVGElement>(null)
   const orbitRef = useRef<OrbitState>({ ...DEFAULT_ORBIT })
   const dragRef = useRef({ active: false, pointerId: -1, lastX: 0, lastY: 0 })
@@ -170,7 +176,7 @@ export function Ut5AxisOverlay({ state, spatialByActorId, cameraResetToken, acti
     for (const actor of state.actors) {
       if (!actor.alive) continue
       const spatial = spatialByActorId[actor.id]
-      if (!spatial?.axis || spatial.level <= 0) continue
+      if (!spatial?.axis || (!showAxisAtZero && spatial.level <= 0)) continue
       const source = projectedPoint(hexWorldPosition(actor.position, state, 1.25), orbitRef.current, width, height)
       if (spatial.axis.kind === 'horizontal') {
         result.push({
@@ -186,14 +192,14 @@ export function Ut5AxisOverlay({ state, spatialByActorId, cameraResetToken, acti
       }
     }
     return result
-  }, [active, revision, spatialByActorId, state])
+  }, [active, revision, showAxisAtZero, spatialByActorId, state])
 
   if (!active) return null
   return (
     <svg
       ref={overlayRef}
-      className="ut5-axis-overlay"
-      aria-label="UT5 actor Momentum Axis overlay"
+      className="ut5-axis-overlay actor-axis-overlay"
+      aria-label="Actor Momentum Axis overlay"
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 16, pointerEvents: 'none', overflow: 'visible' }}
     >
       <defs>

@@ -54,5 +54,6 @@ jobs:
           path: |
             ./artifacts/inspector-layout.*
             ./artifacts/ut5-axis-inertia.*
+            ./artifacts/ut6-actor-loop.*
           if-no-files-found: warn
           retention-days: 14
