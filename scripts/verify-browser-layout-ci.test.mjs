@@ -17,6 +17,8 @@ describe('browser verification CI resilience', () => {
     expect(wrapper).toContain("BROWSER_VERIFY_ATTEMPTS || '3'")
     expect(wrapper).toContain("['scripts/verify-browser-layout.mjs']")
     expect(wrapper).toContain("result.output.includes('Chrome DevTools did not become ready')")
+    expect(wrapper).toContain("spawnSync('pkill', ['-f', '--', pattern]")
+    expect(wrapper).toContain('cleaning stale verifier Chrome before retry')
     expect(ut5).toContain('VAL-012-UT5')
     expect(ut5).toContain('Nobody Dies must be the final right-sidebar control')
     expect(ut5).toContain('UT5 Cold Down build')
