@@ -97,9 +97,12 @@ const snapshotExpression = `(() => {
   const move = root?.querySelector('[data-action-id="basic-move"]')
   const attack = root?.querySelector('[data-action-id="basic-attack"]')
   const raikiri = root?.querySelector('[data-action-id="raikiri"]')
+  const board = root?.querySelector('.hex-board-host')
+  const latestLog = root?.querySelector('.ut4-log-list article')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
   return {
     header,
     preview,
+    latestLog,
     pageScrollHeight: document.documentElement.scrollHeight,
     innerHeight: window.innerHeight,
     actionCount: root?.querySelectorAll('.ut6-action-card').length ?? 0,
@@ -112,6 +115,11 @@ const snapshotExpression = `(() => {
     at0Open: Boolean(root?.querySelector('.ut6-at0-banner.open')),
     at0Text: root?.querySelector('.ut6-at0-banner')?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
     axisArrow: Boolean(root?.querySelector('.actor-axis-overlay [data-actor-id="player"]')),
+    playbackStartCount: Number(board?.dataset.playbackStartCount ?? 0),
+    playbackEventId: board?.dataset.playbackEventId ?? null,
+    damageFeedbackCount: Number(board?.dataset.damageFeedbackCount ?? 0),
+    lastDamageAmount: Number(board?.dataset.lastDamageAmount ?? 0),
+    impactVisible: Boolean(board?.querySelector('.hex-board-impact-feedback')),
   }
 })()`
 
@@ -220,30 +228,60 @@ try {
   await evaluate(client, `document.querySelector('.hex-travel-cell.valid-target.drive').dispatchEvent(new MouseEvent('click', { bubbles: true })); true`)
   const afterAt0Attack = await waitFor('UT6 AT0 Basic Attack completion', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.header.includes('1.0 AT') || snapshot.at0Open || !snapshot.attackSelected) throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.header.includes('1.0 AT') || snapshot.at0Open || !snapshot.attackSelected || !snapshot.latestLog.includes('Damage 1')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
   await evaluate(client, clickButtonExpression('.hex-view-switch', '3D'))
-  const axisOverlay = await waitFor('UT6 actor-axis overlay', async () => {
+  const playbackBeforeHover = await waitFor('UT6 one-shot attack playback in 3D', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.axisArrow) throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.axisArrow || snapshot.playbackStartCount !== 1 || !snapshot.playbackEventId) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
+
+  await evaluate(client, `(() => {
+    const canvas = document.querySelector('.ut6-actor-loop .hex-board-host canvas')
+    if (!canvas) throw new Error('UT6 3D canvas missing for hover replay probe')
+    const rect = canvas.getBoundingClientRect()
+    const points = [
+      [.34, .42], [.42, .48], [.50, .53], [.58, .46], [.65, .39],
+      [.55, .58], [.45, .62], [.37, .54], [.60, .60], [.48, .37],
+    ]
+    for (const [x, y] of points) {
+      canvas.dispatchEvent(new PointerEvent('pointermove', {
+        bubbles: true,
+        pointerId: 7,
+        clientX: rect.left + rect.width * x,
+        clientY: rect.top + rect.height * y,
+      }))
+    }
+    return true
+  })()`)
+  await sleep(260)
+  const playbackAfterHover = await evaluate(client, snapshotExpression)
+  assert(
+    playbackAfterHover.playbackStartCount === playbackBeforeHover.playbackStartCount
+      && playbackAfterHover.playbackEventId === playbackBeforeHover.playbackEventId,
+    'Hovering across Hex cells replayed the committed Attack event',
+    { playbackBeforeHover, playbackAfterHover },
+  )
 
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'ut6-actor-loop.png'), Buffer.from(screenshot.data, 'base64'))
-  const result = { initial, moveReady, afterMove, releasePreset, afterRaikiri, afterAt0Attack, axisOverlay }
+  const result = { initial, moveReady, afterMove, releasePreset, afterRaikiri, afterAt0Attack, playbackBeforeHover, playbackAfterHover }
   await writeFile(join(artifactDir, 'ut6-actor-loop.json'), `${JSON.stringify(result, null, 2)}\n`)
 
-  console.log('UT6 Actor Loop verified in real Chrome: live route, seven actions, Basic Move Build, Release -> AT0 Basic Attack, and 3D Axis overlay.')
+  console.log('UT6 Actor Loop verified in real Chrome: HP damage is logged, Attack playback is one-shot across hover, plus existing move/release/AT0/axis contracts.')
   console.log(JSON.stringify({
     initial: initial.header,
     afterMove: afterMove.header,
     afterRaikiri: afterRaikiri.header,
     afterAt0Attack: afterAt0Attack.header,
-    primaryScrollHeight: axisOverlay.pageScrollHeight,
+    attackLog: afterAt0Attack.latestLog,
+    playbackStartsBeforeHover: playbackBeforeHover.playbackStartCount,
+    playbackStartsAfterHover: playbackAfterHover.playbackStartCount,
+    primaryScrollHeight: playbackAfterHover.pageScrollHeight,
   }, null, 2))
 } finally {
   client?.close()
