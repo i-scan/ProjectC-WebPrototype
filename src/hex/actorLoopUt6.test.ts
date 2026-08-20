@@ -45,16 +45,18 @@ describe('VAL-012-UT6 Actor Loop v0', () => {
     immediate = basicMovePlan(immediate, 'NW', settings({ naturalBuildStartMode: 'immediate-m1' })).result
     expect(playerSpatial(immediate)).toEqual({ level: 1, axis: horizontalAxis('NW') })
 
-    let axisFirst = createActorLoopState()
-    axisFirst = basicMovePlan(axisFirst, 'NW', settings({ naturalBuildStartMode: 'axis-first' })).result
-    expect(playerSpatial(axisFirst)).toEqual({ level: 0, axis: horizontalAxis('NW') })
-    axisFirst = basicMovePlan(axisFirst, 'NW', settings({ naturalBuildStartMode: 'axis-first' })).result
-    expect(playerSpatial(axisFirst)).toEqual({ level: 1, axis: horizontalAxis('NW') })
+    let continuous = createActorLoopState()
+    continuous = basicMovePlan(continuous, 'NW', settings({ naturalBuildStartMode: 'axis-first' })).result
+    expect(playerSpatial(continuous)).toEqual({ level: 0, axis: horizontalAxis('NW') })
+    continuous = basicMovePlan(continuous, 'NW', settings({ naturalBuildStartMode: 'axis-first' })).result
+    expect(playerSpatial(continuous)).toEqual({ level: 1, axis: horizontalAxis('NW') })
 
-    axisFirst = stepWorldPlan(axisFirst, settings({ naturalBuildStartMode: 'axis-first' })).result
-    const afterWait = basicMovePlan(axisFirst, 'NW', settings({ naturalBuildStartMode: 'axis-first' })).result
-    expect(playerSpatial(afterWait).level).toBe(1)
-    expect(afterWait.logs[0].detail).toContain('Axis First')
+    let interrupted = createActorLoopState()
+    interrupted = basicMovePlan(interrupted, 'NW', settings({ naturalBuildStartMode: 'axis-first' })).result
+    interrupted = stepWorldPlan(interrupted, settings({ naturalBuildStartMode: 'axis-first' })).result
+    interrupted = basicMovePlan(interrupted, 'NW', settings({ naturalBuildStartMode: 'axis-first' })).result
+    expect(playerSpatial(interrupted)).toEqual({ level: 0, axis: horizontalAxis('NW') })
+    expect(interrupted.logs[0].detail).toContain('Axis First')
   })
 
   it('T2 Basic Move spends M1 for Move2 and cannot refund it in the same AT', () => {
