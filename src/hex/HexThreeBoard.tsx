@@ -451,6 +451,17 @@ function addLocalEffect(
   }
 }
 
+function showDamageFeedback(host: HTMLDivElement, amount: number) {
+  const feedback = document.createElement('div')
+  feedback.className = 'hex-board-impact-feedback'
+  feedback.dataset.damageAmount = String(amount)
+  feedback.textContent = `HIT · -${amount} HP`
+  host.appendChild(feedback)
+  host.dataset.lastDamageAmount = String(amount)
+  host.dataset.damageFeedbackCount = String(Number(host.dataset.damageFeedbackCount ?? 0) + 1)
+  window.setTimeout(() => feedback.remove(), 620)
+}
+
 export function HexThreeBoard({
   state,
   mode = 'tactical',
@@ -476,6 +487,8 @@ export function HexThreeBoard({
   const contentRef = useRef<THREE.Group | null>(null)
   const actorObjectsRef = useRef(new Map<string, THREE.Object3D>())
   const previousActorPositionsRef = useRef(new Map<string, Coord>())
+  const previousActorHpRef = useRef(new Map<string, number>())
+  const playedEventIdRef = useRef<number | null>(null)
   const onClickRef = useRef(onCellClick)
   const onHoverRef = useRef(onCellHover)
   const stateRef = useRef(state)
@@ -488,6 +501,8 @@ export function HexThreeBoard({
   const attackRef = useRef<AttackAnimation[]>([])
   const billboardRef = useRef<THREE.Group[]>([])
   const orbitRef = useRef<OrbitState>({ ...DEFAULT_ORBIT })
+  const travelPathRenderKey = travelPath.map(coordKey).join('|')
+  const selectionRenderKey = JSON.stringify(selection.kind === 'momentum' ? { ...selection, route: undefined } : selection)
 
   onClickRef.current = onCellClick
   onHoverRef.current = onCellHover
@@ -1028,6 +1043,14 @@ export function HexThreeBoard({
       content.add(line)
     }
 
+    let damageAmount = 0
+    for (const actor of state.actors) {
+      const previousHp = previousActorHpRef.current.get(actor.id)
+      if (previousHp !== undefined && actor.hp < previousHp) damageAmount = Math.max(damageAmount, previousHp - actor.hp)
+      previousActorHpRef.current.set(actor.id, actor.hp)
+    }
+    if (damageAmount > 0 && hostRef.current) showDamageFeedback(hostRef.current, damageAmount)
+
     for (const actor of state.actors.filter((entry) => entry.alive)) {
       const pawn = createActorPawn(actor, billboardRef.current, momentumByActorId[actor.id] ?? 0)
       const target = hexWorldPosition(actor.position, state, 0.1)
@@ -1081,22 +1104,31 @@ export function HexThreeBoard({
       })
     }
 
-    if (event?.effect === 'attack' && event.sourceActorId && event.actorId) {
-      const source = actorObjectsRef.current.get(event.sourceActorId)
-      const victim = actorObjectsRef.current.get(event.actorId)
-      if (source && victim) {
-        attackRef.current.push({
-          object: source,
-          base: source.position.clone(),
-          target: victim.position.clone(),
-          victim,
-          startedAt: performance.now(),
-          duration: 480,
-        })
+    const shouldPlayEvent = Boolean(event && playedEventIdRef.current !== event.id)
+    if (shouldPlayEvent && event) {
+      playedEventIdRef.current = event.id
+      const host = hostRef.current
+      if (host) {
+        host.dataset.playbackEventId = String(event.id)
+        host.dataset.playbackStartCount = String(Number(host.dataset.playbackStartCount ?? 0) + 1)
       }
+      if (event.effect === 'attack' && event.sourceActorId && event.actorId) {
+        const source = actorObjectsRef.current.get(event.sourceActorId)
+        const victim = actorObjectsRef.current.get(event.actorId)
+        if (source && victim) {
+          attackRef.current.push({
+            object: source,
+            base: source.position.clone(),
+            target: victim.position.clone(),
+            victim,
+            startedAt: performance.now(),
+            duration: 480,
+          })
+        }
+      }
+      addLocalEffect(content, event, state, pulseRef.current)
     }
-    if (event) addLocalEffect(content, event, state, pulseRef.current)
-  }, [state, mode, travelPath, travelTarget, travelPreference, selection, targetLayer, showSky, showDebug, event, eventDurationMs, momentumByActorId])
+  }, [state, mode, travelPathRenderKey, travelTarget, travelPreference, selectionRenderKey, targetLayer, showSky, showDebug, event, eventDurationMs, momentumByActorId])
 
   useEffect(() => {
     const layer = interactionLayerRef.current
