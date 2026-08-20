@@ -26,20 +26,22 @@ describe('UT6 Actor Loop playground structure', () => {
     for (const action of ['Basic Move', 'Basic Attack', 'Launch', 'Brake', 'Drive', 'Raikiri', 'Ground Break']) {
       expect(lab).toContain(action)
     }
-    expect(lab).not.toContain('Chain Window')
+    expect(lab).toContain('不使用通用 Chain Window')
     expect(lab).not.toContain('Intro → Core → Outro')
+    expect(rules).not.toContain('Chain Window')
     expect(rules).not.toContain('Link Token')
     expect(rules).not.toContain('Pending Momentum')
   })
 
-  it('keeps Basic Action Spend and same-AT no-refund frozen rather than exposing Sustain A/B', () => {
+  it('keeps Basic Action Spend and same-AT no-refund frozen rather than exposing Sustain as a selectable A/B', () => {
     expect(config.momentum.basicMoveSpendEnabled).toBe(true)
     expect(config.momentum.basicAttackDownSpendEnabled).toBe(true)
     expect(config.momentum.rebuildSpentMomentumSameAt).toBe(false)
     expect(rules).toContain('Same-AT Spend Lock: no refund Build')
-    expect(lab).toContain('Basic Move / Attack 的 Spend 与 same-AT no-refund 已冻结')
-    expect(lab).not.toContain('Sustain A/B')
+    expect(lab).toContain('Basic Move / Attack 的 Spend 与 same-AT no-refund 已冻结，不再提供 Sustain A/B。')
     expect(lab).not.toContain('Consume vs Sustain')
+    expect(lab).not.toContain('Sustain · ON')
+    expect(lab).not.toContain('Sustain · OFF')
   })
 
   it('keeps open questions as explicit Actor Loop A/B controls', () => {
