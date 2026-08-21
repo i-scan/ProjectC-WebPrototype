@@ -1,0 +1,51 @@
+name: UT7 multi-AT navigation patch
+
+on:
+  push:
+    branches:
+      - feat/ut7-multi-at-navigation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/ut7-multi-at-navigation
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Apply focused UI integration patch
+        run: |
+          sed -i "s/。' ''',/。''',/g" .github/patch-ut7-multi-at-navigation.py
+          python .github/patch-ut7-multi-at-navigation.py
+
+      - name: Install and verify
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm build
+
+      - name: Commit integrated UI
+        run: |
+          if git diff --quiet -- src/hex/ActorLoopUt7BasicMovePlayground.tsx; then
+            echo 'No UI patch diff found.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- src/hex/ActorLoopUt7BasicMovePlayground.tsx
+          git commit -m 'Enable remote multi-AT Basic Move navigation'
+          git push origin HEAD:feat/ut7-multi-at-navigation
