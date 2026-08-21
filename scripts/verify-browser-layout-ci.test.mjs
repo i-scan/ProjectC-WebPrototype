@@ -41,7 +41,8 @@ describe('browser verification CI resilience', () => {
     expect(ut7).toContain('UT7 route inspector')
     expect(ut7).toContain('UT7 180-degree branch choice')
     expect(ut7).toContain('UT7 pure-driving enemy toggle')
-    expect(ut7).toContain('UT7 radius rebuild')
+    expect(ut7).toContain('UT7 real R10 topology rebuild')
+    expect(ut7).toContain('boardCellCount !== 331')
     expect(ut7).toContain('UT7 inertia driving verified in real Chrome')
   })
 
