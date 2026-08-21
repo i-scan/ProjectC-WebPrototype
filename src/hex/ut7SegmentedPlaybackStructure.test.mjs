@@ -14,12 +14,13 @@ describe('UT7 segmented actor playback structure', () => {
     expect(source).not.toContain('item.object.position.lerpVectors(item.from, item.to, eased)')
   })
 
-  it('uses the rule-resolved route for preview instead of rebuilding a straight intent ray', async () => {
+  it('uses the navigation-resolved route for preview instead of rebuilding a straight intent ray', async () => {
     const board = await read('./HexThreeBoard.tsx')
     const playground = await read('./ActorLoopUt7BasicMovePlayground.tsx')
     expect(board).toContain('selection.route && selection.route.length > 0')
     expect(board).toContain('const pathCoords = routedPath')
-    expect(playground).toContain("const previewPath = preview?.path.length ? [{ ...player.position }, ...preview.path.map")
+    expect(playground).toContain("const previewPath = preview?.valid && preview.path.length ? [{ ...player.position }, ...preview.path.map")
+    expect(playground).toContain('basicMoveNavigationPlan(lab, hoverCoord, settings)')
     expect(playground).toContain("path: [{ ...beforePlayer.position }, ...plan.path.map")
   })
 
