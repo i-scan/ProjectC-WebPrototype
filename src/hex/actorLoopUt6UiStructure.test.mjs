@@ -12,11 +12,11 @@ const rules = readFileSync(rulesPath, 'utf8')
 const config = JSON.parse(readFileSync(configPath, 'utf8'))
 
 describe('UT6 Actor Loop playground structure', () => {
-  it('remains reproducible at #hex-ut6 while UT7 owns the live #hex-prototype route', () => {
+  it('remains reproducible at #hex-ut6 while UT7 Basic Move owns the live #hex-prototype route', () => {
     expect(main).toContain("if (window.location.hash === '#hex-prototype') return 'hex'")
     expect(main).toContain("if (window.location.hash === '#hex-ut6') return 'hex-ut6'")
     expect(main).toContain("if (window.location.hash === '#hex-legacy') return 'hex-legacy'")
-    expect(main).toContain("{view === 'hex' && <ActorLoopUt7Playground />}")
+    expect(main).toContain("{view === 'hex' && <ActorLoopUt7BasicMovePlayground />}")
     expect(main).toContain("{view === 'hex-ut6' && <ActorLoopPlayground />}")
     expect(main).toContain("{view === 'hex-legacy' && <HexPrototype />}")
     expect(main).toContain("{view === 'rules' && <Ut5InertiaLab />}")

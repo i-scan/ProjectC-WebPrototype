@@ -72,6 +72,7 @@ jobs:
             ./artifacts/inspector-layout.*
             ./artifacts/ut5-axis-inertia.*
             ./artifacts/ut6-actor-loop.*
+            ./artifacts/ut7-basic-move.*
           if-no-files-found: warn
           retention-days: 30
 
@@ -97,7 +98,7 @@ jobs:
           echo >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source: \`main\`" >> "$GITHUB_STEP_SUMMARY"
-          echo '- Rules, tests, TypeScript, Vite build, artifact verification, historical Hex browser layout, UT5 axis-inertia, and live UT6 Actor Loop runtime checks: **passed**' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Rules, tests, TypeScript, Vite build, artifact verification, historical Hex browser layout, UT5 axis-inertia, historical UT6 Actor Loop, and live UT7 Basic Move runtime checks: **passed**' >> "$GITHUB_STEP_SUMMARY"
           echo "- Revision check: https://i-scan.github.io/ProjectC-WebPrototype/?revision=${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Build metadata: https://i-scan.github.io/ProjectC-WebPrototype/build-info.json?revision=${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
 

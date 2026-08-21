@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BuildRevision } from './BuildRevision'
 import { GraphicsLab } from './graphics/GraphicsLab'
 import { ActorLoopPlayground } from './hex/ActorLoopPlayground'
-import { ActorLoopUt7Playground } from './hex/ActorLoopUt7Playground'
+import { ActorLoopUt7BasicMovePlayground } from './hex/ActorLoopUt7BasicMovePlayground'
 import { HexPrototype } from './hex/HexPrototype'
 import { InspectorLayoutContract } from './hex/InspectorLayoutContract'
 import { Ut5InertiaLab } from './hex/Ut5InertiaLab'
@@ -75,7 +75,7 @@ function Root() {
           </button>
         </nav>
       </div>
-      {view === 'hex' && <ActorLoopUt7Playground />}
+      {view === 'hex' && <ActorLoopUt7BasicMovePlayground />}
       {view === 'hex-ut6' && <ActorLoopPlayground />}
       {view === 'rules' && <Ut5InertiaLab />}
       {view === 'visual' && <VisualPrototype />}
