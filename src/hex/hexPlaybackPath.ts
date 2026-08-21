@@ -10,7 +10,7 @@ export function eventActorPlaybackPath(
   actorId: string,
 ): Coord[] | undefined {
   const path = event?.effect === 'move' && event.actorId === actorId ? event.path : undefined
-  if (!path || path.length < 2 || !sameCoord(path.at(-1), target)) return undefined
+  if (!path || path.length < 1 || !sameCoord(path.at(-1), target)) return undefined
   return path.map(cloneCoord)
 }
 
@@ -21,8 +21,9 @@ export function resolvedActorPlaybackPath(
   actorId: string,
 ): Coord[] {
   const eventPath = eventActorPlaybackPath(target, event, actorId)
-  if (eventPath && sameCoord(eventPath[0], previous)) return eventPath
-  return [cloneCoord(previous), cloneCoord(target)]
+  if (!eventPath) return [cloneCoord(previous), cloneCoord(target)]
+  if (sameCoord(eventPath[0], previous)) return eventPath
+  return [cloneCoord(previous), ...eventPath]
 }
 
 export function playbackSegmentAt(progress: number, waypointCount: number) {
