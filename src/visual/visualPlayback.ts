@@ -30,6 +30,7 @@ export type PlaybackEvent = VisualEvent & {
   cardIds?: string[]
   effect?: VisualEffect
   direction?: string | null
+  path?: Coord[]
 }
 
 let cueSequence = 0
