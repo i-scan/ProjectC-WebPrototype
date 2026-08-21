@@ -23,13 +23,14 @@ import {
 import {
   HEX_DIRECTIONS,
   hexAdvance,
-  hexDirectionBetween,
+  hexDirectionOnLine,
   hexDistance,
   type HexDirection,
 } from './hexTopology'
 
 const directionOrder = HEX_DIRECTIONS.map((entry) => entry.direction)
 const clone = <T>(value: T): T => structuredClone(value)
+const sameCoord = (a: Coord, b: Coord) => a.x === b.x && a.y === b.y
 
 function spatialFor(state: Ut7State, actorId: string) {
   return state.spatialByActorId[actorId] ?? createSpatialState()
@@ -167,8 +168,33 @@ function rotateDirection(direction: HexDirection, delta: number): HexDirection {
   return directionOrder[(index + delta + directionOrder.length * 4) % directionOrder.length]
 }
 
+function angularDistance(from: HexDirection, to: HexDirection) {
+  const diff = Math.abs(directionIndex(from) - directionIndex(to))
+  return Math.min(diff, directionOrder.length - diff)
+}
+
 function oppositeDirection(direction: HexDirection) {
   return rotateDirection(direction, 3)
+}
+
+function bearingCandidates(from: Coord, target: Coord) {
+  const currentDistance = hexDistance(from, target)
+  return directionOrder.filter((direction) => hexDistance(hexAdvance(from, direction), target) < currentDistance)
+}
+
+function chooseTargetBearing(from: Coord, target: Coord, axis?: HexDirection, bias: TurnBias = 'ccw'): HexDirection | null {
+  const direct = hexDirectionOnLine(from, target)
+  if (direct) return direct
+  const candidates = bearingCandidates(from, target)
+  if (candidates.length === 0) return null
+  if (!axis || candidates.length === 1) return candidates[0]
+  const bestDistance = Math.min(...candidates.map((candidate) => angularDistance(axis, candidate)))
+  const tied = candidates.filter((candidate) => angularDistance(axis, candidate) === bestDistance)
+  if (tied.length === 1) return tied[0]
+  return tied.find((candidate) => {
+    const diff = (directionIndex(candidate) - directionIndex(axis) + 6) % 6
+    return bias === 'ccw' ? diff > 0 && diff <= 3 : diff >= 3
+  }) ?? tied[0]
 }
 
 function redirectOne(oldDirection: HexDirection, desired: HexDirection, bias: TurnBias) {
@@ -176,41 +202,6 @@ function redirectOne(oldDirection: HexDirection, desired: HexDirection, bias: Tu
   if (diff === 0) return oldDirection
   if (diff === 3) return rotateDirection(oldDirection, bias === 'ccw' ? 1 : -1)
   return rotateDirection(oldDirection, diff < 3 ? 1 : -1)
-}
-
-function traceFor(
-  state: Ut7State,
-  beforeSpatial: SpatialInertiaState,
-  beforeThermal: ThermalInertiaState,
-  behavior: ThermalBehavior,
-  path: Coord[],
-  oldAxis: SpatialAxis | null,
-  moveDirection: HexDirection | null,
-  detail: string,
-): SteeringAtTrace {
-  const after = spatialFor(state, 'player')
-  return {
-    atIndex: 1,
-    beforeM: beforeSpatial.level,
-    afterM: after.level,
-    beforeAxis: clone(beforeSpatial.axis),
-    afterAxis: clone(after.axis),
-    behavior,
-    thermalIntent: behaviorIntent(behavior),
-    temperatureBefore: beforeThermal.temperature,
-    temperatureAfter: state.thermal.temperature,
-    driftBefore: beforeThermal.drift,
-    driftAfter: state.thermal.drift,
-    cellSteps: path.map((to, index) => ({
-      index: index + 1,
-      from: index === 0 ? clone(getPlayer(state.game).position) : clone(path[index - 1]),
-      to: clone(to),
-      oldAxis: clone(oldAxis),
-      newAxis: clone(after.axis),
-      moveDirection: moveDirection ?? 'E',
-    })),
-    detail,
-  }
 }
 
 function invalidPlan(input: Ut7State, reason: string, branch?: TurnBias): ActionPlan {
@@ -228,81 +219,16 @@ function invalidPlan(input: Ut7State, reason: string, branch?: TurnBias): Action
   }
 }
 
-function buildBasicMovePlan(
-  input: Ut7State,
-  intendedDirection: HexDirection,
-  settings: Ut7Settings,
-  bias: TurnBias,
-): ActionPlan {
-  const state = clone(input)
-  const player = getPlayer(state.game)
-  const beforePosition = clone(player.position)
-  const beforeSpatial = clone(spatialFor(state, 'player'))
-  const beforeThermal = clone(state.thermal)
-  const path: Coord[] = []
-  let behavior: ThermalBehavior = 'generate'
-  let detail = ''
-  let actualDirection: HexDirection | null = null
-
-  if (beforeSpatial.level > 0 && beforeSpatial.axis?.kind === 'down') {
-    const hotSide = thermalSideFor(state.thermal.temperature, state.thermal.setPoint) === 'hot'
-    const reduction = settings.hotSideBreakawayAssistEnabled && hotSide
-      ? ut7Config.breakaway.hotSideReductionPerAt
-      : ut7Config.breakaway.reductionPerAt
-    const nextLevel = clampMomentum(beforeSpatial.level - reduction)
-    setSpatial(state, 'player', createSpatialState(nextLevel, downAxis()))
-    behavior = 'resist'
-    detail = `Intent ${intendedDirection} · Down Breakaway M${beforeSpatial.level} → M${nextLevel}`
-    if (nextLevel === 0) {
-      const next = hexAdvance(player.position, intendedDirection)
-      if (traversable(state, next)) {
-        player.position = next
-        path.push(clone(next))
-        actualDirection = intendedDirection
-        detail += ` · Move1 ${intendedDirection}`
-      } else {
-        detail += ' · resolved move blocked'
-      }
-    } else {
-      detail += ' · no displacement this AT'
-    }
-    applyThermalIntent(state, behavior)
-    clearContinuity(state, 'player')
-  } else if (beforeSpatial.level > 0 && beforeSpatial.axis?.kind === 'horizontal') {
-    const residual = clampMomentum(beforeSpatial.level - 1)
-    const oldDirection = beforeSpatial.axis.dir
-    const newDirection = redirectOne(oldDirection, intendedDirection, bias)
-    const redirected = newDirection !== oldDirection
-    actualDirection = residual > 0 ? oldDirection : newDirection
-    const next = hexAdvance(player.position, actualDirection)
-    setSpatial(state, 'player', createSpatialState(residual, horizontalAxis(newDirection)))
-    behavior = redirected ? 'resist' : 'use'
-    if (traversable(state, next)) {
-      player.position = next
-      path.push(clone(next))
-      detail = `Intent ${intendedDirection} · Horizontal M${beforeSpatial.level} → M${residual} · Axis ${oldDirection} → ${newDirection} · Move1 ${actualDirection}`
-    } else {
-      detail = `Intent ${intendedDirection} · Horizontal M${beforeSpatial.level} → M${residual} · Axis ${oldDirection} → ${newDirection} · actual ${actualDirection} blocked · no auto-detour`
-    }
-    applyThermalIntent(state, behavior)
-    rememberBehavior(state, 'player', horizontalAxis(newDirection))
-    detail += ' · Spend once / same-AT no refund'
-  } else {
-    const next = hexAdvance(player.position, intendedDirection)
-    if (!traversable(state, next)) return invalidPlan(input, `Basic Move ${intendedDirection} is blocked`, bias)
-    actualDirection = intendedDirection
-    player.position = next
-    path.push(clone(next))
-    setSpatial(state, 'player', createSpatialState(0, horizontalAxis(intendedDirection)))
-    behavior = 'generate'
-    applyThermalIntent(state, behavior)
-    const build = applyBuild(state, horizontalAxis(intendedDirection), settings)
-    detail = `Intent ${intendedDirection} · Move1 ${intendedDirection} · Generate/Hotward · ${build}`
-  }
-
-  appendLog(state, 'Basic Move', behavior, beforeSpatial, beforeThermal, detail)
+function makeTrace(
+  state: Ut7State,
+  beforeSpatial: SpatialInertiaState,
+  beforeThermal: ThermalInertiaState,
+  behavior: ThermalBehavior,
+  cellSteps: SteeringAtTrace['cellSteps'],
+  detail: string,
+): SteeringAtTrace {
   const afterSpatial = spatialFor(state, 'player')
-  const trace: SteeringAtTrace = {
+  return {
     atIndex: 1,
     beforeM: beforeSpatial.level,
     afterM: afterSpatial.level,
@@ -314,16 +240,107 @@ function buildBasicMovePlan(
     temperatureAfter: state.thermal.temperature,
     driftBefore: beforeThermal.drift,
     driftAfter: state.thermal.drift,
-    cellSteps: path.map((to, index) => ({
-      index: index + 1,
-      from: index === 0 ? beforePosition : clone(path[index - 1]),
-      to: clone(to),
-      oldAxis: clone(beforeSpatial.axis),
-      newAxis: clone(afterSpatial.axis),
-      moveDirection: actualDirection ?? intendedDirection,
-    })),
+    cellSteps,
     detail,
   }
+}
+
+function buildBasicMovePlan(
+  input: Ut7State,
+  target: Coord,
+  settings: Ut7Settings,
+  bias: TurnBias,
+): ActionPlan {
+  const state = clone(input)
+  const player = getPlayer(state.game)
+  const beforePosition = clone(player.position)
+  const beforeSpatial = clone(spatialFor(state, 'player'))
+  const beforeThermal = clone(state.thermal)
+  const path: Coord[] = []
+  const cellSteps: SteeringAtTrace['cellSteps'] = []
+  let behavior: ThermalBehavior = 'generate'
+  let detail = `Intent (${target.x},${target.y})`
+
+  if (beforeSpatial.level > 0 && beforeSpatial.axis?.kind === 'down') {
+    const hotSide = thermalSideFor(state.thermal.temperature, state.thermal.setPoint) === 'hot'
+    const reduction = settings.hotSideBreakawayAssistEnabled && hotSide
+      ? ut7Config.breakaway.hotSideReductionPerAt
+      : ut7Config.breakaway.reductionPerAt
+    const nextLevel = clampMomentum(beforeSpatial.level - reduction)
+    setSpatial(state, 'player', createSpatialState(nextLevel, downAxis()))
+    behavior = 'resist'
+    detail += ` · Down Breakaway M${beforeSpatial.level} → M${nextLevel}`
+
+    if (nextLevel === 0) {
+      const desired = chooseTargetBearing(player.position, target, undefined, bias)
+      if (!desired) return invalidPlan(input, 'No horizontal bearing after Down Breakaway', bias)
+      const next = hexAdvance(player.position, desired)
+      if (!traversable(state, next)) return invalidPlan(input, `Breakaway path blocked toward ${desired}`, bias)
+      const from = clone(player.position)
+      player.position = next
+      path.push(clone(next))
+      cellSteps.push({ index: 1, from, to: clone(next), oldAxis: downAxis(), newAxis: downAxis(), moveDirection: desired })
+      detail += ` · same-AT Move1 ${desired} · no Horizontal Build`
+    } else {
+      detail += ' · no displacement this AT'
+    }
+
+    applyThermalIntent(state, behavior)
+    clearContinuity(state, 'player')
+  } else if (beforeSpatial.level > 0 && beforeSpatial.axis?.kind === 'horizontal') {
+    const residual = clampMomentum(beforeSpatial.level - 1)
+    let currentAxis = beforeSpatial.axis.dir
+    setSpatial(state, 'player', createSpatialState(residual, horizontalAxis(currentAxis)))
+    let redirected = false
+
+    for (let stepIndex = 0; stepIndex < ut7Config.steering.horizontalCellStepsPerAt; stepIndex += 1) {
+      if (sameCoord(player.position, target)) break
+      const desired = chooseTargetBearing(player.position, target, currentAxis, bias)
+      if (!desired) return invalidPlan(input, 'Unable to resolve Target Bearing', bias)
+      const newDirection = redirectOne(currentAxis, desired, bias)
+      if (newDirection !== currentAxis) redirected = true
+      const moveDirection = residual > 0 ? currentAxis : newDirection
+      const next = hexAdvance(player.position, moveDirection)
+      if (!traversable(state, next)) return invalidPlan(input, `Steering path blocked at ${moveDirection}`, bias)
+      const from = clone(player.position)
+      player.position = next
+      setSpatial(state, 'player', createSpatialState(residual, horizontalAxis(newDirection)))
+      path.push(clone(next))
+      cellSteps.push({
+        index: stepIndex + 1,
+        from,
+        to: clone(next),
+        oldAxis: horizontalAxis(currentAxis),
+        newAxis: horizontalAxis(newDirection),
+        moveDirection,
+      })
+      currentAxis = newDirection
+    }
+
+    behavior = redirected ? 'resist' : 'use'
+    applyThermalIntent(state, behavior)
+    rememberBehavior(state, 'player', horizontalAxis(currentAxis))
+    detail += ` · Horizontal M${beforeSpatial.level} → M${residual} once/AT · Move${path.length}${redirected ? ' · Redirect/Resist' : ' · Same-axis Use'} · same-AT no refund`
+  } else {
+    const desired = chooseTargetBearing(player.position, target, undefined, bias)
+    if (!desired) return invalidPlan(input, 'Unable to resolve M0 Target Bearing', bias)
+    const next = hexAdvance(player.position, desired)
+    if (!traversable(state, next)) return invalidPlan(input, `Basic Move path blocked toward ${desired}`, bias)
+    const from = clone(player.position)
+    player.position = next
+    path.push(clone(next))
+    setSpatial(state, 'player', createSpatialState(0, horizontalAxis(desired)))
+    behavior = 'generate'
+    applyThermalIntent(state, behavior)
+    const build = applyBuild(state, horizontalAxis(desired), settings)
+    cellSteps.push({ index: 1, from, to: clone(next), oldAxis: clone(beforeSpatial.axis), newAxis: horizontalAxis(desired), moveDirection: desired })
+    detail += ` · Move1 ${desired} · Generate/Hotward · ${build}`
+  }
+
+  appendLog(state, 'Basic Move', behavior, beforeSpatial, beforeThermal, detail)
+  const afterSpatial = spatialFor(state, 'player')
+  const afterPosition = getPlayer(state.game).position
+  const trace = makeTrace(state, beforeSpatial, beforeThermal, behavior, cellSteps, detail)
 
   return {
     id: 'basic-move',
@@ -331,7 +348,7 @@ function buildBasicMovePlan(
     valid: true,
     reason: '',
     atCost: 1,
-    summary: `Intent ${intendedDirection} · ${path.length > 0 ? `Move1 ${actualDirection}` : 'No Move'} · ${axisLabel(beforeSpatial.axis)} M${beforeSpatial.level} → ${axisLabel(afterSpatial.axis)} M${afterSpatial.level}`,
+    summary: `Intent (${target.x},${target.y}) · ${path.length > 0 ? `Path ${path.length} Cell${path.length > 1 ? 's' : ''} → (${afterPosition.x},${afterPosition.y})` : `Hold (${beforePosition.x},${beforePosition.y})`} · ${axisLabel(beforeSpatial.axis)} M${beforeSpatial.level} → ${axisLabel(afterSpatial.axis)} M${afterSpatial.level}`,
     path,
     branch: bias,
     timeline: [trace],
@@ -339,27 +356,50 @@ function buildBasicMovePlan(
   }
 }
 
+export function basicMoveIntentRadius(input: Ut7State) {
+  const spatial = spatialFor(input, 'player')
+  return spatial.level > 0 && spatial.axis?.kind === 'horizontal'
+    ? ut7Config.steering.horizontalCellStepsPerAt
+    : ut7Config.steering.m0MoveCellsPerAt
+}
+
 export function basicMovePlansForTarget(input: Ut7State, target: Coord, settings: Ut7Settings): ActionPlan[] {
   const player = getPlayer(input.game)
-  if (hexDistance(player.position, target) !== 1) return []
+  const distance = hexDistance(player.position, target)
+  if (distance < 1 || distance > basicMoveIntentRadius(input)) return []
+
   const targetCell = cellAt(input.game, target)
   if (!targetCell || targetCell.tags.some((tag) => tag === 'Void' || tag === 'Blocked' || tag === 'Mountain')) return []
   if (actorAt(input.game, target)) return []
-  const intendedDirection = hexDirectionBetween(player.position, target)
-  if (!intendedDirection) return []
 
   const spatial = spatialFor(input, 'player')
+  const direct = hexDirectionOnLine(player.position, target)
   const reverse = spatial.level > 0
     && spatial.axis?.kind === 'horizontal'
-    && intendedDirection === oppositeDirection(spatial.axis.dir)
+    && direct === oppositeDirection(spatial.axis.dir)
     && ut7Config.steering.allowReverseBranchChoice
 
-  if (!reverse) return [buildBasicMovePlan(input, intendedDirection, settings, 'ccw')]
+  if (!reverse) {
+    const plan = buildBasicMovePlan(input, target, settings, 'ccw')
+    return plan.valid ? [plan] : []
+  }
 
   const candidates = (['cw', 'ccw'] as TurnBias[])
-    .map((bias) => buildBasicMovePlan(input, intendedDirection, settings, bias))
+    .map((bias) => buildBasicMovePlan(input, target, settings, bias))
     .filter((plan) => plan.valid)
+  if (candidates.length < 2) return candidates
   const signature = (plan: ActionPlan) => `${plan.path.map((coord) => `${coord.x},${coord.y}`).join('|')}::${axisLabel(plan.timeline[0]?.afterAxis ?? null)}`
-  if (candidates.length === 2 && signature(candidates[0]) === signature(candidates[1])) return [candidates[0]]
-  return candidates
+  return signature(candidates[0]) === signature(candidates[1]) ? [candidates[0]] : candidates
+}
+
+export function basicMoveTargetCoords(input: Ut7State, settings: Ut7Settings): Coord[] {
+  const player = getPlayer(input.game)
+  const radius = basicMoveIntentRadius(input)
+  return input.game.cells
+    .filter((cell) => {
+      const distance = hexDistance(player.position, cell.coord)
+      return distance >= 1 && distance <= radius
+    })
+    .map((cell) => clone(cell.coord))
+    .filter((coord) => basicMovePlansForTarget(input, coord, settings).length > 0)
 }
