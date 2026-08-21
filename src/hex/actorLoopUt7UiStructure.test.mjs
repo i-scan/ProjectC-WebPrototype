@@ -7,30 +7,32 @@ describe('UT7 inertia driving playground structure', () => {
   it('owns the live UT7 ruleset through the Basic Move command playground', async () => {
     const source = await read('./ActorLoopUt7BasicMovePlayground.tsx')
     expect(source).toContain('data-ruleset="VAL-012-UT7-candidate"')
-    expect(source).toContain('data-implementation="inertia-driving-basic-move-v2"')
+    expect(source).toContain('data-implementation="inertia-driving-basic-move-v3"')
     expect(source).toContain('Basic Move Inertia Playground')
     expect(source).toContain('data-action-id="basic-move"')
     expect(source).toContain('basicMovePlansForTarget')
+    expect(source).toContain('basicMoveTargetCoords')
     expect(source).not.toContain('data-action-id="steer"')
   })
 
-  it('renders one-command Move Resolution instead of ETA navigation', async () => {
+  it('renders one-command Cell-step resolution instead of multi-AT ETA navigation', async () => {
     const source = await read('./ActorLoopUt7BasicMovePlayground.tsx')
     expect(source).toContain('Move Resolution')
-    expect(source).toContain('1 AT · one command')
+    expect(source).toContain('1 AT · {trace.cellSteps.length} Cell-step')
     expect(source).toContain('M{trace.beforeM}→M{trace.afterM}')
     expect(source).toContain('trace.cellSteps.map')
+    expect(source).toContain('axisLabel(step.newAxis)')
     expect(source).toContain('{trace.behavior} / {trace.thermalIntent}')
-    expect(source).not.toContain('Predicted Path')
     expect(source).not.toContain('ETA {plan.atCost} AT')
   })
 
-  it('uses ordinary Basic Move board selection so only adjacent cells highlight', async () => {
+  it('uses rule-generated validCoords instead of ordinary adjacent Basic Move highlighting', async () => {
     const source = await read('./ActorLoopUt7BasicMovePlayground.tsx')
-    expect(source).toContain("? { kind: 'basic', action: 'move' }")
-    expect(source).toContain('只高亮普通 Basic Move 可选的相邻 Cell')
-    expect(source).toContain('点击一次只执行 1 AT')
-    expect(source).toContain('不会自动导航到远端')
+    expect(source).toContain('const moveValidCoords = movePlans.map')
+    expect(source).toContain("? { kind: 'momentum', action: 'drive', validCoords: moveValidCoords, route: previewPath }")
+    expect(source).toContain('合法 Steering Intent')
+    expect(source).toContain('Horizontal M 可逐格解析最多 2 Cell-step')
+    expect(source).not.toContain('只高亮普通 Basic Move 可选的相邻 Cell')
   })
 
   it('requires explicit turn-side choice for reverse intent without changing command AT', async () => {
