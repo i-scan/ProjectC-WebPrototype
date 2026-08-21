@@ -7,6 +7,7 @@ import { buildHexPath, getHexWind, hexDistance, type HexDirection } from './hexR
 import { hasHexLineOfSight, isMountainCell } from './hexTerrain'
 import { hexDirectionOnLine, hexDirectionYaw, hexRay, hexWorldOffset } from './hexTopology'
 import type { HexMode, TravelPreference } from './hexTravel'
+import { playbackSegmentAt, resolvedActorPlaybackPath } from './hexPlaybackPath'
 
 const HEX_RADIUS = 0.56
 const HEX_X = Math.sqrt(3) * HEX_RADIUS
@@ -48,7 +49,13 @@ type RainAnimation = {
   phase: number
   speed: number
 }
-type MoveAnimation = { object: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; startedAt: number; duration: number; arcHeight: number }
+type MoveAnimation = {
+  object: THREE.Object3D
+  waypoints: THREE.Vector3[]
+  startedAt: number
+  duration: number
+  arcHeight: number
+}
 type PulseAnimation = {
   object: THREE.Object3D
   material: THREE.MeshBasicMaterial
@@ -703,9 +710,15 @@ export function HexThreeBoard({
       }
       moveRef.current = moveRef.current.filter((item) => {
         const progress = clamp((now - item.startedAt) / item.duration, 0, 1)
-        const eased = 1 - Math.pow(1 - progress, 3)
-        item.object.position.lerpVectors(item.from, item.to, eased)
-        item.object.position.y += Math.sin(progress * Math.PI) * item.arcHeight
+        const segment = playbackSegmentAt(progress, item.waypoints.length)
+        const from = item.waypoints[segment.segmentIndex]
+        const to = item.waypoints[segment.segmentIndex + 1] ?? from
+        const eased = 1 - Math.pow(1 - segment.localProgress, 3)
+        item.object.position.lerpVectors(from, to, eased)
+        item.object.position.y += Math.sin(segment.localProgress * Math.PI) * item.arcHeight
+        host.dataset.movePlaybackSegment = String(segment.segmentIndex + 1)
+        host.dataset.movePlaybackSegments = String(segment.segmentCount)
+        host.dataset.movePlaybackCompleted = progress >= 1 ? 'true' : 'false'
         return progress < 1
       })
       attackRef.current = attackRef.current.filter((item) => {
@@ -990,8 +1003,9 @@ export function HexThreeBoard({
 
     const player = getPlayer(state)
 
-    if (travelPath.length > 1) {
-      const points = travelPath.map((coord) => hexWorldPosition(coord, state, 0.2))
+    if (travelPath.length > 0) {
+      const normalizedTravelPath = sameCoord(travelPath[0], player.position) ? travelPath : [player.position, ...travelPath]
+      const points = normalizedTravelPath.map((coord) => hexWorldPosition(coord, state, 0.2))
       const pathMaterial = new THREE.LineDashedMaterial({
         color: travelPreference === 'fastest' ? 0xf4ca62 : 0x69ddb0,
         transparent: true,
@@ -1056,7 +1070,9 @@ export function HexThreeBoard({
       const target = hexWorldPosition(actor.position, state, 0.1)
       const previous = previousActorPositionsRef.current.get(actor.id)
       if (previous && !sameCoord(previous, actor.position)) {
-        const from = hexWorldPosition(previous, state, 0.1)
+        const playbackCoords = resolvedActorPlaybackPath(previous, actor.position, event, actor.id)
+        const waypoints = playbackCoords.map((coord) => hexWorldPosition(coord, state, 0.1))
+        const from = waypoints[0]
         pawn.position.copy(from)
         const momentumLog = state.logs.find((log) => log.includes('[UT3] Rush Strike'))
           ?? state.logs.find((log) => log.includes('[UT3] Drive'))
@@ -1065,18 +1081,24 @@ export function HexThreeBoard({
         const isBounce = momentumLog.includes('Bounce') && actor.id !== 'player'
         const isPierce = momentumLog.includes('Pierce') && actor.id === 'player'
         const isPush = momentumLog.includes('Push') && actor.id !== 'player'
+        const segmentCount = Math.max(1, waypoints.length - 1)
+        const perSegmentDuration = Math.max(120, Math.min(eventDurationMs * 0.84, isPierce ? 280 : isLaunch || isBounce ? 620 : isPush ? 360 : 430))
         moveRef.current.push({
           object: pawn,
-          from,
-          to: target,
+          waypoints,
           startedAt: performance.now(),
-          duration: Math.max(120, Math.min(eventDurationMs * 0.84, isPierce ? 280 : isLaunch || isBounce ? 620 : isPush ? 360 : 430)),
+          duration: perSegmentDuration * segmentCount,
           arcHeight: isLaunch ? 0.92 : isBounce ? 0.42 : isPierce ? 0.08 : isPush ? 0.04 : 0.18,
         })
+        if (hostRef.current && event?.effect === 'move' && event.actorId === actor.id) {
+          hostRef.current.dataset.movePlaybackPath = playbackCoords.map(coordKey).join('>')
+          hostRef.current.dataset.movePlaybackSegments = String(segmentCount)
+          hostRef.current.dataset.movePlaybackCompleted = 'false'
+        }
         if (momentumLog.includes('[UT3]')) {
           const trailColor = momentumLog.includes('M3') ? 0xff4b51 : momentumLog.includes('M2') ? 0xffa34d : 0xf1d061
           const trail = new THREE.Line(
-            new THREE.BufferGeometry().setFromPoints([from.clone().setY(0.22), target.clone().setY(0.22)]),
+            new THREE.BufferGeometry().setFromPoints(waypoints.map((point) => point.clone().setY(0.22))),
             new THREE.LineDashedMaterial({
               color: trailColor,
               transparent: true,
@@ -1164,9 +1186,13 @@ export function HexThreeBoard({
       const player = getPlayer(state)
       if (((selection.kind === 'basic' && selection.action === 'move') || selection.kind === 'momentum') && isValidTarget(state, selection, hoverCoord)) {
         const momentumDirection = selection.kind === 'momentum' ? hexDirectionOnLine(player.position, hoverCoord) : null
-        const pathCoords = selection.kind === 'momentum' && momentumDirection
-          ? [player.position, ...hexRay(player.position, momentumDirection, hexDistance(player.position, hoverCoord))]
-          : buildHexPath(state, player.position, hoverCoord, 8, player.id)
+        const routedPath = selection.kind === 'momentum' && selection.route && selection.route.length > 0
+          ? (sameCoord(selection.route[0], player.position) ? selection.route : [player.position, ...selection.route])
+          : undefined
+        const pathCoords = routedPath
+          ?? (selection.kind === 'momentum' && momentumDirection
+            ? [player.position, ...hexRay(player.position, momentumDirection, hexDistance(player.position, hoverCoord))]
+            : buildHexPath(state, player.position, hoverCoord, 8, player.id))
         const path = pathCoords.map((coord) => hexWorldPosition(coord, state, 0.18))
         const line = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints(path),

@@ -92,7 +92,7 @@ function eventForPlan(before: Ut7State, plan: ActionPlan): PlaybackEvent {
   if (!sameCoord(beforePlayer.position, afterPlayer.position)) {
     return {
       id: Date.now(), kind: 'move', effect: 'move', actorId: 'player', target: { ...afterPlayer.position },
-      label: `${plan.label} · ${plan.atCost} AT`, durationAt: Math.max(0.5, plan.atCost), path: plan.path.map((coord) => ({ ...coord })),
+      label: `${plan.label} · ${plan.atCost} AT`, durationAt: Math.max(0.5, plan.atCost), path: [{ ...beforePlayer.position }, ...plan.path.map((coord) => ({ ...coord }))],
     }
   }
   return {
@@ -193,7 +193,7 @@ export function ActorLoopUt7BasicMovePlayground() {
   const selectedBranchPlans = branchTarget ? moveByCoord.get(coordKey(branchTarget)) : undefined
   const hoveredBoardPlan = boardPlans.find((entry) => hoverCoord && sameCoord(entry.selector, hoverCoord))?.plan
   const preview = previewOverride ?? hoveredBoardPlan ?? (pendingAction === 'move' ? hoverPlans?.[0] : undefined)
-  const previewPath = preview?.path ?? []
+  const previewPath = preview?.path.length ? [{ ...player.position }, ...preview.path.map((coord) => ({ ...coord }))] : []
   const moveValidCoords = movePlans.map((entry) => entry.selector)
   const launchValidCoords = launchPlans.map((entry) => entry.selector)
   const boardSelection: HexBoardSelection = pendingAction === 'move'
