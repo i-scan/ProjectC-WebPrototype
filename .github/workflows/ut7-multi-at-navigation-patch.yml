@@ -49,3 +49,5 @@ jobs:
           git add -- src/hex/ActorLoopUt7BasicMovePlayground.tsx
           git commit -m 'Enable remote multi-AT Basic Move navigation'
           git push origin HEAD:feat/ut7-multi-at-navigation
+
+# trigger: integrate after PR creation
