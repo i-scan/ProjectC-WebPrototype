@@ -16,7 +16,10 @@ export const ROOM_MIN_RADIUS = 2
 export const ROOM_MAX_RADIUS = 7
 export const ROOM_DEFAULT_RADIUS = 4
 
-const clampRadius = (radius: number) => Math.max(ROOM_MIN_RADIUS, Math.min(ROOM_MAX_RADIUS, Math.round(radius)))
+const clampRadius = (radius: number, maximumRadius = ROOM_MAX_RADIUS) => Math.max(
+  ROOM_MIN_RADIUS,
+  Math.min(Math.max(ROOM_MIN_RADIUS, Math.round(maximumRadius)), Math.round(radius)),
+)
 
 export function roomCellCount(radius: number): number {
   const value = clampRadius(radius)
@@ -111,16 +114,12 @@ function configureRoomCells(state: GameState, center: Coord, radius: number): vo
     cloudCell.intents = [{ id: `room-rain-${radius}`, type: 'rain', countdown: 1 }]
   }
 
-  // A broken NW-SE ridge leaves the center as a contested pass. Its length
-  // grows slowly with the room so obstacle density does not overwhelm R2/R3.
   const ridgeLength = Math.max(1, Math.floor(radius / 2))
   for (let step = 1; step <= ridgeLength; step += 1) {
     markMountain(state, hexAdvance(center, 'NW', step), 'ridge')
     markMountain(state, hexAdvance(center, 'SE', step), 'ridge')
   }
 
-  // One isolated peak sits just inside the player's side. It forces a choice
-  // between two approach lanes and is useful for testing push and line attacks.
   markMountain(state, hexAdvance(center, 'W', Math.max(1, radius - 1)), 'peak')
 }
 
@@ -150,8 +149,12 @@ function configureRoomActors(state: GameState, center: Coord, radius: number): v
   state.actors = state.actors.filter((actor) => actor.id !== 'hunter-forest')
 }
 
-export function createHexRoomState(radiusInput = ROOM_DEFAULT_RADIUS, overrides?: Partial<GameConfig>): GameState {
-  const radius = clampRadius(radiusInput)
+export function createHexRoomState(
+  radiusInput = ROOM_DEFAULT_RADIUS,
+  overrides?: Partial<GameConfig>,
+  maximumRadius = ROOM_MAX_RADIUS,
+): GameState {
+  const radius = clampRadius(radiusInput, maximumRadius)
   const size = radius * 2 + 1
   const center: Coord = { x: radius, y: radius }
   const state = createHexInitialState({
@@ -172,7 +175,7 @@ export function createHexRoomState(radiusInput = ROOM_DEFAULT_RADIUS, overrides?
   state.status = 'active'
   state.objectives = { eliteDefeated: false, npcWarmed: false, extracted: false }
   state.logs = [
-    `紧凑 Hex6 房间验证开始：半径 ${radius}，有效 Cell ${roomCellCount(radius)}；山体会阻挡移动、击退与直线攻击。`,
+    `紧凑 Hex6 房间验证开始：半径 ${radius}，有效 Cell ${1 + 3 * radius * (radius + 1)}；山体会阻挡移动、击退与直线攻击。`,
   ]
   return computeHexEnemyIntents(state)
 }
