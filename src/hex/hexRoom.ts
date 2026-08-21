@@ -152,7 +152,7 @@ function configureRoomActors(state: GameState, center: Coord, radius: number): v
 export function createHexRoomState(
   radiusInput = ROOM_DEFAULT_RADIUS,
   overrides?: Partial<GameConfig>,
-  maximumRadius = ROOM_MAX_RADIUS,
+  maximumRadius = Math.max(ROOM_MAX_RADIUS, Math.round(radiusInput)),
 ): GameState {
   const radius = clampRadius(radiusInput, maximumRadius)
   const size = radius * 2 + 1
