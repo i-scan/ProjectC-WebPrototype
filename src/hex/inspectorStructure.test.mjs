@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 const hexPrototypePath = fileURLToPath(new URL('./HexPrototype.tsx', import.meta.url))
 const actorLoopPath = fileURLToPath(new URL('./ActorLoopPlayground.tsx', import.meta.url))
-const ut7Path = fileURLToPath(new URL('./ActorLoopUt7Playground.tsx', import.meta.url))
+const ut7Path = fileURLToPath(new URL('./ActorLoopUt7BasicMovePlayground.tsx', import.meta.url))
 const thermalLabPath = fileURLToPath(new URL('./ThermalClockLab.tsx', import.meta.url))
 const inspectorCssPath = fileURLToPath(new URL('./right-inspector.css', import.meta.url))
 const runtimeContractPath = fileURLToPath(new URL('./InspectorLayoutContract.tsx', import.meta.url))
@@ -44,7 +44,7 @@ describe('right inspector component boundaries', () => {
   it('keeps the stable-width inspector contract on the hidden historical Hex route only', () => {
     expect(mainSource).toContain("import { InspectorLayoutContract } from './hex/InspectorLayoutContract'")
     expect(mainSource).toContain("{view === 'hex-legacy' && <InspectorLayoutContract />}")
-    expect(mainSource).toContain("{view === 'hex' && <ActorLoopUt7Playground />}")
+    expect(mainSource).toContain("{view === 'hex' && <ActorLoopUt7BasicMovePlayground />}")
     expect(mainSource).toContain("{view === 'hex-ut6' && <ActorLoopPlayground />}")
     expect(actorLoopSource).toContain('VAL-012-UT6-candidate')
     expect(ut7Source).toContain('VAL-012-UT7-candidate')
