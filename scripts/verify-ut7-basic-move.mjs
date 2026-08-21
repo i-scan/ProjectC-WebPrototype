@@ -179,7 +179,7 @@ try {
   const afterOneMove = await waitFor('UT7 one Basic Move command with inertia path', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
     const pathCells = snapshot.playbackPath ? snapshot.playbackPath.split('>') : []
-    const motionCommands = snapshot.playbackMotion.match(/\\b[ML]\\b/g) ?? []
+    const motionCommands = snapshot.playbackMotion.match(/\b[ML]\b/g) ?? []
     if (!snapshot.header.includes('1.0 AT') || !snapshot.latestLog.includes('Basic Move') || !snapshot.latestLog.includes('Move2') || snapshot.playbackSegments !== 2 || pathCells.length !== 3 || motionCommands.length !== 3) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
