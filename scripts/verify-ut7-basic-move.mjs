@@ -27,7 +27,7 @@ function chromeExecutable() {
 
 const sleep = (milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds))
 
-async function waitFor(label, operation, attempts = 180, delay = 100) {
+async function waitFor(label, operation, attempts = 240, delay = 100) {
   let lastError
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try { return await operation() } catch (error) { lastError = error; if (attempt < attempts) await sleep(delay) }
@@ -66,7 +66,8 @@ const snapshotExpression = `(() => {
   const root = document.querySelector('.ut7-actor-loop[data-ruleset="VAL-012-UT7-candidate"]')
   const header = root?.querySelector('.ut4-header-state')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
   const preview = root?.querySelector('.ut6-action-preview')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const resolution = root?.querySelector('[data-ut7-move-preview]')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const resolutionNode = root?.querySelector('[data-ut7-move-preview]')
+  const resolution = resolutionNode?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
   const cellText = root?.querySelector('.ut4-comparison-strip > span:last-child')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
   const radiusInput = root?.querySelector('.ut7-playground-setup input[type="range"]')
   const playerMatch = cellText.match(/Cell \\((-?\\d+),(-?\\d+)\\)/)
@@ -79,18 +80,25 @@ const snapshotExpression = `(() => {
     return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(ds))
   }
   const validTargets = [...(root?.querySelectorAll('.hex-travel-cell.valid-target.drive') ?? [])]
-  const distanceTwoTargets = player ? validTargets.filter((node) => distance(player, { x: Number(node.dataset.x), y: Number(node.dataset.y) }) === 2).length : 0
+  const targetDistances = player ? validTargets.map((node) => distance(player, { x: Number(node.dataset.x), y: Number(node.dataset.y) })) : []
+  const worldMatch = header.match(/World Time(\\d+(?:\\.\\d+)?) AT/)
   return {
+    implementation: root?.dataset.implementation ?? '',
     header, preview, resolution, cellText,
+    player,
+    worldAt: worldMatch ? Number(worldMatch[1]) : null,
     pageScrollHeight: document.documentElement.scrollHeight,
     innerHeight: window.innerHeight,
     basicMoveCard: Boolean(root?.querySelector('[data-action-id="basic-move"]')),
     steerCard: Boolean(root?.querySelector('[data-action-id="steer"]')),
     validMoveTargets: validTargets.length,
-    distanceTwoTargets,
-    allValidTargets: root?.querySelectorAll('.hex-travel-cell.valid-target').length ?? 0,
+    remoteTargets: targetDistances.filter((value) => value >= 3).length,
+    maxTargetDistance: targetDistances.length ? Math.max(...targetDistances) : 0,
     boardCellCount: root?.querySelectorAll('.hex-travel-cell').length ?? 0,
     radius: Number(radiusInput?.value ?? 0),
+    routeAt: Number(resolutionNode?.dataset.ut7RouteAt ?? 0),
+    routeSteps: Number(resolutionNode?.dataset.ut7RouteSteps ?? 0),
+    routeRows: resolutionNode?.querySelectorAll('.ut7-route-rows > div').length ?? 0,
     latestLog: root?.querySelector('.ut4-log-list article')?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
     playbackSegments: Number(root?.querySelector('.hex-travel-actor.player')?.dataset.playbackSegments ?? 0),
     playbackPath: root?.querySelector('.hex-travel-actor.player')?.dataset.playbackPath ?? '',
@@ -105,7 +113,7 @@ const clickText = (scopeSelector, text) => `(() => {
   button.click(); return true
 })()`
 
-const dispatchDistanceTwoTarget = (eventName) => `(() => {
+const dispatchRemoteTarget = (eventName, minimumDistance = 3) => `(() => {
   const root = document.querySelector('.ut7-actor-loop')
   const cellText = root?.querySelector('.ut4-comparison-strip > span:last-child')?.textContent ?? ''
   const match = cellText.match(/Cell \\((-?\\d+),(-?\\d+)\\)/)
@@ -118,10 +126,15 @@ const dispatchDistanceTwoTarget = (eventName) => `(() => {
     const ds = -first.q - first.r + second.q + second.r
     return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(ds))
   }
-  const target = [...root.querySelectorAll('.hex-travel-cell.valid-target.drive')].find((node) => distance(player, { x: Number(node.dataset.x), y: Number(node.dataset.y) }) === 2)
-  if (!target) throw new Error('No distance-2 Basic Move Steering Intent found')
-  target.dispatchEvent(new MouseEvent(${JSON.stringify(eventName)}, { bubbles: true }))
-  return { x: Number(target.dataset.x), y: Number(target.dataset.y) }
+  const candidates = [...root.querySelectorAll('.hex-travel-cell.valid-target.drive')]
+    .map((node) => ({ node, coord: { x: Number(node.dataset.x), y: Number(node.dataset.y) } }))
+    .map((entry) => ({ ...entry, distance: distance(player, entry.coord) }))
+    .filter((entry) => entry.distance >= ${minimumDistance})
+    .sort((left, right) => left.distance - right.distance || left.coord.y - right.coord.y || left.coord.x - right.coord.x)
+  const target = candidates[0]
+  if (!target) throw new Error('No remote Basic Move final Target found')
+  target.node.dispatchEvent(new MouseEvent(${JSON.stringify(eventName)}, { bubbles: true }))
+  return { ...target.coord, distance: target.distance }
 })()`
 
 let previewProcess
@@ -130,57 +143,52 @@ let client
 
 try {
   previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4180', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
-  previewProcess.stdout.on('data', (chunk) => process.stdout.write(`[ut7-basic-preview] ${chunk}`))
-  previewProcess.stderr.on('data', (chunk) => process.stderr.write(`[ut7-basic-preview] ${chunk}`))
-  await waitFor('UT7 Basic Move Vite preview', async () => { const response = await fetch(pageUrl, { redirect: 'follow' }); if (!response.ok) throw new Error(`HTTP ${response.status}`); return true })
+  previewProcess.stdout.on('data', (chunk) => process.stdout.write(`[ut7-nav-preview] ${chunk}`))
+  previewProcess.stderr.on('data', (chunk) => process.stderr.write(`[ut7-nav-preview] ${chunk}`))
+  await waitFor('UT7 navigation Vite preview', async () => { const response = await fetch(pageUrl, { redirect: 'follow' }); if (!response.ok) throw new Error(`HTTP ${response.status}`); return true })
 
-  const userDataDir = join(tmpdir(), `projectc-ut7-basic-move-${process.pid}`)
+  const userDataDir = join(tmpdir(), `projectc-ut7-navigation-${process.pid}`)
   chromeProcess = spawn(chromeExecutable(), ['--headless=new', '--no-sandbox', '--disable-gpu', '--hide-scrollbars', '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9229', `--user-data-dir=${userDataDir}`, '--window-size=1366,1080', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
-  chromeProcess.stderr.on('data', (chunk) => process.stderr.write(`[ut7-basic-chrome] ${chunk}`))
-  const version = await waitFor('UT7 Basic Move Chrome DevTools', async () => { const response = await fetch(`${debuggingOrigin}/json/version`); if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json() })
+  chromeProcess.stderr.on('data', (chunk) => process.stderr.write(`[ut7-nav-chrome] ${chunk}`))
+  const version = await waitFor('UT7 navigation Chrome DevTools', async () => { const response = await fetch(`${debuggingOrigin}/json/version`); if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json() })
   const targetResponse = await fetch(`${debuggingOrigin}/json/new?${encodeURIComponent(pageUrl)}`, { method: 'PUT' })
-  assert(targetResponse.ok, 'Failed to create UT7 Basic Move Chrome target')
+  assert(targetResponse.ok, 'Failed to create UT7 navigation Chrome target')
   const target = await targetResponse.json(); client = new CdpClient(target.webSocketDebuggerUrl || version.webSocketDebuggerUrl); await client.open()
   await client.send('Page.enable'); await client.send('Runtime.enable'); await client.send('Emulation.setDeviceMetricsOverride', { width: 1366, height: 1080, deviceScaleFactor: 1, mobile: false }); await client.send('Page.navigate', { url: pageUrl })
 
-  await waitFor('UT7 Basic Move live root', async () => {
-    const ready = await evaluate(client, `Boolean(document.querySelector('.ut7-actor-loop[data-implementation="inertia-driving-basic-move-v3"] .hex-board-host canvas'))`)
-    if (!ready) throw new Error('UT7 Basic Move root / 3D board canvas not mounted'); return true
+  await waitFor('UT7 navigation live root', async () => {
+    const ready = await evaluate(client, `Boolean(document.querySelector('.ut7-actor-loop[data-implementation="inertia-driving-navigation-v4"] .hex-board-host canvas'))`)
+    if (!ready) throw new Error('UT7 navigation root / 3D board canvas not mounted'); return true
   })
   await sleep(450)
 
   const initial = await evaluate(client, snapshotExpression)
   assert(initial.basicMoveCard && !initial.steerCard, 'UT7 live command row must expose Basic Move and remove Steer', initial)
-  assert(initial.header.includes('0.0 AT') && initial.header.includes('M0'), 'UT7 Basic Move initial state mismatch', initial)
-  assert(initial.pageScrollHeight <= initial.innerHeight + 2, 'UT7 Basic Move page requires vertical scrolling at 1366x1080', initial)
+  assert(initial.header.includes('0.0 AT') && initial.header.includes('M0'), 'UT7 navigation initial state mismatch', initial)
+  assert(initial.pageScrollHeight <= initial.innerHeight + 2, 'UT7 navigation page requires vertical scrolling at 1366x1080', initial)
 
   await evaluate(client, clickText('.hex-view-switch', '2D'))
-  const m0Targets = await waitFor('UT7 M0 Move1 target field', async () => {
+  const remoteField = await waitFor('UT7 remote final Target field', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.validMoveTargets < 1 || snapshot.validMoveTargets > 6 || snapshot.distanceTwoTargets !== 0) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.validMoveTargets <= 6 || snapshot.remoteTargets < 1 || snapshot.maxTargetDistance < 3) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
-  await evaluate(client, clickText('.ut7-preset-grid', 'm2-east'))
-  const momentumTargets = await waitFor('UT7 Horizontal M rule-generated Steering Intent field', async () => {
+  const hoveredTarget = await evaluate(client, dispatchRemoteTarget('mouseover', 3))
+  const navigationPreview = await waitFor('UT7 multi-AT Navigation Resolution preview', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.distanceTwoTargets < 1 || snapshot.validMoveTargets <= m0Targets.validMoveTargets) throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.resolution.includes('Navigation Resolution') || snapshot.routeAt <= 1 || snapshot.routeRows !== snapshot.routeAt || snapshot.routeSteps < 1 || !snapshot.preview.includes(`${snapshot.routeAt} AT`)) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
-  await evaluate(client, dispatchDistanceTwoTarget('mouseover'))
-  const twoStepPreview = await waitFor('UT7 two-Cell-step one-AT Move Resolution preview', async () => {
-    const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.resolution.includes('Move Resolution') || !snapshot.resolution.includes('1 AT') || !snapshot.resolution.includes('2 Cell-steps') || snapshot.preview.includes('ETA')) throw new Error(JSON.stringify(snapshot))
-    return snapshot
-  })
-
-  await evaluate(client, dispatchDistanceTwoTarget('click'))
-  const afterOneMove = await waitFor('UT7 one Basic Move command with inertia path', async () => {
+  const clickedTarget = await evaluate(client, dispatchRemoteTarget('click', 3))
+  assert(clickedTarget.x === hoveredTarget.x && clickedTarget.y === hoveredTarget.y, 'Hover and click must resolve the same final Target', { hoveredTarget, clickedTarget })
+  const afterNavigation = await waitFor('UT7 complete multi-AT Basic Move navigation', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
     const pathCells = snapshot.playbackPath ? snapshot.playbackPath.split('>') : []
     const motionCommands = snapshot.playbackMotion.match(/\b[ML]\b/g) ?? []
-    if (!snapshot.header.includes('1.0 AT') || !snapshot.latestLog.includes('Basic Move') || !snapshot.latestLog.includes('Move2') || snapshot.playbackSegments !== 2 || pathCells.length !== 3 || motionCommands.length !== 3) throw new Error(JSON.stringify(snapshot))
+    const reachedTarget = snapshot.player?.x === clickedTarget.x && snapshot.player?.y === clickedTarget.y
+    if (!reachedTarget || snapshot.worldAt !== navigationPreview.routeAt || !snapshot.latestLog.includes('Basic Move') || snapshot.playbackSegments < 2 || pathCells.length !== snapshot.playbackSegments + 1 || motionCommands.length !== pathCells.length) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
@@ -190,10 +198,16 @@ try {
     if (!snapshot.header.includes('0.0 AT') || !snapshot.header.includes('M3') || !snapshot.header.includes('Down')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
-  await evaluate(client, `document.querySelector('.ut7-actor-loop .hex-travel-cell.valid-target.drive').dispatchEvent(new MouseEvent('click', { bubbles: true })); true`)
-  const downBreakawayOneAt = await waitFor('UT7 Down Breakaway one command', async () => {
+  const coldTarget = await evaluate(client, dispatchRemoteTarget('mouseover', 3))
+  const coldPreview = await waitFor('UT7 Down Breakaway multi-AT route', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.header.includes('1.0 AT') || !snapshot.header.includes('M2') || !snapshot.header.includes('Down')) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.routeAt < 4 || snapshot.routeRows !== snapshot.routeAt || !snapshot.resolution.includes('No displacement')) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+  await evaluate(client, dispatchRemoteTarget('click', 3))
+  const afterColdNavigation = await waitFor('UT7 Down Breakaway route reaches final Target', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.player?.x !== coldTarget.x || snapshot.player?.y !== coldTarget.y || snapshot.worldAt !== coldPreview.routeAt) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
@@ -206,28 +220,29 @@ try {
     input.dispatchEvent(new Event('change', { bubbles: true }))
     return true
   })()`)
-  const radius10 = await waitFor('UT7 Basic Move real R10 topology rebuild', async () => {
+  const radius10 = await waitFor('UT7 navigation real R10 topology rebuild', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.radius !== 10 || snapshot.boardCellCount !== 331 || !snapshot.header.includes('0.0 AT')) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.radius !== 10 || snapshot.boardCellCount !== 331 || !snapshot.header.includes('0.0 AT') || snapshot.maxTargetDistance < 8) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'ut7-basic-move.png'), Buffer.from(screenshot.data, 'base64'))
-  const result = { initial, m0Targets, momentumTargets, twoStepPreview, afterOneMove, coldPreset, downBreakawayOneAt, radius10 }
+  const result = { initial, remoteField, hoveredTarget, navigationPreview, afterNavigation, coldPreset, coldTarget, coldPreview, afterColdNavigation, radius10 }
   await writeFile(join(artifactDir, 'ut7-basic-move.json'), `${JSON.stringify(result, null, 2)}\n`)
 
-  console.log('UT7 Basic Move verified in real Chrome: M0 stays Move1, Horizontal M exposes distance-2 Steering Intents, one command stays 1 AT with two Cell-steps, Down Breakaway advances one AT, and R10 remains real.')
+  console.log('UT7 Basic Move navigation verified in real Chrome: remote final Targets are selectable, full routes settle multiple inertia-valid ATs, actor playback follows every resolved Cell-step, Down Breakaway is included, and R10 remains real.')
   console.log(JSON.stringify({
     initial: initial.header,
-    m0Targets: m0Targets.validMoveTargets,
-    momentumTargets: momentumTargets.validMoveTargets,
-    distanceTwoTargets: momentumTargets.distanceTwoTargets,
-    twoStepPreview: twoStepPreview.resolution,
-    afterOneMove: afterOneMove.header,
-    downBreakaway: downBreakawayOneAt.header,
+    remoteTargets: remoteField.remoteTargets,
+    target: clickedTarget,
+    routeAt: navigationPreview.routeAt,
+    routeSteps: navigationPreview.routeSteps,
+    playbackSegments: afterNavigation.playbackSegments,
+    coldRouteAt: coldPreview.routeAt,
     r10Cells: radius10.boardCellCount,
+    r10MaxTargetDistance: radius10.maxTargetDistance,
   }, null, 2))
 } finally {
   client?.close(); chromeProcess?.kill('SIGTERM'); previewProcess?.kill('SIGTERM')
