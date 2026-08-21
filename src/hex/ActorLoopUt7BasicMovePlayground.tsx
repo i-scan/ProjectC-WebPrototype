@@ -32,7 +32,7 @@ import {
   type Ut7Preset,
   type Ut7State,
 } from './actorLoopUt7'
-import { basicMovePlansForTarget } from './actorLoopUt7BasicMove'
+import { basicMovePlansForTarget, basicMoveTargetCoords } from './actorLoopUt7BasicMove'
 import { HEX_DIRECTIONS, hexAdvance, type HexDirection } from './hexTopology'
 import './hex.css'
 import './hex-travel.css'
@@ -92,7 +92,7 @@ function eventForPlan(before: Ut7State, plan: ActionPlan): PlaybackEvent {
   if (!sameCoord(beforePlayer.position, afterPlayer.position)) {
     return {
       id: Date.now(), kind: 'move', effect: 'move', actorId: 'player', target: { ...afterPlayer.position },
-      label: `${plan.label} · ${plan.atCost} AT`, durationAt: Math.max(0.5, plan.atCost),
+      label: `${plan.label} · ${plan.atCost} AT`, durationAt: Math.max(0.5, plan.atCost), path: plan.path.map((coord) => ({ ...coord })),
     }
   }
   return {
@@ -122,14 +122,14 @@ function MovePreview({ plan }: { plan?: ActionPlan }) {
   if (!plan?.valid || plan.timeline.length === 0) return null
   const trace = plan.timeline[0]
   return (
-    <div className="ut7-route-inspector" data-ut7-route-steps="1" data-ut7-move-preview>
-      <header><strong>Move Resolution</strong><span>1 AT · one command</span></header>
+    <div className="ut7-route-inspector" data-ut7-route-steps={trace.cellSteps.length} data-ut7-move-preview>
+      <header><strong>Move Resolution</strong><span>1 AT · {trace.cellSteps.length} Cell-step{trace.cellSteps.length === 1 ? '' : 's'}</span></header>
       <div className="ut7-route-rows">
         <div className={`behavior-${trace.behavior}`}>
           <b>AT1</b>
           <span>M{trace.beforeM}→M{trace.afterM}</span>
           <span>{axisLabel(trace.beforeAxis)}→{axisLabel(trace.afterAxis)}</span>
-          <span>{trace.cellSteps.map((step) => `Move ${step.moveDirection}`).join(' · ') || 'No Move'}</span>
+          <span>{trace.cellSteps.map((step) => `#${step.index} ${step.moveDirection} / ${axisLabel(step.newAxis)}`).join(' · ') || 'No displacement'}</span>
           <em>{trace.behavior} / {trace.thermalIntent}</em>
         </div>
       </div>
@@ -165,13 +165,12 @@ export function ActorLoopUt7BasicMovePlayground() {
 
   const moveByCoord = useMemo(() => {
     const map = new Map<string, ActionPlan[]>()
-    for (const direction of directions) {
-      const target = hexAdvance(player.position, direction)
+    for (const target of basicMoveTargetCoords(lab, settings)) {
       const plans = basicMovePlansForTarget(lab, target, settings)
       if (plans.length > 0) map.set(coordKey(target), plans)
     }
     return map
-  }, [lab, settings, player.position.x, player.position.y])
+  }, [lab, settings])
 
   const attackPlans = useMemo<BoardPlan[]>(() => lab.game.actors.flatMap((actor) => {
     if (!actor.alive || actor.id === 'player') return []
@@ -195,9 +194,10 @@ export function ActorLoopUt7BasicMovePlayground() {
   const hoveredBoardPlan = boardPlans.find((entry) => hoverCoord && sameCoord(entry.selector, hoverCoord))?.plan
   const preview = previewOverride ?? hoveredBoardPlan ?? (pendingAction === 'move' ? hoverPlans?.[0] : undefined)
   const previewPath = preview?.path ?? []
+  const moveValidCoords = movePlans.map((entry) => entry.selector)
   const launchValidCoords = launchPlans.map((entry) => entry.selector)
   const boardSelection: HexBoardSelection = pendingAction === 'move'
-    ? { kind: 'basic', action: 'move' }
+    ? { kind: 'momentum', action: 'drive', validCoords: moveValidCoords, route: previewPath }
     : pendingAction === 'attack'
       ? { kind: 'basic', action: 'attack' }
       : pendingAction === 'launch'
@@ -307,12 +307,12 @@ export function ActorLoopUt7BasicMovePlayground() {
 
   const previewText = preview?.valid
     ? `${preview.label} · 1 AT · ${preview.summary}`
-    : lab.logs[0]?.detail ?? 'Basic Move 每次只选择相邻 Cell；惯性只求解这一条 1 AT 命令的实际落格与 Axis。'
+    : lab.logs[0]?.detail ?? 'Basic Move 先选择本 AT 的 Steering Intent；Axis / M 再逐 Cell-step 求解实际路径。'
   const thermalPercent = clampPercent((lab.thermal.temperature - ut7Config.thermal.temperatureMin) / (ut7Config.thermal.temperatureMax - ut7Config.thermal.temperatureMin) * 100)
 
   return (
     <>
-      <main className="visual-prototype hex-prototype coupled-inertia-lab ut4-hex-layout ut6-actor-loop ut7-actor-loop" data-ruleset="VAL-012-UT7-candidate" data-implementation="inertia-driving-basic-move-v2">
+      <main className="visual-prototype hex-prototype coupled-inertia-lab ut4-hex-layout ut6-actor-loop ut7-actor-loop" data-ruleset="VAL-012-UT7-candidate" data-implementation="inertia-driving-basic-move-v3">
         <header className="visual-hud ut4-hud">
           <div className="visual-brand"><p className="eyebrow">ProjectC · VAL-012-UT7 · Inertia Driving</p><h1>Basic Move Inertia Playground</h1></div>
           <div className="hex-view-switch" role="tablist" aria-label="UT7 renderer"><button className={rendererMode === '2d' ? 'active' : ''} onClick={() => setRendererMode('2d')}>2D</button><button className={rendererMode === '3d' ? 'active' : ''} onClick={() => setRendererMode('3d')}>3D</button></div>
@@ -334,30 +334,30 @@ export function ActorLoopUt7BasicMovePlayground() {
 
           <section className="visual-board-column hex-board-column ut4-board-column">
             <div className="hex-comparison-strip ut4-comparison-strip" data-preview-valid={preview?.valid ?? false}><strong>UT7 Basic Move</strong><span className="ut6-action-preview">{previewText}</span><span>Cell ({selectedCoord.x},{selectedCoord.y})</span></div>
-            <div className="visual-board-toolbar ut4-board-toolbar"><div className="visual-camera-help"><button onClick={() => setCameraResetToken((value) => value + 1)}>重置视图</button><span>只高亮普通 Basic Move 可选的相邻 Cell。点击一次只执行 1 AT；惯性求解实际落格，不会自动导航到远端。</span></div><div className="visual-session-controls"><button disabled={history.length === 0} onClick={undo}>Undo</button><button onClick={reset}>Reset</button></div></div>
+            <div className="visual-board-toolbar ut4-board-toolbar"><div className="visual-camera-help"><button onClick={() => setCameraResetToken((value) => value + 1)}>重置视图</button><span>高亮的是本次 1 AT 内可表达的合法 Steering Intent。M0 为 Move1；Horizontal M 可逐格解析最多 2 Cell-step，每格最多 Redirect 60°。</span></div><div className="visual-session-controls"><button disabled={history.length === 0} onClick={undo}>Undo</button><button onClick={reset}>Reset</button></div></div>
             <div className={`visual-board-frame ut4-board-frame view-${rendererMode}`}>
               {rendererMode === '2d' ? <HexTravelMap state={lab.game} mode="tactical" path={previewPath} selectedCoord={selectedCoord} hoverCoord={hoverCoord} selection={boardSelection} targetLayer="ground" preference="fastest" event={event} momentumByActorId={momentumByActorId} onCellClick={handleBoardClick} onCellHover={setHoverCoord} /> : <HexThreeBoard state={lab.game} mode="tactical" travelPath={previewPath} selectedCoord={selectedCoord} hoverCoord={hoverCoord} selection={boardSelection} targetLayer="ground" cameraResetToken={cameraResetToken} showSky={false} showDebug={false} event={event} eventDurationMs={480} momentumByActorId={momentumByActorId} onCellClick={handleBoardClick} onCellHover={setHoverCoord} />}
               <Ut5AxisOverlay state={lab.game} spatialByActorId={lab.spatialByActorId} cameraResetToken={cameraResetToken} active={rendererMode === '3d'} showAxisAtZero />
               <MovePreview plan={preview} />
-              {selectedBranchPlans?.length === 2 && branchTarget && <div className="ut7-branch-choice" data-ut7-branch-choice><span>Reverse Move Intent · choose turn side</span>{selectedBranchPlans.map((plan) => <button key={plan.branch} data-ut7-branch={plan.branch} onMouseEnter={() => setPreviewOverride(plan)} onClick={() => commitPlan(plan, true)}>{plan.branch === 'cw' ? 'Clockwise ↻' : 'Counter-clockwise ↺'} · 1AT</button>)}</div>}
+              {selectedBranchPlans?.length === 2 && branchTarget && <div className="ut7-branch-choice" data-ut7-branch-choice><span>Reverse Steering Intent · choose turn side</span>{selectedBranchPlans.map((plan) => <button key={plan.branch} data-ut7-branch={plan.branch} onMouseEnter={() => setPreviewOverride(plan)} onClick={() => commitPlan(plan, true)}>{plan.branch === 'cw' ? 'Clockwise ↻' : 'Counter-clockwise ↺'} · 1AT</button>)}</div>}
               {event && <div className={`visual-event-banner ${event.kind}`}><strong>{event.label ?? 'UT7 action'}</strong></div>}
               {event?.effect === 'attack' && <div key={event.id} className="ut7-hit-impact"><span>HIT</span><strong>-{event.amount ?? 0} HP</strong></div>}
               <div className="visual-board-legend ut4-board-legend"><span><i className="cold" />Cold Side → Down cap M3</span><span><i className="neutral" />Mismatch → cap M1</span><span><i className="hot" />Hot Side → Horizontal cap M3</span></div>
             </div>
 
             <section className="visual-hand ut4-action-hand ut6-action-hand ut7-action-hand"><div className="visual-hand-heading"><div><h2>Driving Actions</h2><p>测试命令按普通行动处理：Basic Move / Attack / Launch / Brake / Wait。</p></div><span>{pendingAction ? `Command · ${pendingAction}` : 'Actor Ready'}</span></div><div className="ut4-action-card-row ut6-action-card-row ut7-action-card-row">
-              <button data-action-id="basic-move" className={actionClass(pendingAction === 'move')} onClick={() => { setPreviewOverride(undefined); setBranchTarget(undefined); setPendingAction((current) => current === 'move' ? null : 'move') }}><div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Basic Move</span></div><em>Basic</em></div><p>只选相邻 Cell。M / Axis 决定这一 AT 的实际落格；不会自动追踪远端 Target。</p><span className="ut3-card-cta">{pendingAction === 'move' ? '选择相邻 Cell' : 'Move'}</span></button>
+              <button data-action-id="basic-move" className={actionClass(pendingAction === 'move')} onClick={() => { setPreviewOverride(undefined); setBranchTarget(undefined); setPendingAction((current) => current === 'move' ? null : 'move') }}><div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Basic Move</span></div><em>Basic</em></div><p>选择本 AT 的 Steering Intent；M / Axis 决定实际逐格路径与落点。Horizontal M 最多解析 2 Cell-step。</p><span className="ut3-card-cta">{pendingAction === 'move' ? '选择合法 Intent' : 'Move'}</span></button>
               <button data-action-id="basic-attack" className={actionClass(pendingAction === 'attack')} onClick={() => { setPreviewOverride(undefined); setBranchTarget(undefined); setPendingAction((current) => current === 'attack' ? null : 'attack') }}><div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Basic Attack</span></div><em>Use</em></div><p>Down M → Spend1 → Incoming M1；保留 HP 衰减和攻击反馈。</p><span className="ut3-card-cta">选择 Actor</span></button>
               <button data-action-id="launch" className={actionClass(pendingAction === 'launch', launchPlans.length > 0)} onClick={() => { setPreviewOverride(undefined); setBranchTarget(undefined); setPendingAction((current) => current === 'launch' ? null : 'launch') }}><div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Launch</span></div><em>Convert</em></div><p>主动转换 Down → Horizontal M-1。</p><span className="ut3-card-cta">选择相邻 Axis</span></button>
               <button data-action-id="brake" className={actionClass(false, brake.valid)} onMouseEnter={() => setPreviewOverride(brake)} onMouseLeave={() => setPreviewOverride(undefined)} onClick={() => commitPlan(brake)}><div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Brake</span></div><em>Convert</em></div><p>Horizontal → Down M-1；与 Passive Stop 分开。</p><span className="ut3-card-cta">{brake.valid ? 'Convert' : brake.reason}</span></button>
               <button data-action-id="wait" className={actionClass(false)} onMouseEnter={() => setPreviewOverride(wait)} onMouseLeave={() => setPreviewOverride(undefined)} onClick={() => commitPlan(wait, true)}><div className="ut2-action-title"><div><b>1<small>AT</small></b><span>Wait / Hold</span></div><em>Passive</em></div><p>Horizontal M -1 / AT；Axis 保持；Balancing。</p><span className="ut3-card-cta">Dissipate</span></button>
             </div></section>
 
-            <details className="ut4-diagnostics"><summary>UT7 Event Log · {lab.logs.length} · Move / Thermal / Build</summary><div className="ut4-diagnostics-body"><div className="ut4-log-list">{lab.logs.length === 0 && <p className="ut4-empty">用 M1/M2/M3 East preset，连续点击相邻方向，观察每个 1AT 的实际落格、M 与 Axis。</p>}{lab.logs.map((entry) => <article key={entry.id}><header><strong>{entry.timeAt.toFixed(1)} AT · {entry.action}</strong><span>{entry.behavior} / {entry.thermalIntent}</span></header><p>{axisLabel(entry.beforeSpatial.axis)} M{entry.beforeSpatial.level} → {axisLabel(entry.afterSpatial.axis)} M{entry.afterSpatial.level} · T {entry.beforeThermal.temperature.toFixed(2)}→{entry.afterThermal.temperature.toFixed(2)}</p><small>{entry.detail}</small></article>)}</div><div className="ut4-test-strip"><strong>UT7 Basic Move</strong><span>1 command = 1 AT</span><span>Adjacent intent</span><span>Breakaway</span><span>Passive</span><span>Side / Domain</span></div></div></details>
+            <details className="ut4-diagnostics"><summary>UT7 Event Log · {lab.logs.length} · Move / Thermal / Build</summary><div className="ut4-diagnostics-body"><div className="ut4-log-list">{lab.logs.length === 0 && <p className="ut4-empty">用 M1/M2/M3 East preset，悬停不同 Intent，观察同一 1AT 内的逐格路径、Redirect、M 与 Axis。</p>}{lab.logs.map((entry) => <article key={entry.id}><header><strong>{entry.timeAt.toFixed(1)} AT · {entry.action}</strong><span>{entry.behavior} / {entry.thermalIntent}</span></header><p>{axisLabel(entry.beforeSpatial.axis)} M{entry.beforeSpatial.level} → {axisLabel(entry.afterSpatial.axis)} M{entry.afterSpatial.level} · T {entry.beforeThermal.temperature.toFixed(2)}→{entry.afterThermal.temperature.toFixed(2)}</p><small>{entry.detail}</small></article>)}</div><div className="ut4-test-strip"><strong>UT7 Basic Move</strong><span>1 command = 1 AT</span><span>Rule-generated Intent</span><span>2-step Horizontal</span><span>Breakaway</span><span>Side / Domain</span></div></div></details>
           </section>
 
           <aside className="visual-panel visual-right-panel ut4-debug-panel ut6-debug-panel ut7-debug-panel">
-            <section><div className="visual-section-heading"><h3>Momentum Presets</h3><span>repeat Basic Move</span></div><div className="ut6-preset-grid ut7-preset-grid">{(['neutral', 'm1-east', 'm2-east', 'm3-east', 'cold-down'] as Ut7Preset[]).map((preset) => <button key={preset} onClick={() => usePreset(preset)}>{preset}</button>)}</div><small className="ut6-note">M1/M2/M3 不是远程移动等级；它们只改变连续 Basic Move 的惯性响应。</small></section>
+            <section><div className="visual-section-heading"><h3>Momentum Presets</h3><span>repeat Basic Move</span></div><div className="ut6-preset-grid ut7-preset-grid">{(['neutral', 'm1-east', 'm2-east', 'm3-east', 'cold-down'] as Ut7Preset[]).map((preset) => <button key={preset} onClick={() => usePreset(preset)}>{preset}</button>)}</div><small className="ut6-note">M1/M2/M3 不等于远程自动导航；它们改变单个 1AT 内合法 Intent、实际路径与 Redirect 响应。</small></section>
 
             <section id="ut7-thermal-debug"><div className="visual-section-heading"><h3>Thermal State</h3><span>{side} side / {domain}</span></div><div className="ut4-quick-row"><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: -4 }))}>T -4</button><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: 1 }))}>T +1</button><button onClick={() => setLab((current) => setThermalDebug(current, { temperature: 4 }))}>T +4</button></div><NumberControl label="Temperature" value={lab.thermal.temperature} min={-6} max={6} step={0.25} onChange={(temperature) => setLab((current) => setThermalDebug(current, { temperature }))} /><NumberControl label="Drift" value={lab.thermal.drift} min={-4} max={4} step={0.25} onChange={(drift) => setLab((current) => setThermalDebug(current, { drift }))} /><NumberControl label="Set Point" value={lab.thermal.setPoint} min={-2} max={2} step={0.25} onChange={(setPoint) => setLab((current) => setThermalDebug(current, { setPoint }))} /></section>
 
