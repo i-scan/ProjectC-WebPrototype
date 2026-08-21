@@ -12,11 +12,20 @@ const moveEvent = (path: { x: number; y: number }[]): PlaybackEvent => ({
 })
 
 describe('segmented actor playback path', () => {
-  it('keeps the complete rule-resolved cell path for the matching actor', () => {
+  it('keeps a complete start-to-end rule path for the matching actor', () => {
     const path = [{ x: 4, y: 4 }, { x: 5, y: 4 }, { x: 6, y: 3 }]
     const event = moveEvent(path)
     expect(eventActorPlaybackPath({ x: 6, y: 3 }, event, 'player')).toEqual(path)
     expect(resolvedActorPlaybackPath({ x: 4, y: 4 }, { x: 6, y: 3 }, event, 'player')).toEqual(path)
+  })
+
+  it('prepends the previous cell when a rule path contains only resolved landing cells', () => {
+    const event = moveEvent([{ x: 5, y: 4 }, { x: 6, y: 3 }])
+    expect(resolvedActorPlaybackPath({ x: 4, y: 4 }, { x: 6, y: 3 }, event, 'player')).toEqual([
+      { x: 4, y: 4 },
+      { x: 5, y: 4 },
+      { x: 6, y: 3 },
+    ])
   })
 
   it('falls back to direct previous-target playback when event path does not match the actor transition', () => {
