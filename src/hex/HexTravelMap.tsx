@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { actorAt, cellAt, getPlayer, type Cell, type Coord, type GameState, type Layer } from '../game'
 import type { HexBoardSelection } from './HexThreeBoard'
 import type { PlaybackEvent } from '../visual/visualPlayback'
+import { eventActorPlaybackPath } from './hexPlaybackPath'
 import { buildHexPath, hexDistance } from './hexRules'
 import { isVoidCell } from './hexRoom'
 import { hasHexLineOfSight, isMountainCell } from './hexTerrain'
@@ -204,8 +205,22 @@ export function HexTravelMap(props: HexTravelMapProps) {
             const center = hexCenter(actor.position)
             const momentum = Math.max(0, Math.min(3, Math.floor(momentumByActorId[actor.id] ?? 0)))
             const launched = event?.actorId === actor.id && event.label?.includes('Launch')
+            const playbackPath = eventActorPlaybackPath(actor.position, event, actor.id)
+            const playbackSegments = Math.max(0, (playbackPath?.length ?? 1) - 1)
+            const motionPath = playbackPath?.map((coord, index) => {
+              const waypoint = hexCenter(coord)
+              return `${index === 0 ? 'M' : 'L'} ${waypoint.x - center.x} ${waypoint.y - center.y}`
+            }).join(' ') ?? ''
             return (
-              <g key={actor.id} className={`hex-travel-actor ${actor.faction} ${launched ? 'launching' : ''}`}>
+              <g
+                key={actor.id}
+                className={`hex-travel-actor ${actor.faction} ${launched ? 'launching' : ''}`}
+                data-playback-segments={playbackSegments}
+                data-playback-path={playbackPath?.map(keyOf).join('>') ?? ''}
+              >
+                {motionPath && playbackSegments > 0 && (
+                  <animateMotion key={`${event?.id ?? 0}-${actor.id}`} dur={`${Math.max(0.22, playbackSegments * 0.42)}s`} path={motionPath} fill="freeze" calcMode="linear" />
+                )}
                 {momentum > 0 && (
                   <g className="hex-actor-momentum" aria-label={`${actor.name} Momentum ${momentum}`}>
                     {Array.from({ length: momentum }, (_, index) => (

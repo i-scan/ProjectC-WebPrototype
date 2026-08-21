@@ -92,6 +92,9 @@ const snapshotExpression = `(() => {
     boardCellCount: root?.querySelectorAll('.hex-travel-cell').length ?? 0,
     radius: Number(radiusInput?.value ?? 0),
     latestLog: root?.querySelector('.ut4-log-list article')?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+    playbackSegments: Number(root?.querySelector('.hex-travel-actor.player')?.dataset.playbackSegments ?? 0),
+    playbackPath: root?.querySelector('.hex-travel-actor.player')?.dataset.playbackPath ?? '',
+    playbackMotion: root?.querySelector('.hex-travel-actor.player animateMotion')?.getAttribute('path') ?? '',
   }
 })()`
 
@@ -175,7 +178,9 @@ try {
   await evaluate(client, dispatchDistanceTwoTarget('click'))
   const afterOneMove = await waitFor('UT7 one Basic Move command with inertia path', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.header.includes('1.0 AT') || !snapshot.latestLog.includes('Basic Move') || !snapshot.latestLog.includes('Move2')) throw new Error(JSON.stringify(snapshot))
+    const pathCells = snapshot.playbackPath ? snapshot.playbackPath.split('>') : []
+    const motionCommands = snapshot.playbackMotion.match(/\b[ML]\b/g) ?? []
+    if (!snapshot.header.includes('1.0 AT') || !snapshot.latestLog.includes('Basic Move') || !snapshot.latestLog.includes('Move2') || snapshot.playbackSegments !== 2 || pathCells.length !== 3 || motionCommands.length !== 3) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
