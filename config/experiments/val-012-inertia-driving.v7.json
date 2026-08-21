@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "1.0.0",
+  "rulesetVersion": "VAL-012-UT7-candidate",
+  "implementationId": "inertia-driving-playground-v1",
+  "prototypeRoute": "#hex-prototype",
+  "thermal": {
+    "temperatureMin": -6,
+    "temperatureMax": 6,
+    "setPointMin": -2,
+    "setPointMax": 2,
+    "hotDomainThreshold": 3,
+    "coldDomainThreshold": -3,
+    "sideEpsilon": 0.05,
+    "damping": 1,
+    "thermalPeriodAt": 8,
+    "ambientThermalBias": 0,
+    "settleTemperatureEpsilon": 0.025,
+    "settleDriftEpsilon": 0.025,
+    "integrationSubstepsPerAt": 24,
+    "behaviorDriftImpulse": 0.8,
+    "balancingDriftRetention": 0.35
+  },
+  "momentum": {
+    "maxLevel": 3,
+    "naturalBuildStartMode": "immediate-m1",
+    "normalBuildAmount": 1,
+    "domainBuildAmount": 2,
+    "rebuildReducedMomentumSameAt": false,
+    "launchBrakeMinM": 1,
+    "buildAfterConversionSameAt": false
+  },
+  "steering": {
+    "redirectStepsPerCell": 1,
+    "horizontalCellStepsPerAt": 2,
+    "m0MoveCellsPerAt": 1,
+    "maxPlanningAt": 24,
+    "allowReverseBranchChoice": true
+  },
+  "breakaway": {
+    "reductionPerAt": 1,
+    "hotSideAssistEnabled": false,
+    "hotSideReductionPerAt": 2
+  },
+  "passive": {
+    "horizontalDissipationPerAt": 1
+  },
+  "weapon": {
+    "basicDamage": 1,
+    "downSpendIncomingM": 1
+  },
+  "conversion": {
+    "momentumLoss": 1
+  },
+  "incoming": {
+    "maxInjectedM": 3
+  },
+  "playground": {
+    "minimumRadius": 4,
+    "maximumRadius": 10,
+    "defaultRadius": 7,
+    "spawnEnemiesDefault": true
+  }
+}
