@@ -1,7 +1,7 @@
 name: Temporary UT7 navigation integrator
 
 on:
-  pull_request:
+  push:
     branches:
       - main
 
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   integrate:
-    if: github.head_ref == 'feat/ut7-multi-at-navigation' && github.actor != 'github-actions[bot]'
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
