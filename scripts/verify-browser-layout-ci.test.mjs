@@ -14,7 +14,7 @@ const ut6 = readFileSync(ut6Path, 'utf8')
 const ut7 = readFileSync(ut7Path, 'utf8')
 
 describe('browser verification CI resilience', () => {
-  it('routes historical Hex checks through the retry wrapper and verifies UT5, historical UT6, and live UT7 Basic Move', () => {
+  it('routes historical Hex checks through the retry wrapper and verifies UT5, historical UT6, and live UT7 navigation', () => {
     expect(packageJson.scripts['verify:browser']).toBe('node scripts/verify-browser-layout-ci.mjs && node scripts/verify-ut5-axis-inertia.mjs && node scripts/verify-ut6-actor-loop.mjs && node scripts/verify-ut7-basic-move.mjs')
     expect(wrapper).toContain("BROWSER_VERIFY_ATTEMPTS || '3'")
     expect(wrapper).toContain("['scripts/verify-browser-layout.mjs']")
@@ -37,15 +37,14 @@ describe('browser verification CI resilience', () => {
     expect(ut6).toContain('UT6 Raikiri release and AT0 window')
     expect(ut6).toContain('UT6 AT0 Basic Attack completion')
     expect(ut6).toContain('UT6 Actor Loop verified on historical #hex-ut6 route')
-    expect(ut7).toContain('inertia-driving-basic-move-v3')
-    expect(ut7).toContain('UT7 M0 Move1 target field')
-    expect(ut7).toContain('UT7 Horizontal M rule-generated Steering Intent field')
-    expect(ut7).toContain('UT7 two-Cell-step one-AT Move Resolution preview')
-    expect(ut7).toContain('UT7 one Basic Move command with inertia path')
-    expect(ut7).toContain('UT7 Down Breakaway one command')
-    expect(ut7).toContain('UT7 Basic Move real R10 topology rebuild')
+    expect(ut7).toContain('inertia-driving-navigation-v4')
+    expect(ut7).toContain('UT7 remote final Target field')
+    expect(ut7).toContain('UT7 multi-AT Navigation Resolution preview')
+    expect(ut7).toContain('UT7 complete multi-AT Basic Move navigation')
+    expect(ut7).toContain('UT7 Down Breakaway multi-AT route')
+    expect(ut7).toContain('UT7 navigation real R10 topology rebuild')
     expect(ut7).toContain('boardCellCount !== 331')
-    expect(ut7).toContain('Horizontal M exposes distance-2 Steering Intents')
+    expect(ut7).toContain('remote final Targets are selectable')
   })
 
   it('does not retry deterministic Hex layout failures', () => {
