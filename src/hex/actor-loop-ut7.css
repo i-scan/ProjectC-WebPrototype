@@ -1,0 +1,97 @@
+.ut7-actor-loop .ut4-header-state > div { min-width: 76px; }
+.ut7-actor-loop .ut4-comparison-strip { grid-template-columns: auto minmax(0, 1fr) auto; }
+.ut7-actor-loop .ut7-action-hand { height: 132px; max-height: 132px; }
+.ut7-actor-loop .ut7-action-card-row { overflow: hidden; }
+.ut7-actor-loop .ut7-action-card { flex: 1 1 0; min-width: 0; max-width: none; }
+.ut7-actor-loop .ut7-action-card p { line-height: 1.25; }
+
+.ut7-route-inspector {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 24;
+  width: min(520px, calc(100% - 24px));
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid rgba(118, 207, 238, .34);
+  border-radius: 9px;
+  background: rgba(6, 15, 24, .86);
+  backdrop-filter: blur(5px);
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .24);
+}
+.ut7-route-inspector header { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 5px; }
+.ut7-route-inspector header strong { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: #d9f5ff; }
+.ut7-route-inspector header span { font-size: 8px; color: #8fb2bf; }
+.ut7-route-rows { display: grid; gap: 3px; }
+.ut7-route-rows > div {
+  display: grid;
+  grid-template-columns: 28px 48px 122px minmax(0, 1fr) 112px;
+  gap: 5px;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  background: rgba(20, 36, 48, .78);
+  font-size: 7px;
+  color: #aac3cc;
+}
+.ut7-route-rows b { color: #f3f8fa; }
+.ut7-route-rows em { font-style: normal; text-align: right; color: #94a9b2; }
+.ut7-route-rows .behavior-use { border-left: 2px solid rgba(101, 187, 230, .72); }
+.ut7-route-rows .behavior-resist { border-left: 2px solid rgba(248, 120, 86, .82); }
+.ut7-route-rows .behavior-generate { border-left: 2px solid rgba(241, 179, 73, .82); }
+.ut7-route-rows .behavior-passive-dissipation { border-left: 2px solid rgba(114, 206, 166, .72); }
+
+.ut7-branch-choice {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 34;
+  transform: translate(-50%, -50%);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  width: 300px;
+  padding: 9px;
+  border: 1px solid rgba(242, 201, 94, .6);
+  border-radius: 10px;
+  background: rgba(8, 17, 24, .94);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .42);
+}
+.ut7-branch-choice span { grid-column: 1 / -1; text-align: center; font-size: 8px; color: #ffe49a; text-transform: uppercase; letter-spacing: .08em; }
+.ut7-branch-choice button { min-height: 31px; border: 1px solid rgba(242, 201, 94, .35); border-radius: 7px; color: #f7edc5; background: rgba(80, 63, 25, .72); font-size: 8px; }
+.ut7-branch-choice button:hover { border-color: rgba(255, 226, 132, .85); background: rgba(110, 84, 27, .82); }
+
+.ut7-hit-impact {
+  position: absolute;
+  inset: 0;
+  z-index: 32;
+  display: grid;
+  place-content: center;
+  pointer-events: none;
+  animation: ut7-hit-flash .46s ease-out both;
+  background: radial-gradient(circle at center, rgba(255, 65, 74, .22), rgba(255, 65, 74, 0) 44%);
+}
+.ut7-hit-impact span { font-size: 12px; font-weight: 800; letter-spacing: .22em; color: #ffb3b8; text-align: center; }
+.ut7-hit-impact strong { margin-top: 2px; font-size: 25px; color: #fff; text-shadow: 0 2px 12px rgba(255, 42, 58, .72); }
+@keyframes ut7-hit-flash { 0% { opacity: 0; transform: scale(.88); } 18% { opacity: 1; transform: scale(1.03); } 100% { opacity: 0; transform: scale(1.08); } }
+
+.ut7-playground-setup { margin-top: auto; }
+.ut7-playground-setup > button { width: 100%; min-height: 28px; margin-top: 5px; border: 1px solid rgba(127, 172, 193, .25); border-radius: 6px; color: #b9ced7; background: rgba(13, 29, 40, .82); font-size: 8px; }
+.ut7-playground-setup > button.active { border-color: rgba(111, 220, 178, .62); color: #eafff7; background: rgba(23, 77, 57, .8); }
+
+@media (max-width: 1500px) {
+  .ut7-actor-loop .ut4-visual-layout { grid-template-columns: 214px minmax(0, 1fr) 282px; }
+  .ut7-actor-loop .ut7-action-card { padding-inline: 6px; }
+  .ut7-actor-loop .ut7-action-card p { font-size: 6.5px; }
+  .ut7-route-inspector { width: min(470px, calc(100% - 24px)); max-height: 152px; }
+  .ut7-route-rows > div { grid-template-columns: 26px 43px 105px minmax(0, 1fr) 96px; }
+}
+
+@media (max-width: 1180px) {
+  .ut7-actor-loop .ut7-action-card-row { overflow-x: auto; }
+  .ut7-actor-loop .ut7-action-card { flex: 0 0 132px; min-width: 132px; }
+  .ut7-route-inspector { max-height: 130px; }
+}
