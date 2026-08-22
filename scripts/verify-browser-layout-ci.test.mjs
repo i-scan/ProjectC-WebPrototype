@@ -13,7 +13,7 @@ const ut7 = readFileSync(ut7Path, 'utf8')
 
 describe('browser verification CI resilience', () => {
   it('runs the impulse-driving browser experiment through the Chrome startup retry wrapper', () => {
-    expect(packageJson.scripts['verify:browser']).toBe('node scripts/verify-current-browser-ci.mjs')
+    expect(packageJson.scripts['verify:browser']).toBe('node scripts/verify-current-browser-ci.mjs && node scripts/verify-impulse-layout-evidence.mjs')
     expect(currentWrapper).toContain("BROWSER_VERIFY_ATTEMPTS || '3'")
     expect(currentWrapper).toContain("['scripts/verify-ut7-basic-move.mjs']")
     expect(currentWrapper).toContain("result.output.includes('Chrome DevTools did not become ready')")
