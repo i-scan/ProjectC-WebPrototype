@@ -100,6 +100,19 @@ const snapshotExpression = `(() => {
   const stateItems = [...(root?.querySelectorAll('.ut4-header-state > div') ?? [])]
   const stateValue = (label) => stateItems.find((node) => node.querySelector('span')?.textContent?.trim() === label)?.querySelector('strong')?.textContent?.trim() ?? ''
   const collisionLog = [...(root?.querySelectorAll('.ut4-log-list article small') ?? [])].map((node) => node.textContent ?? '').find((text) => text.includes('UT3Hard')) ?? ''
+  const rect = (selector) => {
+    const node = root?.querySelector(selector)
+    if (!node) return null
+    const value = node.getBoundingClientRect()
+    return {
+      left: Math.round(value.left),
+      right: Math.round(value.right),
+      top: Math.round(value.top),
+      bottom: Math.round(value.bottom),
+      width: Math.round(value.width),
+      height: Math.round(value.height),
+    }
+  }
   return {
     implementation: root?.dataset.implementation ?? '',
     rendererMode: root?.dataset.rendererMode ?? '',
@@ -117,9 +130,31 @@ const snapshotExpression = `(() => {
     canvas: Boolean(root?.querySelector('.visual-board-frame canvas')),
     boardMounted: Boolean(root?.querySelector('.visual-board-frame canvas, .visual-board-frame svg')),
     collisionLog,
+    layout: {
+      root: rect(':scope'),
+      hud: rect('.visual-hud'),
+      left: rect('.ut4-left-panel'),
+      board: rect('.ut4-board-column'),
+      right: rect('.ut4-debug-panel'),
+      boardFrame: rect('.ut4-board-frame'),
+      hand: rect('.impulse-action-hand'),
+    },
     navButtons: [...document.querySelectorAll('.app-switcher nav button')].map((button) => button.textContent?.trim() ?? ''),
   }
 })()`
+
+function assertThreeColumnLayout(snapshot, label) {
+  const { left, board, right, boardFrame } = snapshot.layout ?? {}
+  assert(left && board && right && boardFrame, `${label}: restored lab columns are missing`, snapshot)
+  assert(left.right < board.left, `${label}: left panel overlaps or stacks with board`, snapshot.layout)
+  assert(board.right < right.left, `${label}: board overlaps or stacks with right panel`, snapshot.layout)
+  assert(Math.abs(left.top - board.top) <= 12, `${label}: left panel is not aligned with board`, snapshot.layout)
+  assert(Math.abs(right.top - board.top) <= 12, `${label}: right panel is not aligned with board`, snapshot.layout)
+  assert(left.width >= 190 && left.width <= 280, `${label}: left panel width is outside UT6 lab range`, snapshot.layout)
+  assert(right.width >= 240 && right.width <= 330, `${label}: right panel width is outside UT6 lab range`, snapshot.layout)
+  assert(board.width >= 700, `${label}: center board column is too narrow`, snapshot.layout)
+  assert(boardFrame.width >= 680 && boardFrame.height >= 280, `${label}: board frame collapsed`, snapshot.layout)
+}
 
 const clickText = (scopeSelector, text) => `(() => {
   const scope = document.querySelector(${JSON.stringify(scopeSelector)})
@@ -180,6 +215,7 @@ try {
   assert(initial.rendererMode === '3d' && initial.spatialMode === 'discrete', 'Impulse lab must restore the default 3D discrete lab view', initial)
   assert(initial.previewValid && initial.pathLength === 1 && initial.momentum === 'M0', 'M0 Drive must predict one forced cell from force input', initial)
   assert(initial.action.includes('Drive') && initial.navButtons[0]?.includes('Inertia Driving'), 'Current navigation/action shell is incorrect', initial)
+  assertThreeColumnLayout(initial, 'Initial 3D')
 
   await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
   const afterDrive = await waitFor('M0 Drive commit', async () => {
@@ -201,8 +237,6 @@ try {
     return snapshot
   })
 
-  // Recenter before the collision test so the hard surface is exactly the third
-  // eastward Cell and M3 must travel two Cells before the impact.
   await evaluate(client, clickText('.visual-session-controls', 'Reset'))
   await evaluate(client, clickText('.ut6-preset-grid', 'E M3'))
   await evaluate(client, clickText('.impulse-card-row', 'Coast'))
@@ -233,6 +267,7 @@ try {
     if (snapshot.rendererMode !== '2d' || !snapshot.boardMounted) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
+  assertThreeColumnLayout(view2d, '2D')
   await evaluate(client, clickText('.hex-view-switch', '3D'))
 
   await evaluate(client, clickText('.impulse-ab-switch', 'Hybrid'))
@@ -241,6 +276,7 @@ try {
     if (snapshot.rendererMode !== '3d' || snapshot.spatialMode !== 'hybrid' || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
+  assertThreeColumnLayout(hybrid, 'Hybrid 3D')
 
   await evaluate(client, `(() => {
     const label = [...document.querySelectorAll('label.ut4-range')].find((node) => node.textContent.includes('Board Radius'))
@@ -257,6 +293,7 @@ try {
     if (snapshot.boardRadius !== 10 || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
+  assertThreeColumnLayout(radius10, 'R10 Hybrid')
 
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
@@ -264,7 +301,7 @@ try {
   const result = { initial, afterDrive, coastPreview, afterCoast, m3CrashPreview, afterCrash, counterPreview, view2d, hybrid, radius10 }
   await writeFile(join(artifactDir, 'ut7-basic-move.json'), `${JSON.stringify(result, null, 2)}\n`)
 
-  console.log('Impulse inertia verified in real Chrome: restored 2D/3D lab shell, force/aim input, persistent Coast M, forced M3 travel, collision without auto-routing, counter impulse, Hybrid playback, and R10 mount.')
+  console.log('Impulse inertia verified in real Chrome: restored aligned three-column UT6 shell, 2D/3D view switching, force/aim input, persistent Coast M, forced M3 travel, collision without auto-routing, counter impulse, Hybrid playback, and R10 mount.')
   console.log(JSON.stringify(result, null, 2))
 } finally {
   client?.close()
