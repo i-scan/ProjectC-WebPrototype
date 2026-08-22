@@ -28,12 +28,12 @@ import {
   type CollisionMode,
   type ImpulseActionId,
   type ImpulseKinematics,
+  type ImpulsePlan,
   type ImpulseSettings,
 } from './actorLoopImpulseMovement'
-import { HexThreeBoard, type HexBoardSelection } from './HexThreeBoard'
+import type { HexBoardSelection } from './HexThreeBoard'
 import { HexTravelMap } from './HexTravelMap'
 import { InertiaFieldBoard, type InertiaFieldPlayback } from './InertiaFieldBoard'
-import { Ut5AxisOverlay } from './Ut5AxisOverlay'
 import { HEX_DIRECTIONS, hexDirectionWorldVector, type HexDirection } from './hexTopology'
 import { normalizedCellCenter, type NormalizedHexPoint } from './actorLoopUt7ReachableField'
 import './hex.css'
@@ -53,10 +53,10 @@ type HistoryEntry = {
   actorPoint: NormalizedHexPoint
 }
 
-const inspectSelection: HexBoardSelection = { kind: 'inspect' }
 const directions = HEX_DIRECTIONS.map((entry) => entry.direction)
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 const normalizeDeg = (value: number) => ((value % 360) + 360) % 360
+const sameCoord = (a?: Coord, b?: Coord) => Boolean(a && b && a.x === b.x && a.y === b.y)
 
 function directionAngle(direction: HexDirection) {
   const vector = hexDirectionWorldVector(direction, 1)
@@ -159,7 +159,7 @@ export function ImpulseInertiaPlayground() {
   const [cameraResetToken, setCameraResetToken] = useState(0)
   const [event, setEvent] = useState<PlaybackEvent>()
   const [actorPoint, setActorPoint] = useState<NormalizedHexPoint>(() => normalizedCellCenter(getPlayer(lab.game).position))
-  const [hybridPlayback, setHybridPlayback] = useState<InertiaFieldPlayback>()
+  const [spatialPlayback, setSpatialPlayback] = useState<InertiaFieldPlayback>()
 
   const player = getPlayer(lab.game)
   const playerSpatial = lab.spatialByActorId.player ?? createSpatialState()
@@ -177,13 +177,24 @@ export function ImpulseInertiaPlayground() {
     () => Object.fromEntries(Object.entries(lab.spatialByActorId).map(([actorId, spatial]) => [actorId, spatial.level])),
     [lab.spatialByActorId],
   )
-  const boardSelection: HexBoardSelection = previewPath.length > 0
-    ? { kind: 'momentum', action: 'drive', validCoords: previewPath, route: previewPath }
-    : inspectSelection
-  const hybridPreviewPoints = useMemo(
-    () => spatialMode === 'hybrid' && plan.valid ? hybridPoints(actorPoint, plan.path) : [],
-    [spatialMode, actorPoint, plan],
-  )
+  const spatialPreviewPoints = useMemo(() => {
+    if (!plan.valid) return []
+    const start = spatialMode === 'hybrid' ? actorPoint : normalizedCellCenter(player.position)
+    return spatialMode === 'hybrid'
+      ? hybridPoints(start, plan.path)
+      : [start, ...plan.path.map(normalizedCellCenter)]
+  }, [plan, spatialMode, actorPoint, player.position.x, player.position.y])
+  const aimMarkerCoords = useMemo(() => {
+    if (!plan.valid) return []
+    if (action.id === 'coast') return previewPath
+    return hoverCoord ? [{ ...hoverCoord }] : []
+  }, [plan.valid, action.id, previewPath, hoverCoord])
+  const boardSelection: HexBoardSelection = {
+    kind: 'momentum',
+    action: 'drive',
+    validCoords: aimMarkerCoords,
+    route: previewPath,
+  }
 
   const pushHistory = () => {
     setHistory((current) => [...current, {
@@ -198,36 +209,42 @@ export function ImpulseInertiaPlayground() {
     setActionId(id)
     setHoverAimDeg(null)
     if (next.id === 'coast') return
-    const center = aimCenterForAction(lab, kinematics, next)
-    setAimDeg(center)
+    setAimDeg(aimCenterForAction(lab, kinematics, next))
   }
 
-  const commit = () => {
-    if (!plan.valid) return
+  const resolveImpulse = (resolvedPlan: ImpulsePlan) => {
+    if (!resolvedPlan.valid) return
     pushHistory()
     const before = lab
     const startPoint = spatialMode === 'hybrid' ? actorPoint : normalizedCellCenter(player.position)
-    const points = spatialMode === 'hybrid' ? hybridPoints(startPoint, plan.path) : [startPoint, ...plan.path.map(normalizedCellCenter)]
-    setLab(plan.result)
-    setKinematics({ headingDeg: plan.finalHeadingDeg })
-    setSelectedCoord({ ...getPlayer(plan.result.game).position })
+    const points = spatialMode === 'hybrid'
+      ? hybridPoints(startPoint, resolvedPlan.path)
+      : [startPoint, ...resolvedPlan.path.map(normalizedCellCenter)]
+    setLab(resolvedPlan.result)
+    setKinematics({ headingDeg: resolvedPlan.finalHeadingDeg })
+    setSelectedCoord({ ...getPlayer(resolvedPlan.result.game).position })
     setHoverCoord(undefined)
     setHoverAimDeg(null)
-    setEvent(eventForImpulse(before, plan.result, plan.path, `${action.label} · ${plan.summary}`))
+    setEvent(eventForImpulse(before, resolvedPlan.result, resolvedPlan.path, `${action.label} · ${resolvedPlan.summary}`))
     if (points.length > 1) {
-      setActorPoint(spatialMode === 'hybrid' ? { ...points.at(-1)! } : normalizedCellCenter(getPlayer(plan.result.game).position))
-      setHybridPlayback({ id: Date.now(), points: points.map((point) => ({ ...point })), mode: spatialMode })
+      setActorPoint(spatialMode === 'hybrid' ? { ...points.at(-1)! } : normalizedCellCenter(getPlayer(resolvedPlan.result.game).position))
+      setSpatialPlayback({ id: Date.now(), points: points.map((point) => ({ ...point })), mode: spatialMode })
     } else {
-      setActorPoint(normalizedCellCenter(getPlayer(plan.result.game).position))
-      setHybridPlayback(undefined)
+      setActorPoint(normalizedCellCenter(getPlayer(resolvedPlan.result.game).position))
+      setSpatialPlayback(undefined)
     }
   }
 
   const handleBoardClick = (coord: Coord) => {
     setSelectedCoord({ ...coord })
-    const angle = aimAngleToCoord(player.position, coord)
-    if (angle !== null && action.id !== 'coast') setAimDeg(angle)
+    const lockedHeading = headingForState(lab, kinematics)
+    const angle = action.id === 'coast' ? lockedHeading : aimAngleToCoord(player.position, coord)
     setHoverAimDeg(null)
+    if (angle === null) return
+    if (action.id !== 'coast') setAimDeg(angle)
+    const clickedPlan = impulsePlan(lab, kinematics, action, angle, settings)
+    const legal = clickedPlan.valid && (action.id !== 'coast' || clickedPlan.path.some((step) => sameCoord(step, coord)))
+    if (legal) resolveImpulse(clickedPlan)
   }
 
   const handleBoardHover = (coord?: Coord) => {
@@ -250,7 +267,7 @@ export function ImpulseInertiaPlayground() {
     setHoverCoord(undefined)
     setHoverAimDeg(null)
     setEvent({ id: Date.now(), kind: 'reset', effect: 'reset', target: getPlayer(previous.state.game).position, label: 'Undo Whole Action' })
-    setHybridPlayback(undefined)
+    setSpatialPlayback(undefined)
   }
 
   const reset = () => {
@@ -264,7 +281,7 @@ export function ImpulseInertiaPlayground() {
     setHoverAimDeg(null)
     setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
     setEvent({ id: Date.now(), kind: 'reset', effect: 'reset', target: getPlayer(next.game).position, label: 'Impulse Lab Reset' })
-    setHybridPlayback(undefined)
+    setSpatialPlayback(undefined)
   }
 
   const setMomentumPreset = (level: MomentumLevel, direction: HexDirection = 'E') => {
@@ -274,7 +291,7 @@ export function ImpulseInertiaPlayground() {
     setKinematics({ headingDeg: level > 0 ? directionAngle(direction) : null })
     setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
     setAimDeg(level > 0 ? directionAngle(direction) : 0)
-    setHybridPlayback(undefined)
+    setSpatialPlayback(undefined)
   }
 
   const setDebugSpatial = (level: MomentumLevel, axis: SpatialAxis | null) => {
@@ -283,6 +300,7 @@ export function ImpulseInertiaPlayground() {
     if (selectedActor.id === 'player') {
       setKinematics({ headingDeg: level > 0 && axis?.kind === 'horizontal' ? directionAngle(axis.dir) : null })
       setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
+      setSpatialPlayback(undefined)
     }
   }
 
@@ -293,7 +311,7 @@ export function ImpulseInertiaPlayground() {
     setKinematics({ headingDeg: null })
     setSelectedCoord({ ...getPlayer(next.game).position })
     setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
-    setHybridPlayback(undefined)
+    setSpatialPlayback(undefined)
   }
 
   const toggleEnemies = () => {
@@ -303,7 +321,7 @@ export function ImpulseInertiaPlayground() {
     setKinematics({ headingDeg: null })
     setSelectedCoord({ ...getPlayer(next.game).position })
     setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
-    setHybridPlayback(undefined)
+    setSpatialPlayback(undefined)
   }
 
   const rebuildCollisionCourse = () => {
@@ -311,7 +329,7 @@ export function ImpulseInertiaPlayground() {
     const next = collisionCourse(lab)
     setLab(next)
     setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
-    setHybridPlayback(undefined)
+    setSpatialPlayback(undefined)
   }
 
   const heading = headingForState(lab, kinematics)
@@ -325,12 +343,14 @@ export function ImpulseInertiaPlayground() {
     <main
       className="visual-prototype hex-prototype coupled-inertia-lab ut4-hex-layout ut6-actor-loop impulse-inertia-lab"
       data-ruleset="VAL-012-UT7-impulse-candidate"
-      data-implementation="impulse-inertia-input-v1"
+      data-implementation="impulse-inertia-input-v2"
       data-spatial-mode={spatialMode}
       data-renderer-mode={rendererMode}
       data-preview-valid={plan.valid}
       data-preview-path-length={previewPath.length}
       data-preview-collision-count={plan.collisions.length}
+      data-click-to-resolve="true"
+      data-shared-board="true"
     >
       <header className="visual-hud ut4-hud">
         <div className="visual-brand">
@@ -375,12 +395,12 @@ export function ImpulseInertiaPlayground() {
           </section>
           <section className="visual-slice-note ut4-test-guide">
             <h3>Input Model</h3>
-            <p><b>不再选择 Target Cell。</b> 玩家选择的是 Card + Force + Aim。</p>
+            <p><b>Cell 是瞄准输入，不是终点。</b> 选牌后悬停 Cell 预演轨迹，点击合法 Cell 直接执行。</p>
             <p>系统把当前 Velocity 与新 Impulse 相加，再模拟本 AT 的完整位移。</p>
             <p>M 是持续速度状态；Coast 不自动减 M。碰撞不会自动绕路。</p>
           </section>
           <section className="impulse-prediction-card">
-            <div className="visual-section-heading"><h3>Predicted Outcome</h3><span>{plan.valid ? 'deterministic' : 'invalid input'}</span></div>
+            <div className="visual-section-heading"><h3>Predicted Outcome</h3><span>{plan.valid ? 'click to resolve' : 'invalid input'}</span></div>
             <p>{plan.valid ? plan.summary : plan.reason}</p>
             <dl>
               <div><dt>Impulse result</dt><dd>M{plan.beforeM} → M{plan.afterImpulseM}</dd></div>
@@ -396,12 +416,12 @@ export function ImpulseInertiaPlayground() {
           <div className="hex-comparison-strip ut4-comparison-strip">
             <strong>Impulse / Billiards Input</strong>
             <span className="ut6-action-preview">{action.label} · Aim {effectiveAim.toFixed(0)}° · Force {action.force} · {plan.valid ? `${previewPath.length} Cell predicted` : plan.reason}</span>
-            <span>Click Cell = Aim only</span>
+            <span>Hover = Preview · Click legal Cell = Resolve 1 AT</span>
           </div>
           <div className="visual-board-toolbar ut4-board-toolbar">
             <div className="visual-camera-help">
               <button onClick={() => setCameraResetToken((value) => value + 1)}>重置视图</button>
-              <span>悬停/点击 Cell 只改变推杆角度，不指定终点；轨迹与碰撞由系统预演。</span>
+              <span>选牌后悬停棋盘改变 Aim 并实时预演；点击合法 Cell 即完成瞄准并立即移动。</span>
             </div>
             <div className="visual-session-controls"><button disabled={history.length === 0} onClick={undo}>Undo</button><button onClick={reset}>Reset</button></div>
           </div>
@@ -421,54 +441,38 @@ export function ImpulseInertiaPlayground() {
                 onCellClick={handleBoardClick}
                 onCellHover={handleBoardHover}
               />
-            ) : spatialMode === 'hybrid' ? (
+            ) : (
               <InertiaFieldBoard
+                key={`shared-impulse-board-${cameraResetToken}`}
                 state={lab}
-                validCoords={previewPath}
+                validCoords={aimMarkerCoords}
                 selectedCoord={selectedCoord}
                 hoverCoord={hoverCoord}
-                previewPoints={hybridPreviewPoints}
+                previewPoints={spatialPreviewPoints}
                 actorPoint={actorPoint}
                 axis={playerSpatial.axis}
-                playback={hybridPlayback}
-                mode="hybrid"
+                playback={spatialPlayback}
+                mode={spatialMode}
                 onCellClick={handleBoardClick}
                 onCellHover={handleBoardHover}
               />
-            ) : (
-              <>
-                <HexThreeBoard
-                  state={lab.game}
-                  mode="tactical"
-                  travelPath={previewPath}
-                  selectedCoord={selectedCoord}
-                  hoverCoord={hoverCoord}
-                  selection={boardSelection}
-                  targetLayer="ground"
-                  cameraResetToken={cameraResetToken}
-                  showSky={false}
-                  showDebug={false}
-                  event={event}
-                  eventDurationMs={430}
-                  momentumByActorId={momentumByActorId}
-                  onCellClick={handleBoardClick}
-                  onCellHover={handleBoardHover}
-                />
-                <Ut5AxisOverlay state={lab.game} spatialByActorId={lab.spatialByActorId} cameraResetToken={cameraResetToken} active showAxisAtZero />
-              </>
             )}
             {event && <div className={`visual-event-banner ${event.kind}`}><strong>{event.label ?? 'Impulse resolved'}</strong></div>}
             <div className="visual-board-legend ut4-board-legend">
-              <span><i className="cold" />Blue path = predicted simulation</span>
-              <span><i className="neutral" />Wall = collision, never auto-route</span>
+              <span><i className="cold" />Line = predicted simulation</span>
+              <span><i className="neutral" />Cell click = aim + resolve, never target endpoint</span>
               <span><i className="hot" />M = persistent speed</span>
             </div>
           </div>
 
           <section className="visual-hand ut4-action-hand ut6-action-hand impulse-action-hand">
             <div className="visual-hand-heading">
-              <div><h2>Motion Cards · Force / Angle Input</h2><p>Card 决定你如何施力；终点不再是玩家输入。</p></div>
-              <span>{plan.valid ? 'Preview ready' : 'Adjust aim'}</span>
+              <div><h2>Motion Cards · Force / Angle Input</h2><p>先选 Card；悬停棋盘预演；点击合法 Cell 就直接执行，不再二次确认。</p></div>
+              <span>{plan.valid ? 'Click board to fire' : 'Adjust aim'}</span>
+            </div>
+            <div className="impulse-fire-status" data-testid="impulse-fire-status">
+              <strong>Aim {effectiveAim.toFixed(0)}°</strong>
+              <span>predicted M{plan.afterM} / {previewPath.length} Cell · {spatialMode === 'discrete' ? 'Cell-center playback' : 'continuous playback'}</span>
             </div>
             <div className="ut4-action-card-row ut6-action-card-row impulse-card-row">
               {impulseActionSpecs.map((entry) => (
@@ -484,17 +488,13 @@ export function ImpulseInertiaPlayground() {
                 </button>
               ))}
             </div>
-            <div className="impulse-commit-row">
-              <div><strong>Aim {effectiveAim.toFixed(0)}°</strong><span> → predicted M{plan.afterM} / {previewPath.length} Cell</span></div>
-              <button data-testid="impulse-commit" disabled={!plan.valid} onClick={commit}>Apply Impulse · Resolve 1 AT</button>
-            </div>
           </section>
 
           <details className="ut4-diagnostics" open>
             <summary>Event Log · {lab.logs.length} events · Impulse / Collision / Thermal</summary>
             <div className="ut4-diagnostics-body">
               <div className="ut4-log-list">
-                {lab.logs.length === 0 && <p className="ut4-empty">从 M0 Drive 开始；比较加速、Coast、反冲、急转和撞墙。</p>}
+                {lab.logs.length === 0 && <p className="ut4-empty">从 M0 Drive 开始；悬停预演，点击棋盘直接发起冲量。</p>}
                 {lab.logs.map((entry) => (
                   <article key={entry.id}>
                     <header><strong>{entry.timeAt.toFixed(1)} AT · {entry.action}</strong><span>{axisLabel(entry.beforeSpatial.axis)} M{entry.beforeSpatial.level} → {axisLabel(entry.afterSpatial.axis)} M{entry.afterSpatial.level}</span></header>
@@ -503,23 +503,23 @@ export function ImpulseInertiaPlayground() {
                   </article>
                 ))}
               </div>
-              <div className="ut4-test-strip"><strong>Impulse v1</strong><span>No Target Cell</span><span>Persistent M</span><span>Forced Travel</span><span>Collision</span><span>2D/3D</span><span>Discrete/Hybrid</span></div>
+              <div className="ut4-test-strip"><strong>Impulse v2</strong><span>Click-to-Resolve</span><span>Shared Board</span><span>Persistent M</span><span>Forced Travel</span><span>Collision</span><span>Discrete/Hybrid</span></div>
             </div>
           </details>
         </section>
 
         <aside className="visual-panel visual-right-panel ut4-debug-panel ut6-debug-panel">
           <section>
-            <div className="visual-section-heading"><h3>Spatial Playback A/B</h3><span>presentation only</span></div>
+            <div className="visual-section-heading"><h3>Spatial Playback A/B</h3><span>movement only</span></div>
             <div className="impulse-ab-switch">
-              <button className={spatialMode === 'discrete' ? 'active' : ''} onClick={() => { setSpatialMode('discrete'); setActorPoint(normalizedCellCenter(player.position)); setHybridPlayback(undefined) }}>Discrete</button>
-              <button className={spatialMode === 'hybrid' ? 'active' : ''} onClick={() => { setSpatialMode('hybrid'); setActorPoint(normalizedCellCenter(player.position)); setHybridPlayback(undefined) }}>Hybrid</button>
+              <button className={spatialMode === 'discrete' ? 'active' : ''} onClick={() => { setSpatialMode('discrete'); setActorPoint(normalizedCellCenter(player.position)); setSpatialPlayback(undefined) }}>Discrete</button>
+              <button className={spatialMode === 'hybrid' ? 'active' : ''} onClick={() => { setSpatialMode('hybrid'); setActorPoint(normalizedCellCenter(player.position)); setSpatialPlayback(undefined) }}>Hybrid</button>
             </div>
-            <small>两者共享同一 Impulse simulation。Hybrid 只改变 3D 路径表现，不改变结果。</small>
+            <small>同一棋盘、同一相机、同一输入与碰撞规则。Discrete 使用 Cell-center 折线；Hybrid 使用连续平滑轨迹与 Cell 内落点。</small>
           </section>
 
           <section>
-            <div className="visual-section-heading"><h3>Aim / Force</h3><span>input</span></div>
+            <div className="visual-section-heading"><h3>Aim / Force</h3><span>debug input</span></div>
             <div className="impulse-direction-grid">
               {directions.map((direction) => <button key={direction} onClick={() => setAimDeg(directionAngle(direction))}>{direction}</button>)}
             </div>
