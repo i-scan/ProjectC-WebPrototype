@@ -17,8 +17,106 @@
   color: #8fd0ec;
 }
 
+/* Keep the Three.js viewport geometry stable while playback UI changes around it. */
+.cell-world-prototype .board-frame {
+  min-height: 360px;
+  contain: layout paint;
+  isolation: isolate;
+  background: #172434;
+}
+
+.cell-world-prototype .continuous-board-host {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cell-world-prototype .continuous-board-host canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.cell-world-prototype .board-legend .trajectory {
+  height: 3px;
+  background: repeating-linear-gradient(90deg, #8bd5e4 0 7px, transparent 7px 11px);
+}
+
+.cell-world-prototype .board-legend .trajectory.discrete {
+  background: repeating-linear-gradient(90deg, #f0cb75 0 7px, transparent 7px 11px);
+}
+
+.cell-world-prototype .board-legend .momentum-axis {
+  width: 11px;
+  height: 4px;
+  border-radius: 999px;
+  background: #f1c86f;
+  box-shadow: none;
+}
+
+.cell-world-prototype .timebase-card {
+  border-color: rgba(94, 143, 163, .42);
+  background: linear-gradient(160deg, rgba(23, 37, 49, .96), rgba(18, 29, 40, .96));
+}
+
+.cell-world-prototype .timebase-range {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.cell-world-prototype .timebase-range > span {
+  grid-column: 1;
+}
+
+.cell-world-prototype .timebase-range > input {
+  grid-column: 1 / -1;
+  accent-color: #8bcbd7;
+}
+
+.cell-world-prototype .timebase-range > output {
+  grid-column: 2;
+  grid-row: 1;
+  color: #b9dfe4;
+}
+
+.cell-world-prototype .timebase-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.cell-world-prototype .timebase-facts span {
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid rgba(112, 150, 166, .18);
+  border-radius: 6px;
+  background: rgba(117, 169, 179, .055);
+  color: #8097a3;
+  font-size: 9px;
+  line-height: 1.25;
+}
+
+.cell-world-prototype .timebase-facts b {
+  display: block;
+  margin-top: 2px;
+  color: #d4e7e8;
+  font: 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.cell-world-prototype .thermal-pendulum-readout {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 @media (max-width: 1400px) {
   .cell-world-prototype .action-row {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .cell-world-prototype .timebase-facts {
+    grid-template-columns: 1fr;
   }
 }
