@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 
 const expectedCommit = process.env.EXPECTED_COMMIT || process.env.VITE_BUILD_COMMIT || 'local'
 const distDir = resolve('dist')
-const info = JSON.parse(await readFile(resolve(distDir, 'build-info.json'), 'utf8')
+const info = JSON.parse(await readFile(resolve(distDir, 'build-info.json'), 'utf8'))
 const html = await readFile(resolve(distDir, 'index.html'), 'utf8')
 
 function assert(condition, message) {
