@@ -8,8 +8,9 @@ const rules = readFileSync(new URL('./coupledInertiaUt5.ts', import.meta.url), '
 const config = readFileSync(new URL('../../config/experiments/val-012-axis-inertia-lab.v5.json', import.meta.url), 'utf8')
 
 describe('UT5 unified axis inertia sandbox structure', () => {
-  it('retains UT5 and UT4 as historical source while the current entry stays focused on reachable-field A/B', () => {
-    expect(main).toContain("import { ActorLoopReachabilityABPlayground } from './hex/ActorLoopReachabilityABPlayground'")
+  it('retains UT5 and UT4 as historical source while the current entry is impulse-driven', () => {
+    expect(main).toContain("import { ImpulseInertiaPlayground } from './hex/ImpulseInertiaPlayground'")
+    expect(main).toContain('Inertia Driving Lab')
     expect(main).not.toContain("import { Ut5InertiaLab } from './hex/Ut5InertiaLab'")
     expect(main).not.toContain("<Ut5InertiaLab />")
     expect(lab).toContain('VAL-012-UT5')

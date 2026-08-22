@@ -91,30 +91,70 @@ async function evaluate(client, expression, awaitPromise = true) {
 }
 
 const snapshotExpression = `(() => {
-  const root = document.querySelector('.inertia-field-ab[data-implementation="inertia-reachable-field-ab-v1"]')
-  const stateText = root?.querySelector('.ifab-state-strip')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const profile = root?.querySelector('.ifab-profile')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const readout = root?.querySelector('.ifab-readout')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const board = root?.querySelector('.inertia-field-board')
-  const activeMode = root?.querySelector('.ifab-mode-switch button.active')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const activePreset = root?.querySelector('.ifab-preset-grid button.active')?.textContent?.trim() ?? ''
-  const radiusInput = root?.querySelector('[data-testid="ifab-radius"]')
+  const root = document.querySelector('.impulse-inertia-lab[data-implementation="impulse-inertia-input-v1"]')
+  const header = root?.querySelector('.ut4-header-state')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const preview = root?.querySelector('.impulse-prediction-card')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const action = root?.querySelector('.impulse-card-row .selected-action')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const boardRadiusLabel = [...(root?.querySelectorAll('label.ut4-range') ?? [])].find((node) => node.textContent.includes('Board Radius'))
+  const boardRadius = Number(boardRadiusLabel?.querySelector('input')?.value ?? 0)
+  const stateItems = [...(root?.querySelectorAll('.ut4-header-state > div') ?? [])]
+  const stateValue = (label) => stateItems.find((node) => node.querySelector('span')?.textContent?.trim() === label)?.querySelector('strong')?.textContent?.trim() ?? ''
+  const collisionLog = [...(root?.querySelectorAll('.ut4-log-list article small') ?? [])].map((node) => node.textContent ?? '').find((text) => text.includes('UT3Hard')) ?? ''
+  const rect = (selector) => {
+    const node = root?.querySelector(selector)
+    if (!node) return null
+    const value = node.getBoundingClientRect()
+    return {
+      left: Math.round(value.left),
+      right: Math.round(value.right),
+      top: Math.round(value.top),
+      bottom: Math.round(value.bottom),
+      width: Math.round(value.width),
+      height: Math.round(value.height),
+    }
+  }
   return {
     implementation: root?.dataset.implementation ?? '',
-    mode: root?.dataset.spatialMode ?? '',
-    targetCount: Number(root?.dataset.targetCount ?? 0),
-    maxDistance: Number(root?.dataset.maxDistance ?? 0),
-    stateText,
-    profile,
-    readout,
-    activeMode,
-    activePreset,
-    radius: Number(radiusInput?.value ?? 0),
-    canvas: Boolean(board?.querySelector('canvas')),
-    boardMode: board?.dataset.mode ?? '',
+    rendererMode: root?.dataset.rendererMode ?? '',
+    spatialMode: root?.dataset.spatialMode ?? '',
+    previewValid: root?.dataset.previewValid === 'true',
+    pathLength: Number(root?.dataset.previewPathLength ?? 0),
+    collisionCount: Number(root?.dataset.previewCollisionCount ?? 0),
+    momentum: stateValue('Momentum'),
+    axis: stateValue('Axis'),
+    worldTime: stateValue('World Time'),
+    header,
+    preview,
+    action,
+    boardRadius,
+    canvas: Boolean(root?.querySelector('.visual-board-frame canvas')),
+    boardMounted: Boolean(root?.querySelector('.visual-board-frame canvas, .visual-board-frame svg')),
+    collisionLog,
+    layout: {
+      root: rect(':scope'),
+      hud: rect('.visual-hud'),
+      left: rect('.ut4-left-panel'),
+      board: rect('.ut4-board-column'),
+      right: rect('.ut4-debug-panel'),
+      boardFrame: rect('.ut4-board-frame'),
+      hand: rect('.impulse-action-hand'),
+    },
     navButtons: [...document.querySelectorAll('.app-switcher nav button')].map((button) => button.textContent?.trim() ?? ''),
   }
 })()`
+
+function assertThreeColumnLayout(snapshot, label) {
+  const { left, board, right, boardFrame } = snapshot.layout ?? {}
+  assert(left && board && right && boardFrame, `${label}: restored lab columns are missing`, snapshot)
+  assert(left.right < board.left, `${label}: left panel overlaps or stacks with board`, snapshot.layout)
+  assert(board.right < right.left, `${label}: board overlaps or stacks with right panel`, snapshot.layout)
+  assert(Math.abs(left.top - board.top) <= 12, `${label}: left panel is not aligned with board`, snapshot.layout)
+  assert(Math.abs(right.top - board.top) <= 12, `${label}: right panel is not aligned with board`, snapshot.layout)
+  assert(left.width >= 190 && left.width <= 280, `${label}: left panel width is outside UT6 lab range`, snapshot.layout)
+  assert(right.width >= 240 && right.width <= 330, `${label}: right panel width is outside UT6 lab range`, snapshot.layout)
+  assert(board.width >= 700, `${label}: center board column is too narrow`, snapshot.layout)
+  assert(boardFrame.width >= 680 && boardFrame.height >= 280, `${label}: board frame collapsed`, snapshot.layout)
+}
 
 const clickText = (scopeSelector, text) => `(() => {
   const scope = document.querySelector(${JSON.stringify(scopeSelector)})
@@ -130,15 +170,15 @@ let client
 
 try {
   previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4180', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
-  previewProcess.stdout.on('data', (chunk) => process.stdout.write(`[ifab-preview] ${chunk}`))
-  previewProcess.stderr.on('data', (chunk) => process.stderr.write(`[ifab-preview] ${chunk}`))
-  await waitFor('Inertia field Vite preview', async () => {
+  previewProcess.stdout.on('data', (chunk) => process.stdout.write(`[impulse-preview] ${chunk}`))
+  previewProcess.stderr.on('data', (chunk) => process.stderr.write(`[impulse-preview] ${chunk}`))
+  await waitFor('Impulse Vite preview', async () => {
     const response = await fetch(pageUrl, { redirect: 'follow' })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return true
   })
 
-  const userDataDir = join(tmpdir(), `projectc-inertia-field-${process.pid}`)
+  const userDataDir = join(tmpdir(), `projectc-impulse-${process.pid}`)
   chromeProcess = spawn(chromeExecutable(), [
     '--headless=new',
     '--no-sandbox',
@@ -147,66 +187,100 @@ try {
     '--remote-debugging-address=127.0.0.1',
     '--remote-debugging-port=9229',
     `--user-data-dir=${userDataDir}`,
-    '--window-size=1366,1080',
+    '--window-size=1600,1100',
     'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] })
-  chromeProcess.stderr.on('data', (chunk) => process.stderr.write(`[ifab-chrome] ${chunk}`))
+  chromeProcess.stderr.on('data', (chunk) => process.stderr.write(`[impulse-chrome] ${chunk}`))
 
-  const version = await waitFor('Inertia field Chrome DevTools', async () => {
+  const version = await waitFor('Impulse Chrome DevTools', async () => {
     const response = await fetch(`${debuggingOrigin}/json/version`)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json()
   })
   const targetResponse = await fetch(`${debuggingOrigin}/json/new?${encodeURIComponent(pageUrl)}`, { method: 'PUT' })
-  assert(targetResponse.ok, 'Failed to create inertia field Chrome target')
+  assert(targetResponse.ok, 'Failed to create impulse Chrome target')
   const target = await targetResponse.json()
   client = new CdpClient(target.webSocketDebuggerUrl || version.webSocketDebuggerUrl)
   await client.open()
   await client.send('Page.enable')
   await client.send('Runtime.enable')
-  await client.send('Emulation.setDeviceMetricsOverride', { width: 1366, height: 1080, deviceScaleFactor: 1, mobile: false })
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1100, deviceScaleFactor: 1, mobile: false })
   await client.send('Page.navigate', { url: pageUrl })
 
-  const initial = await waitFor('Inertia field A/B root', async () => {
+  const initial = await waitFor('Impulse lab root', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.canvas || snapshot.implementation !== 'inertia-reachable-field-ab-v1') throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.canvas || snapshot.implementation !== 'impulse-inertia-input-v1') throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
-  assert(initial.mode === 'discrete' && initial.activePreset === 'M0', 'A/B prototype must start in Discrete M0', initial)
-  assert(initial.maxDistance === 1 && initial.targetCount > 0, 'M0 must expose only the adjacent field', initial)
-  assert(initial.navButtons.length === 2 && initial.navButtons[0].includes('Inertia Field'), 'Prototype navigation was not cleaned to the current experiment + graphics lab', initial)
+  assert(initial.rendererMode === '3d' && initial.spatialMode === 'discrete', 'Impulse lab must restore the default 3D discrete lab view', initial)
+  assert(initial.previewValid && initial.pathLength === 1 && initial.momentum === 'M0', 'M0 Drive must predict one forced cell from force input', initial)
+  assert(initial.action.includes('Drive') && initial.navButtons[0]?.includes('Inertia Driving'), 'Current navigation/action shell is incorrect', initial)
+  assertThreeColumnLayout(initial, 'Initial 3D')
 
-  await evaluate(client, clickText('.ifab-preset-grid', 'M1'))
-  const m1 = await waitFor('M1 compact field', async () => {
+  await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
+  const afterDrive = await waitFor('M0 Drive commit', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.activePreset !== 'M1' || snapshot.maxDistance !== 2 || !snapshot.profile.includes('3×3')) throw new Error(JSON.stringify(snapshot))
-    return snapshot
-  })
-
-  await evaluate(client, clickText('.ifab-preset-grid', 'M2'))
-  const m2 = await waitFor('M2 short teardrop', async () => {
-    const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.activePreset !== 'M2' || snapshot.maxDistance !== 3 || !snapshot.profile.includes('teardrop')) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.worldTime !== '1.0 AT' || snapshot.momentum !== 'M1') throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
-  await evaluate(client, clickText('.ifab-preset-grid', 'M3'))
-  const m3 = await waitFor('M3 long teardrop', async () => {
+  await evaluate(client, clickText('.impulse-card-row', 'Coast'))
+  const coastPreview = await waitFor('M1 Coast preview', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.activePreset !== 'M3' || snapshot.maxDistance !== 4 || snapshot.targetCount <= m2.targetCount) throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.previewValid || snapshot.pathLength !== 1 || !snapshot.action.includes('Coast')) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+  await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
+  const afterCoast = await waitFor('persistent M1 Coast', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.worldTime !== '2.0 AT' || snapshot.momentum !== 'M1') throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
-  await evaluate(client, clickText('.ifab-mode-switch', 'Hybrid Spatial'))
-  const hybrid = await waitFor('Hybrid spatial comparison mode', async () => {
+  await evaluate(client, clickText('.visual-session-controls', 'Reset'))
+  await evaluate(client, clickText('.ut6-preset-grid', 'E M3'))
+  await evaluate(client, clickText('.impulse-card-row', 'Coast'))
+  const m3CrashPreview = await waitFor('M3 forced collision preview', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.mode !== 'hybrid' || snapshot.boardMode !== 'hybrid' || !snapshot.activeMode.includes('Hybrid')) throw new Error(JSON.stringify(snapshot))
-    if (snapshot.targetCount !== m3.targetCount || snapshot.maxDistance !== m3.maxDistance) throw new Error(`Hybrid changed Target Cell field: ${JSON.stringify(snapshot)}`)
+    if (snapshot.momentum !== 'M3' || snapshot.pathLength !== 2 || snapshot.collisionCount < 1 || !snapshot.preview.includes('UT3Hard')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
+  await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
+  const afterCrash = await waitFor('M3 collision result', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.momentum === 'M3' || !snapshot.collisionLog.includes('UT3Hard')) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+
+  await evaluate(client, clickText('.visual-session-controls', 'Reset'))
+  await evaluate(client, clickText('.ut6-preset-grid', 'E M3'))
+  await evaluate(client, clickText('.impulse-card-row', 'Counter Impulse'))
+  const counterPreview = await waitFor('M3 counter impulse preview', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (!snapshot.previewValid || !snapshot.preview.includes('M3 → M2') || snapshot.pathLength !== 2) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+
+  await evaluate(client, clickText('.hex-view-switch', '2D'))
+  const view2d = await waitFor('restored 2D view', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.rendererMode !== '2d' || !snapshot.boardMounted) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+  assertThreeColumnLayout(view2d, '2D')
+  await evaluate(client, clickText('.hex-view-switch', '3D'))
+
+  await evaluate(client, clickText('.impulse-ab-switch', 'Hybrid'))
+  const hybrid = await waitFor('Hybrid playback mode', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.rendererMode !== '3d' || snapshot.spatialMode !== 'hybrid' || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+  assertThreeColumnLayout(hybrid, 'Hybrid 3D')
 
   await evaluate(client, `(() => {
-    const input = document.querySelector('[data-testid="ifab-radius"]')
+    const label = [...document.querySelectorAll('label.ut4-range')].find((node) => node.textContent.includes('Board Radius'))
+    const input = label?.querySelector('input')
     if (!input) throw new Error('Board Radius input missing')
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
     setter.call(input, '10')
@@ -214,19 +288,20 @@ try {
     input.dispatchEvent(new Event('change', { bubbles: true }))
     return true
   })()`)
-  const radius10 = await waitFor('R10 focused board', async () => {
+  const radius10 = await waitFor('R10 impulse board', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.radius !== 10 || !snapshot.readout.includes('331 Cells') || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.boardRadius !== 10 || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
+  assertThreeColumnLayout(radius10, 'R10 Hybrid')
 
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'ut7-basic-move.png'), Buffer.from(screenshot.data, 'base64'))
-  const result = { initial, m1, m2, m3, hybrid, radius10 }
+  const result = { initial, afterDrive, coastPreview, afterCoast, m3CrashPreview, afterCrash, counterPreview, view2d, hybrid, radius10 }
   await writeFile(join(artifactDir, 'ut7-basic-move.json'), `${JSON.stringify(result, null, 2)}\n`)
 
-  console.log('Inertia Reachable Field A/B verified in real Chrome: M0 ring, M1 compact rear-closed field, M2/M3 teardrops, identical Hybrid target set, focused navigation, and R10 board all mounted correctly.')
+  console.log('Impulse inertia verified in real Chrome: restored aligned three-column UT6 shell, 2D/3D view switching, force/aim input, persistent Coast M, forced M3 travel, collision without auto-routing, counter impulse, Hybrid playback, and R10 mount.')
   console.log(JSON.stringify(result, null, 2))
 } finally {
   client?.close()

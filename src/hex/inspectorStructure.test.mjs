@@ -41,8 +41,8 @@ describe('right inspector component boundaries', () => {
     expect(inspectorCssSource).not.toContain('font-size: 6px')
   })
 
-  it('retains the historical inspector contract in source without mounting it in the focused current entry', () => {
-    expect(mainSource).toContain("import { ActorLoopReachabilityABPlayground } from './hex/ActorLoopReachabilityABPlayground'")
+  it('retains the historical inspector contract in source without mounting it in the impulse-driven current entry', () => {
+    expect(mainSource).toContain("import { ImpulseInertiaPlayground } from './hex/ImpulseInertiaPlayground'")
     expect(mainSource).not.toContain("import { InspectorLayoutContract } from './hex/InspectorLayoutContract'")
     expect(mainSource).not.toContain('<InspectorLayoutContract />')
     expect(mainSource).not.toContain('<ActorLoopUt7BasicMovePlayground />')

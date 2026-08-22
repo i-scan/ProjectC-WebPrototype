@@ -13,7 +13,8 @@ const config = JSON.parse(readFileSync(configPath, 'utf8'))
 
 describe('UT5 axis inertia lab contract', () => {
   it('keeps the UT5 lab reproducible but removes it from the current prototype navigation', () => {
-    expect(main).toContain('Inertia Field A/B')
+    expect(main).toContain('Inertia Driving Lab')
+    expect(main).toContain("import { ImpulseInertiaPlayground } from './hex/ImpulseInertiaPlayground'")
     expect(main).not.toContain("import { Ut5InertiaLab } from './hex/Ut5InertiaLab'")
     expect(main).not.toContain("{view === 'rules' && <Ut5InertiaLab />}")
     expect(lab).toContain('VAL-012-UT5')

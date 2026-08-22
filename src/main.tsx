@@ -2,13 +2,16 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BuildRevision } from './BuildRevision'
 import { GraphicsLab } from './graphics/GraphicsLab'
-import { ActorLoopReachabilityABPlayground } from './hex/ActorLoopReachabilityABPlayground'
+import { ImpulseInertiaPlayground } from './hex/ImpulseInertiaPlayground'
 import './styles.css'
+import './visual/visual.css'
+import './visual/visual-v2.css'
+import './visual/visual-v3.css'
 
-type View = 'field' | 'graphics'
+type View = 'impulse' | 'graphics'
 
 function viewFromHash(): View {
-  return window.location.hash === '#graphics-lab' ? 'graphics' : 'field'
+  return window.location.hash === '#graphics-lab' ? 'graphics' : 'impulse'
 }
 
 function Root() {
@@ -32,15 +35,15 @@ function Root() {
           <BuildRevision />
         </div>
         <nav aria-label="Prototype views">
-          <button className={view === 'field' ? 'selected' : ''} onClick={() => navigate('field')}>
-            Inertia Field A/B
+          <button className={view === 'impulse' ? 'selected' : ''} onClick={() => navigate('impulse')}>
+            Inertia Driving Lab
           </button>
           <button className={view === 'graphics' ? 'selected' : ''} onClick={() => navigate('graphics')}>
             图形性能实验室
           </button>
         </nav>
       </div>
-      {view === 'field' && <ActorLoopReachabilityABPlayground />}
+      {view === 'impulse' && <ImpulseInertiaPlayground />}
       {view === 'graphics' && <GraphicsLab />}
     </>
   )
