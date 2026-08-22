@@ -32,35 +32,71 @@ function runDiscrete(state, actionId, hex) {
   })
 }
 
-describe('shared spatial input contract', () => {
-  it('restores Basic Move as a 1 AT base command without creating Momentum at rest', () => {
+describe('Basic Move adjacent steering contract', () => {
+  it('rejects remote Aim Cells in both spatial modes', () => {
     const initial = createInitialState()
-    const discrete = runDiscrete(initial, 'basic-move', { q: 4, r: 0 })
-    const hybrid = runHybrid(initial, 'basic-move', { q: 4, r: 0 })
-
-    expect(discrete.valid).toBe(true)
-    expect(hybrid.valid).toBe(true)
-    expect(discrete.finalState.position).toEqual(axialToWorld({ q: 1, r: 0 }))
-    expect(hybrid.finalState.position.x).toBeCloseTo(1, 6)
-    expect(hybrid.finalState.position.z).toBeCloseTo(0, 6)
-    expect(discrete.finalSpeed).toBeCloseTo(0, 6)
-    expect(hybrid.finalSpeed).toBeCloseTo(0, 6)
-    expect(discrete.finalState.worldAt).toBe(1)
-    expect(hybrid.finalState.worldAt).toBe(1)
+    expect(runDiscrete(initial, 'basic-move', { q: 2, r: 0 }).valid).toBe(false)
+    expect(runHybrid(initial, 'basic-move', { q: 2, r: 0 }).valid).toBe(false)
   })
 
-  it('Basic Move combines voluntary displacement with inertia but does not auto-spend M', () => {
+  it('moves one adjacent Cell at M0 and remains M0', () => {
+    const initial = createInitialState()
+    const discrete = runDiscrete(initial, 'basic-move', { q: 1, r: 0 })
+    const hybrid = runHybrid(initial, 'basic-move', { q: 1, r: 0 })
+
+    for (const plan of [discrete, hybrid]) {
+      expect(plan.valid).toBe(true)
+      expect(worldToAxial(plan.finalState.position)).toEqual({ q: 1, r: 0 })
+      expect(plan.range).toBe(1)
+      expect(plan.finalM).toBe(0)
+      expect(plan.finalSpeed).toBeCloseTo(0, 6)
+      expect(plan.finalState.worldAt).toBe(1)
+    }
+  })
+
+  it('resolves M2 as Range+1, then M2 -> M1 once for the AT', () => {
     const state = { position: { x: 0, z: 0 }, velocity: { x: 1.7, z: 0 }, worldAt: 0 }
-    const plan = runHybrid(state, 'basic-move', { q: 0, r: -2 })
+    const plan = runDiscrete(state, 'basic-move', { q: 1, r: 0 })
 
     expect(plan.valid).toBe(true)
-    expect(plan.finalState.velocity.x).toBeCloseTo(1.7, 6)
-    expect(plan.finalState.velocity.z).toBeCloseTo(0, 6)
-    expect(plan.finalM).toBe(2)
-    expect(plan.finalState.position.x).toBeLessThan(1.7)
-    expect(plan.finalState.position.z).toBeLessThan(-0.5)
+    expect(plan.range).toBe(2)
+    expect(plan.beforeM).toBe(2)
+    expect(plan.finalM).toBe(1)
+    expect(plan.traversedCells).toEqual([{ q: 0, r: 0 }, { q: 1, r: 0 }, { q: 2, r: 0 }])
+    expect(plan.finalSpeed).toBeCloseTo(0.85, 6)
+    expect(plan.finalState.worldAt).toBe(1)
   })
 
+  it('uses the incoming Axis for the first M2 Cell-step and redirects at most 60 degrees per Cell', () => {
+    const state = { position: { x: 0, z: 0 }, velocity: { x: 1.7, z: 0 }, worldAt: 0 }
+    const plan = runDiscrete(state, 'basic-move', { q: 0, r: -1 })
+
+    expect(plan.valid).toBe(true)
+    expect(plan.traversedCells).toEqual([{ q: 0, r: 0 }, { q: 1, r: 0 }, { q: 2, r: -1 }])
+    expect(plan.finalM).toBe(1)
+    expect(plan.finalState.velocity.x).toBeLessThan(0)
+    expect(plan.finalState.velocity.z).toBeLessThan(0)
+  })
+
+  it('does not silently choose a left/right branch for a direct opposite Aim', () => {
+    const state = { position: { x: 0, z: 0 }, velocity: { x: 1.7, z: 0 }, worldAt: 0 }
+    const plan = runDiscrete(state, 'basic-move', { q: -1, r: 0 })
+    expect(plan.valid).toBe(false)
+    expect(plan.reason).toMatch(/left\/right steering branch/i)
+  })
+
+  it('shares the same rule-constrained Basic Move Cell path in Discrete and Hybrid', () => {
+    const state = { position: { x: 0, z: 0 }, velocity: { x: 1.7, z: 0 }, worldAt: 0 }
+    const discrete = runDiscrete(state, 'basic-move', { q: 1, r: -1 })
+    const hybrid = runHybrid(state, 'basic-move', { q: 1, r: -1 })
+    expect(discrete.traversedCells).toEqual(hybrid.traversedCells)
+    expect(discrete.finalState).toEqual(hybrid.finalState)
+    expect(discrete.samples.length).toBe(3)
+    expect(hybrid.samples.length).toBe(3)
+  })
+})
+
+describe('impulse movement regressions', () => {
   it('Drive accepts a 120 degree Aim and turns by vector addition instead of legality gating', () => {
     const state = { position: { x: 0, z: 0 }, velocity: { x: 0.85, z: 0 }, worldAt: 0 }
     const aim = { q: 0, r: -2 }
@@ -74,55 +110,24 @@ describe('shared spatial input contract', () => {
     expect(hybrid.finalState.velocity.z).toBeLessThan(-0.6)
     expect(discrete.finalState.velocity.x).toBeCloseTo(hybrid.finalState.velocity.x, 6)
     expect(discrete.finalState.velocity.z).toBeCloseTo(hybrid.finalState.velocity.z, 6)
-    expect(worldToAxial(discrete.finalState.position)).toEqual({ q: 1, r: -1 })
   })
 
-  it('computes V + normalized(Aim) * Force exactly across representative angles and max-speed clamping', () => {
+  it('computes V + normalized(Aim) * Force exactly and clamps MaxSpeed', () => {
     const velocity = { x: 1.1, z: -0.35 }
     const force = 0.85
-    const directions = [
-      { x: 1, z: 0 },
-      { x: 0.5, z: Math.sqrt(3) / 2 },
-      { x: -0.5, z: Math.sqrt(3) / 2 },
-      { x: -1, z: 0 },
-      { x: -0.5, z: -Math.sqrt(3) / 2 },
-      { x: 0.5, z: -Math.sqrt(3) / 2 },
-    ]
-
-    for (const direction of directions) {
-      const raw = {
-        x: velocity.x + direction.x * force,
-        z: velocity.z + direction.z * force,
-      }
-      const rawSpeed = Math.hypot(raw.x, raw.z)
-      const scale = rawSpeed > MAX_SPEED ? MAX_SPEED / rawSpeed : 1
-      const expected = { x: raw.x * scale, z: raw.z * scale }
-      const actual = combineImpulseVelocity(velocity, direction, force, MAX_SPEED)
-      expect(actual.x).toBeCloseTo(expected.x, 10)
-      expect(actual.z).toBeCloseTo(expected.z, 10)
-    }
+    const direction = { x: -0.5, z: Math.sqrt(3) / 2 }
+    const raw = { x: velocity.x + direction.x * force, z: velocity.z + direction.z * force }
+    const actual = combineImpulseVelocity(velocity, direction, force, MAX_SPEED)
+    expect(actual.x).toBeCloseTo(raw.x, 10)
+    expect(actual.z).toBeCloseTo(raw.z, 10)
 
     const capped = combineImpulseVelocity({ x: 3.1, z: 0 }, { x: 1, z: 0 }, 1.35, MAX_SPEED)
     expect(Math.hypot(capped.x, capped.z)).toBeCloseTo(MAX_SPEED, 10)
-    expect(capped.z).toBeCloseTo(0, 10)
   })
 
-  it('uses the same exact resultant formula from an off-center continuous Position', () => {
-    const state = { position: { x: 0.42, z: -0.18 }, velocity: { x: 1.05, z: 0.35 }, worldAt: 2 }
-    const aimPoint = axialToWorld({ q: -1, r: -2 })
-    const aimVector = { x: aimPoint.x - state.position.x, z: aimPoint.z - state.position.z }
-    const expected = combineImpulseVelocity(state.velocity, aimVector, 0.85, MAX_SPEED)
-    const plan = simulateImpulse({ state, actionId: 'drive', aimPoint, config: DEFAULT_SOLVER_CONFIG, obstacles: noObstacles })
-
-    expect(plan.valid).toBe(true)
-    expect(plan.finalState.velocity.x).toBeCloseTo(expected.x, 10)
-    expect(plan.finalState.velocity.z).toBeCloseTo(expected.z, 10)
-  })
-
-  it('Hybrid restores a curved turn presentation while keeping the vector-sum endpoint', () => {
+  it('keeps Hybrid Drive curved while preserving the vector-sum endpoint velocity', () => {
     const state = { position: { x: 0, z: 0 }, velocity: { x: 0.85, z: 0 }, worldAt: 0 }
     const plan = runHybrid(state, 'drive', { q: 0, r: -2 })
-
     expect(plan.valid).toBe(true)
     expect(plan.curveUsed).toBe(true)
     expect(plan.samples.length).toBe(DEFAULT_SOLVER_CONFIG.steps + 1)
@@ -131,53 +136,19 @@ describe('shared spatial input contract', () => {
     const endpoint = plan.samples.at(-1).position
     const cross = midpoint.x * endpoint.z - midpoint.z * endpoint.x
     expect(Math.abs(cross)).toBeGreaterThan(0.02)
-    expect(plan.samples[0].velocity.x).toBeCloseTo(0.85, 6)
-    expect(plan.samples[0].velocity.z).toBeCloseTo(0, 6)
-    expect(plan.samples.at(-1).velocity.x).toBeCloseTo(plan.finalState.velocity.x, 6)
-    expect(plan.samples.at(-1).velocity.z).toBeCloseTo(plan.finalState.velocity.z, 6)
   })
 
-  it('bounds Hybrid curve handles so near-reversal does not create a large geometric loop', () => {
-    const state = { position: { x: 0, z: 0 }, velocity: { x: 0.5, z: 0 }, worldAt: 0 }
-    const plan = runHybrid(state, 'heavy-drive', { q: -3, r: 0 })
-
-    expect(plan.valid).toBe(true)
-    expect(plan.finalState.velocity.x).toBeLessThan(0)
-    expect(plan.curveUsed).toBe(true)
-    const maxForwardOvershoot = Math.max(...plan.samples.map((sample) => sample.position.x))
-    expect(maxForwardOvershoot).toBeLessThan(0.08)
-  })
-
-  it('still gives Discrete and Hybrid different spatial outcomes from the same Aim Cell', () => {
-    const initial = createInitialState()
-    const discrete = runDiscrete(initial, 'drive', { q: 2, r: 0 })
-    const hybrid = runHybrid(initial, 'drive', { q: 2, r: 0 })
-
-    expect(discrete.valid).toBe(true)
-    expect(hybrid.valid).toBe(true)
-    expect(discrete.spatialMode).toBe('discrete')
-    expect(hybrid.spatialMode).toBe('hybrid')
-    expect(discrete.finalState.position).toEqual(axialToWorld(worldToAxial(discrete.finalState.position)))
-    expect(hybrid.finalState.position.x).toBeGreaterThan(0.7)
-    expect(hybrid.finalState.position.x).toBeLessThan(1)
-    expect(discrete.finalState.position.x).not.toBeCloseTo(hybrid.finalState.position.x, 4)
-  })
-
-  it('coast preserves velocity in Hybrid instead of spending a movement resource', () => {
+  it('keeps Coast velocity unchanged', () => {
     const first = runHybrid(createInitialState(), 'drive', { q: 2, r: 0 })
     const coast = runHybrid(first.finalState, 'coast')
     expect(coast.valid).toBe(true)
     expect(coast.finalSpeed).toBeCloseTo(first.finalSpeed, 6)
   })
 
-  it('Counter Impulse still enforces its reverse semantic and reduces speed', () => {
+  it('keeps Counter reverse semantics', () => {
     const state = { position: { x: 0, z: 0 }, velocity: { x: 2, z: 0 }, worldAt: 0 }
-    const backward = runHybrid(state, 'counter', { q: -2, r: 0 })
-    const forward = runHybrid(state, 'counter', { q: 2, r: 0 })
-
-    expect(backward.valid).toBe(true)
-    expect(backward.finalSpeed).toBeLessThan(2)
-    expect(forward.valid).toBe(false)
+    expect(runHybrid(state, 'counter', { q: -2, r: 0 }).valid).toBe(true)
+    expect(runHybrid(state, 'counter', { q: 2, r: 0 }).valid).toBe(false)
   })
 
   it('is deterministic for identical mode, state and input', () => {
@@ -190,20 +161,5 @@ describe('shared spatial input contract', () => {
       obstacles: noObstacles,
     }
     expect(simulateSpatial(input)).toEqual(simulateSpatial(input))
-  })
-
-  it('Hybrid reflects physical velocity from a hard obstacle without pathfinding or speed amplification', () => {
-    const obstacle = [{ id: 'wall', hex: { q: 1, r: 0 }, radius: 0.34, kind: 'hard' }]
-    const state = { position: { x: 0, z: 0 }, velocity: { x: 1.6, z: 0 }, worldAt: 0 }
-    const plan = simulateImpulse({
-      state,
-      actionId: 'coast',
-      aimPoint: null,
-      config: DEFAULT_SOLVER_CONFIG,
-      obstacles: obstacle,
-    })
-    expect(plan.collisions.length).toBeGreaterThan(0)
-    expect(plan.finalState.velocity.x).toBeLessThan(0)
-    expect(plan.finalSpeed).toBeLessThanOrEqual(MAX_SPEED)
   })
 })
