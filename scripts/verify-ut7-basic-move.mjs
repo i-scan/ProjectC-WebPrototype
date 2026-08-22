@@ -91,7 +91,7 @@ async function evaluate(client, expression, awaitPromise = true) {
 }
 
 const snapshotExpression = `(() => {
-  const root = document.querySelector('.impulse-inertia-lab[data-implementation="impulse-inertia-input-v2"]')
+  const root = document.querySelector('.impulse-inertia-lab[data-implementation="impulse-inertia-input-v3"]')
   const header = root?.querySelector('.ut4-header-state')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
   const preview = root?.querySelector('.impulse-prediction-card')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
   const action = root?.querySelector('.impulse-card-row .selected-action')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
@@ -100,7 +100,7 @@ const snapshotExpression = `(() => {
   const stateItems = [...(root?.querySelectorAll('.ut4-header-state > div') ?? [])]
   const stateValue = (label) => stateItems.find((node) => node.querySelector('span')?.textContent?.trim() === label)?.querySelector('strong')?.textContent?.trim() ?? ''
   const collisionLog = [...(root?.querySelectorAll('.ut4-log-list article small') ?? [])].map((node) => node.textContent ?? '').find((text) => text.includes('UT3Hard')) ?? ''
-  const boardHost = root?.querySelector('.inertia-field-board')
+  const boardHost = root?.querySelector('.hex-board-host')
   const rect = (selector) => {
     const node = root?.querySelector(selector)
     if (!node) return null
@@ -133,6 +133,8 @@ const snapshotExpression = `(() => {
     canvas: Boolean(root?.querySelector('.visual-board-frame canvas')),
     boardMounted: Boolean(root?.querySelector('.visual-board-frame canvas, .visual-board-frame svg')),
     sharedProbe: boardHost?.dataset.sharedProbe ?? '',
+    hasHexThreeBoard: Boolean(boardHost),
+    hasSimplifiedHybridBoard: Boolean(root?.querySelector('.inertia-field-board')),
     hasApplyButton: Boolean(root?.querySelector('[data-testid="impulse-commit"]')),
     collisionLog,
     layout: {
@@ -229,12 +231,13 @@ try {
 
   const initial = await waitFor('Impulse lab root', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.canvas || snapshot.implementation !== 'impulse-inertia-input-v2') throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.canvas || snapshot.implementation !== 'impulse-inertia-input-v3') throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
   assert(initial.rendererMode === '3d' && initial.spatialMode === 'discrete', 'Impulse lab must restore the default 3D discrete lab view', initial)
   assert(initial.previewValid && initial.pathLength === 1 && initial.momentum === 'M0', 'M0 Drive must predict one forced cell from force input', initial)
-  assert(initial.clickToResolve === 'true' && initial.sharedBoard === 'true' && !initial.hasApplyButton, 'Click-to-resolve/shared-board contract is not active', initial)
+  assert(initial.clickToResolve === 'true' && initial.sharedBoard === 'hex-three-board' && !initial.hasApplyButton, 'Click-to-resolve/HexThreeBoard contract is not active', initial)
+  assert(initial.hasHexThreeBoard && !initial.hasSimplifiedHybridBoard, 'The original full HexThreeBoard must be the only 3D board', initial)
   assert(initial.action.includes('Drive') && initial.navButtons[0]?.includes('Inertia Driving'), 'Current navigation/action shell is incorrect', initial)
   assertThreeColumnLayout(initial, 'Initial 3D')
 
@@ -291,22 +294,22 @@ try {
   })
 
   await evaluate(client, clickText('.hex-view-switch', '3D'))
-  const discrete3d = await waitFor('shared Discrete 3D board', async () => {
+  const discrete3d = await waitFor('original Discrete 3D board', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.rendererMode !== '3d' || snapshot.spatialMode !== 'discrete' || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.rendererMode !== '3d' || snapshot.spatialMode !== 'discrete' || !snapshot.canvas || !snapshot.hasHexThreeBoard || snapshot.hasSimplifiedHybridBoard) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
   assertThreeColumnLayout(discrete3d, 'Discrete 3D')
   await evaluate(client, `(() => {
-    const board = document.querySelector('.inertia-field-board')
-    if (!board) throw new Error('shared inertia board missing')
-    board.dataset.sharedProbe = 'same-instance'
+    const board = document.querySelector('.hex-board-host')
+    if (!board) throw new Error('original HexThreeBoard host missing')
+    board.dataset.sharedProbe = 'same-hex-three-board-instance'
     return true
   })()`)
   await evaluate(client, clickText('.impulse-ab-switch', 'Hybrid'))
-  const hybrid = await waitFor('Hybrid playback on same board', async () => {
+  const hybrid = await waitFor('Hybrid playback on original board', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.rendererMode !== '3d' || snapshot.spatialMode !== 'hybrid' || !snapshot.canvas || snapshot.sharedProbe !== 'same-instance') throw new Error(JSON.stringify(snapshot))
+    if (snapshot.rendererMode !== '3d' || snapshot.spatialMode !== 'hybrid' || !snapshot.canvas || snapshot.sharedProbe !== 'same-hex-three-board-instance' || !snapshot.hasHexThreeBoard || snapshot.hasSimplifiedHybridBoard) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
   assertThreeColumnLayout(hybrid, 'Hybrid 3D')
@@ -323,7 +326,7 @@ try {
   })()`)
   const radius10 = await waitFor('R10 impulse board', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.boardRadius !== 10 || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.boardRadius !== 10 || !snapshot.canvas || !snapshot.hasHexThreeBoard) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
   assertThreeColumnLayout(radius10, 'R10 Hybrid')
@@ -334,7 +337,7 @@ try {
   const result = { initial, view2d, afterDrive, coastPreview, afterCoast, m3CrashPreview, afterCrash, counterPreview, discrete3d, hybrid, radius10 }
   await writeFile(join(artifactDir, 'ut7-basic-move.json'), `${JSON.stringify(result, null, 2)}\n`)
 
-  console.log('Impulse inertia verified in real Chrome: board click directly resolves impulse, no Apply button exists, Discrete/Hybrid preserve the same 3D board instance, and forced travel/collision remain intact.')
+  console.log('Impulse inertia verified in real Chrome: board click directly resolves impulse, the original HexThreeBoard is the only 3D board and persists across Discrete/Hybrid, and forced travel/collision remain intact.')
   console.log(JSON.stringify(result, null, 2))
 } finally {
   client?.close()
