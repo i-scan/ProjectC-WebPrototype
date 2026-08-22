@@ -181,10 +181,11 @@ export function inertiaReachableTargetCoords(input: Ut7State, settings: Ut7Setti
   if (spatial.level === 0 || spatial.axis?.kind !== 'horizontal') {
     return basicMoveTargetCoords(input, settings)
   }
+  const startDirection = spatial.axis.dir
 
   return input.game.cells
     .map((cell) => clone(cell.coord))
-    .filter((coord) => inReachableField(player.position, coord, spatial.level, spatial.axis!.kind === 'horizontal' ? spatial.axis.dir : undefined))
+    .filter((coord) => inReachableField(player.position, coord, spatial.level, startDirection))
     .filter((coord) => traversable(input, coord))
     .filter((coord) => findFieldPath(input, coord) !== null)
 }
@@ -282,6 +283,7 @@ export function inertiaFieldMovePlan(input: Ut7State, target: Coord, settings: U
       ?? invalidPlan(input, 'Target is outside the current Basic Move field')
   }
 
+  const initialDirection = spatial.axis.dir
   const path = findFieldPath(input, target)
   if (!path) return invalidPlan(input, 'Target is outside the current inertia reachable field')
 
@@ -291,7 +293,7 @@ export function inertiaFieldMovePlan(input: Ut7State, target: Coord, settings: U
   const statePlayer = getPlayer(state.game)
   const cellSteps: SteeringCellStep[] = []
   let from = clone(statePlayer.position)
-  let previousAxis: SpatialAxis = horizontalAxis(spatial.axis.dir)
+  let previousAxis: SpatialAxis = horizontalAxis(initialDirection)
 
   for (let index = 0; index < path.length; index += 1) {
     const to = path[index]
@@ -310,8 +312,8 @@ export function inertiaFieldMovePlan(input: Ut7State, target: Coord, settings: U
     from = clone(to)
   }
 
-  const endDirection = cellSteps.at(-1)?.moveDirection ?? spatial.axis.dir
-  const redirected = cellSteps.some((step) => step.moveDirection !== spatial.axis!.dir)
+  const endDirection = cellSteps.at(-1)?.moveDirection ?? initialDirection
+  const redirected = cellSteps.some((step) => step.moveDirection !== initialDirection)
   const behavior: ThermalBehavior = redirected ? 'resist' : 'use'
   const nextLevel = clampMomentum(spatial.level - 1)
   statePlayer.position = clone(target)
