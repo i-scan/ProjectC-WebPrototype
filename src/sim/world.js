@@ -1,59 +1,95 @@
 import { axialDistance, axialKey, createHexBoard } from './hex.js'
 
-const terrainPalette = ['grass', 'grass', 'grass', 'stone', 'water', 'ice']
+const sameHex = (a, b) => a.q === b.q && a.r === b.r
 
-function hash(q, r, salt = 0) {
-  const value = Math.sin((q * 127.1 + r * 311.7 + salt * 74.7) * 0.0174533) * 43758.5453
-  return value - Math.floor(value)
+function featureCells(radius) {
+  const inner = Math.max(1, radius - 2)
+  return {
+    shelter: { q: -radius, r: 0 },
+    fire: { q: -inner, r: inner },
+    rainCloud: { q: Math.max(1, radius - 1), r: -Math.max(1, radius - 1) },
+    hard: { q: 3, r: 0 },
+    reflectLeft: { q: 3, r: -3 },
+    reflectRight: { q: 0, r: 3 },
+    westPeak: { q: -Math.max(1, radius - 1), r: 0 },
+  }
 }
 
-function isSpawnSafe(q, r) {
-  return axialDistance({ q, r }) <= 1
-}
-
-function terrainFor(q, r, radius) {
-  if (isSpawnSafe(q, r)) return 'grass'
-  const distance = axialDistance({ q, r })
-  const noise = hash(q, r, 3)
-  if (q === 2 && r === -2) return 'fire'
-  if (q <= -Math.max(2, Math.floor(radius * 0.45)) && noise > 0.38) return 'ice'
-  if (r >= Math.max(2, Math.floor(radius * 0.45)) && noise > 0.32) return 'water'
-  if (distance >= radius - 1 && noise > 0.48) return 'stone'
-  return terrainPalette[Math.floor(hash(q, r, 1) * terrainPalette.length)] ?? 'grass'
-}
-
-function tagsFor(q, r, terrain) {
-  const tags = []
-  if (!isSpawnSafe(q, r) && terrain === 'stone' && hash(q, r, 7) > 0.58) tags.push('Mountain')
-  if (q === -1 && r === 2) tags.push('Shelter')
-  if (q === 3 && r === 0) tags.push('UT3Hard')
-  if (q === 2 && r === -2) tags.push('UT3ReflectLeft')
-  if (q === 1 && r === 3) tags.push('UT3ReflectRight')
-  return tags
+function isCentralTestLane(q, r) {
+  return axialDistance({ q, r }) <= 3
 }
 
 export function createCellWorld(radius = 7) {
+  const features = featureCells(radius)
   return createHexBoard(radius).map(({ q, r }) => {
-    const terrain = terrainFor(q, r, radius)
-    const spawnSafe = isSpawnSafe(q, r)
-    const moisture = spawnSafe ? 0 : terrain === 'water' ? 2 : hash(q, r, 5) > 0.73 ? 2 : hash(q, r, 9) > 0.45 ? 1 : 0
-    const groundTemp = spawnSafe ? 0 : terrain === 'fire' ? 3 : terrain === 'ice' ? -3 : Math.round((hash(q, r, 11) - 0.5) * 4)
-    const skyNoise = hash(q, r, 13)
-    const skyFill = spawnSafe ? 'clear' : skyNoise > 0.7 ? 'cloud' : 'clear'
-    const rain = !spawnSafe && skyFill === 'cloud' && moisture > 0 && hash(q, r, 15) > 0.58
-    const wind = ['E', 'NE', 'NW', 'W', 'SW', 'SE'][Math.floor(hash(q, r, 17) * 6)]
+    const distance = axialDistance({ q, r })
+    const northBand = r < 0 && distance >= Math.max(1, radius - 2)
+    const southWestWater = r > 0 && q <= 0 && distance >= Math.max(1, radius - 2)
+    const eastHeat = q > 0 && distance >= Math.max(1, radius - 1)
+
+    let groundFill = 'stone'
+    let groundTemp = 0
+    let moisture = 1
+    let skyFill = 'clear'
+    let rain = false
+    let wind = null
+    const tags = ['Room']
+
+    if (distance === radius) tags.push('RoomEdge')
+
+    if (northBand) {
+      groundFill = 'grass'
+      moisture = 2
+      groundTemp = -1
+      if ((q + r) % 3 === 0) skyFill = 'cloud'
+    }
+
+    if (southWestWater) {
+      groundFill = 'water'
+      moisture = 2
+      groundTemp = 0
+    }
+
+    if (eastHeat) groundTemp = 1
+
+    if (sameHex({ q, r }, features.fire)) {
+      groundFill = 'fire'
+      groundTemp = 2
+      moisture = 0
+      tags.push('WeatherHazard')
+    }
+
+    if (sameHex({ q, r }, features.rainCloud)) {
+      skyFill = 'cloud'
+      rain = true
+    }
+
+    if (sameHex({ q, r }, features.shelter)) tags.push('Shelter')
+    if (sameHex({ q, r }, features.hard)) tags.push('UT3Hard')
+    if (sameHex({ q, r }, features.reflectLeft)) tags.push('UT3ReflectLeft')
+    if (sameHex({ q, r }, features.reflectRight)) tags.push('UT3ReflectRight')
+
+    // Reintroduce the old room's distant ridge/peak silhouette without putting
+    // random blockers through the central impulse-test lane.
+    if (!isCentralTestLane(q, r)) {
+      const ridgeNW = q <= 0 && r < 0 && q + r === -Math.max(2, Math.floor(radius * 0.7))
+      const ridgeSE = q >= 0 && r > 0 && q + r === Math.max(2, Math.floor(radius * 0.7))
+      if ((ridgeNW || ridgeSE) && distance >= radius - 1) tags.push('Mountain', 'Ridge')
+      if (sameHex({ q, r }, features.westPeak)) tags.push('Mountain', 'Peak')
+    }
+
     return {
       q,
       r,
       key: axialKey({ q, r }),
-      groundFill: terrain,
+      groundFill,
       groundTemp,
       moisture,
       skyFill,
-      skyTemp: Math.max(-2, Math.min(2, groundTemp + (hash(q, r, 19) > 0.5 ? 1 : 0))),
+      skyTemp: skyFill === 'cloud' && groundTemp < 0 ? -1 : groundTemp > 0 ? 1 : 0,
       rain,
       wind,
-      tags: tagsFor(q, r, terrain),
+      tags,
     }
   })
 }
