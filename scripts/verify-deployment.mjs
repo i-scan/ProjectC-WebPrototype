@@ -34,14 +34,17 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'Current Velocity + ΔV',
       'Spatial Model A/B',
       'Cell Inspector',
+      'Axis Indicator',
+      'Grounded / Position Authority',
+      'legacy-hud',
+      'short-dashed-heading-curve',
       'ProjectC Web Prototype',
       'Thermal Clock Lab',
       '热力钟摆',
-      'direction-only',
     ]) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · free impulse turning + Basic Move + curved Hybrid`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · legacy Axis HUD + curved steering guide + stable thermal AT playback`)
     process.exit(0)
   } catch (error) {
     lastError = error
