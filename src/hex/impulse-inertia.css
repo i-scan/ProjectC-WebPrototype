@@ -28,8 +28,17 @@
 .impulse-inertia-lab .impulse-aim-window span { color: #8fa4b8; }
 .impulse-inertia-lab .impulse-aim-window strong { color: #dfefff; }
 
-.impulse-inertia-lab .inertia-field-board { min-height: 620px; height: min(68vh, 760px); border-radius: 12px; overflow: hidden; border: 1px solid rgba(79, 111, 143, .45); }
-.impulse-inertia-lab .visual-board-frame:has(.inertia-field-board) { min-height: 640px; }
+/* Hybrid is a renderer inside the UT6 center-grid slot, not a standalone page.
+   It must inherit the frame's available height instead of forcing the old A/B
+   page minimum height and overlapping the action hand below. */
+.impulse-inertia-lab .inertia-field-board {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+  overflow: hidden;
+  border: 0;
+}
 .impulse-inertia-lab .visual-board-frame:has(.inertia-field-board) .visual-board-legend { pointer-events: none; }
 
 @media (max-width: 1500px) {
