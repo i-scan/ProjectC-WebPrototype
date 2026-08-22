@@ -91,7 +91,7 @@ async function evaluate(client, expression, awaitPromise = true) {
 }
 
 const snapshotExpression = `(() => {
-  const root = document.querySelector('.impulse-inertia-lab[data-implementation="impulse-inertia-input-v1"]')
+  const root = document.querySelector('.impulse-inertia-lab[data-implementation="impulse-inertia-input-v2"]')
   const header = root?.querySelector('.ut4-header-state')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
   const preview = root?.querySelector('.impulse-prediction-card')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
   const action = root?.querySelector('.impulse-card-row .selected-action')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
@@ -100,6 +100,7 @@ const snapshotExpression = `(() => {
   const stateItems = [...(root?.querySelectorAll('.ut4-header-state > div') ?? [])]
   const stateValue = (label) => stateItems.find((node) => node.querySelector('span')?.textContent?.trim() === label)?.querySelector('strong')?.textContent?.trim() ?? ''
   const collisionLog = [...(root?.querySelectorAll('.ut4-log-list article small') ?? [])].map((node) => node.textContent ?? '').find((text) => text.includes('UT3Hard')) ?? ''
+  const boardHost = root?.querySelector('.inertia-field-board')
   const rect = (selector) => {
     const node = root?.querySelector(selector)
     if (!node) return null
@@ -115,6 +116,8 @@ const snapshotExpression = `(() => {
   }
   return {
     implementation: root?.dataset.implementation ?? '',
+    clickToResolve: root?.dataset.clickToResolve ?? '',
+    sharedBoard: root?.dataset.sharedBoard ?? '',
     rendererMode: root?.dataset.rendererMode ?? '',
     spatialMode: root?.dataset.spatialMode ?? '',
     previewValid: root?.dataset.previewValid === 'true',
@@ -129,6 +132,8 @@ const snapshotExpression = `(() => {
     boardRadius,
     canvas: Boolean(root?.querySelector('.visual-board-frame canvas')),
     boardMounted: Boolean(root?.querySelector('.visual-board-frame canvas, .visual-board-frame svg')),
+    sharedProbe: boardHost?.dataset.sharedProbe ?? '',
+    hasApplyButton: Boolean(root?.querySelector('[data-testid="impulse-commit"]')),
     collisionLog,
     layout: {
       root: rect(':scope'),
@@ -162,6 +167,21 @@ const clickText = (scopeSelector, text) => `(() => {
   if (!button) throw new Error(${JSON.stringify(`button ${text} missing in ${scopeSelector}`)})
   button.click()
   return true
+})()`
+
+const clickFirstAimCell = `(() => {
+  const cells = [...document.querySelectorAll('.hex-travel-cell')]
+  const cell = cells.find((node) => !node.classList.contains('selected') && !node.classList.contains('mountain'))
+  if (!cell) throw new Error('No 2D aim cell was available')
+  cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  return { x: cell.dataset.x, y: cell.dataset.y }
+})()`
+
+const clickValid2dCell = `(() => {
+  const cell = document.querySelector('.hex-travel-cell.valid-target')
+  if (!cell) throw new Error('No valid 2D impulse cell was available')
+  cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  return { x: cell.dataset.x, y: cell.dataset.y }
 })()`
 
 let previewProcess
@@ -209,16 +229,25 @@ try {
 
   const initial = await waitFor('Impulse lab root', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.canvas || snapshot.implementation !== 'impulse-inertia-input-v1') throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.canvas || snapshot.implementation !== 'impulse-inertia-input-v2') throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
   assert(initial.rendererMode === '3d' && initial.spatialMode === 'discrete', 'Impulse lab must restore the default 3D discrete lab view', initial)
   assert(initial.previewValid && initial.pathLength === 1 && initial.momentum === 'M0', 'M0 Drive must predict one forced cell from force input', initial)
+  assert(initial.clickToResolve === 'true' && initial.sharedBoard === 'true' && !initial.hasApplyButton, 'Click-to-resolve/shared-board contract is not active', initial)
   assert(initial.action.includes('Drive') && initial.navButtons[0]?.includes('Inertia Driving'), 'Current navigation/action shell is incorrect', initial)
   assertThreeColumnLayout(initial, 'Initial 3D')
 
-  await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
-  const afterDrive = await waitFor('M0 Drive commit', async () => {
+  await evaluate(client, clickText('.hex-view-switch', '2D'))
+  const view2d = await waitFor('restored 2D view', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.rendererMode !== '2d' || !snapshot.boardMounted) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+  assertThreeColumnLayout(view2d, '2D')
+
+  await evaluate(client, clickFirstAimCell)
+  const afterDrive = await waitFor('M0 Drive board-click commit', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
     if (snapshot.worldTime !== '1.0 AT' || snapshot.momentum !== 'M1') throw new Error(JSON.stringify(snapshot))
     return snapshot
@@ -230,8 +259,8 @@ try {
     if (!snapshot.previewValid || snapshot.pathLength !== 1 || !snapshot.action.includes('Coast')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
-  await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
-  const afterCoast = await waitFor('persistent M1 Coast', async () => {
+  await evaluate(client, clickValid2dCell)
+  const afterCoast = await waitFor('persistent M1 Coast board-click commit', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
     if (snapshot.worldTime !== '2.0 AT' || snapshot.momentum !== 'M1') throw new Error(JSON.stringify(snapshot))
     return snapshot
@@ -245,8 +274,8 @@ try {
     if (snapshot.momentum !== 'M3' || snapshot.pathLength !== 2 || snapshot.collisionCount < 1 || !snapshot.preview.includes('UT3Hard')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
-  await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
-  const afterCrash = await waitFor('M3 collision result', async () => {
+  await evaluate(client, clickValid2dCell)
+  const afterCrash = await waitFor('M3 collision board-click result', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
     if (snapshot.momentum === 'M3' || !snapshot.collisionLog.includes('UT3Hard')) throw new Error(JSON.stringify(snapshot))
     return snapshot
@@ -261,19 +290,23 @@ try {
     return snapshot
   })
 
-  await evaluate(client, clickText('.hex-view-switch', '2D'))
-  const view2d = await waitFor('restored 2D view', async () => {
+  await evaluate(client, clickText('.hex-view-switch', '3D'))
+  const discrete3d = await waitFor('shared Discrete 3D board', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.rendererMode !== '2d' || !snapshot.boardMounted) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.rendererMode !== '3d' || snapshot.spatialMode !== 'discrete' || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
-  assertThreeColumnLayout(view2d, '2D')
-  await evaluate(client, clickText('.hex-view-switch', '3D'))
-
+  assertThreeColumnLayout(discrete3d, 'Discrete 3D')
+  await evaluate(client, `(() => {
+    const board = document.querySelector('.inertia-field-board')
+    if (!board) throw new Error('shared inertia board missing')
+    board.dataset.sharedProbe = 'same-instance'
+    return true
+  })()`)
   await evaluate(client, clickText('.impulse-ab-switch', 'Hybrid'))
-  const hybrid = await waitFor('Hybrid playback mode', async () => {
+  const hybrid = await waitFor('Hybrid playback on same board', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.rendererMode !== '3d' || snapshot.spatialMode !== 'hybrid' || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.rendererMode !== '3d' || snapshot.spatialMode !== 'hybrid' || !snapshot.canvas || snapshot.sharedProbe !== 'same-instance') throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
   assertThreeColumnLayout(hybrid, 'Hybrid 3D')
@@ -298,10 +331,10 @@ try {
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'ut7-basic-move.png'), Buffer.from(screenshot.data, 'base64'))
-  const result = { initial, afterDrive, coastPreview, afterCoast, m3CrashPreview, afterCrash, counterPreview, view2d, hybrid, radius10 }
+  const result = { initial, view2d, afterDrive, coastPreview, afterCoast, m3CrashPreview, afterCrash, counterPreview, discrete3d, hybrid, radius10 }
   await writeFile(join(artifactDir, 'ut7-basic-move.json'), `${JSON.stringify(result, null, 2)}\n`)
 
-  console.log('Impulse inertia verified in real Chrome: restored aligned three-column UT6 shell, 2D/3D view switching, force/aim input, persistent Coast M, forced M3 travel, collision without auto-routing, counter impulse, Hybrid playback, and R10 mount.')
+  console.log('Impulse inertia verified in real Chrome: board click directly resolves impulse, no Apply button exists, Discrete/Hybrid preserve the same 3D board instance, and forced travel/collision remain intact.')
   console.log(JSON.stringify(result, null, 2))
 } finally {
   client?.close()
