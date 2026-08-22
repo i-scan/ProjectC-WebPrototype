@@ -72,6 +72,9 @@ const snapshotExpression = `(() => {
   const actionCards = [...(root?.querySelectorAll('.action-card') ?? [])]
   return {
     implementation: root?.dataset.implementation ?? '',
+    authority: root?.dataset.authority ?? '',
+    atVisualMs: Number(root?.dataset.atVisualMs ?? 0),
+    solverSteps: Number(root?.dataset.solverSteps ?? 0),
     playing: root?.dataset.playing === 'true',
     worldAt: Number(root?.dataset.worldAt ?? -1),
     logicalX: Number(root?.dataset.logicalX ?? NaN),
@@ -105,9 +108,18 @@ try {
 
   const userDataDir = join(tmpdir(), `projectc-continuous-${process.pid}`)
   chromeProcess = spawn(chromeExecutable(), [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--hide-scrollbars',
-    '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9229',
-    `--user-data-dir=${userDataDir}`, '--window-size=1600,1100', 'about:blank',
+    '--headless=new',
+    '--no-sandbox',
+    '--hide-scrollbars',
+    '--disable-background-timer-throttling',
+    '--disable-renderer-backgrounding',
+    '--disable-backgrounding-occluded-windows',
+    '--enable-unsafe-swiftshader',
+    '--remote-debugging-address=127.0.0.1',
+    '--remote-debugging-port=9229',
+    `--user-data-dir=${userDataDir}`,
+    '--window-size=1600,1100',
+    'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] })
   chromeProcess.stderr.on('data', (chunk) => process.stderr.write(`[chrome] ${chunk}`))
 
@@ -123,6 +135,8 @@ try {
   await client.open()
   await client.send('Page.enable')
   await client.send('Runtime.enable')
+  await client.send('Page.bringToFront')
+  await client.send('Emulation.setFocusEmulationEnabled', { enabled: true })
   await client.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1100, deviceScaleFactor: 1, mobile: false })
   await client.send('Page.navigate', { url: pageUrl })
 
@@ -133,6 +147,7 @@ try {
   })
   assert(!initial.hasLegacyBoard && !initial.hasApply, 'legacy renderer or Apply control leaked into rebuild', initial)
   assert(initial.worldAt === 0 && Math.abs(initial.logicalX) < 0.001, 'initial logical state is incorrect', initial)
+  assert(initial.authority === 'position-velocity' && initial.atVisualMs === 800 && initial.solverSteps === 120, 'continuous authority/fixed-AT contract is incorrect', initial)
   assert(initial.canvasCount === 1 && initial.actionCardCount === 5 && initial.selectedActionIndex === 0, 'single-board current action structure is incorrect', initial)
   assert(initial.cameraViewButtons === 3, 'camera controls are not the expected non-gameplay view controls', initial)
 
@@ -150,6 +165,7 @@ try {
   await sleep(240)
   const mid = await evaluate(client, snapshotExpression)
   assert(mid.playing, 'playback ended too early', mid)
+  assert(mid.progress > 0.12 && mid.progress < 0.72, 'fixed-AT visual clock did not advance continuously', mid)
   assert(mid.visualX > 0.05 && mid.visualX < 0.84, 'visual actor did not continuously move during fixed playback', mid)
   assert(Math.abs(mid.logicalX) < 0.001 && mid.worldAt === 0, 'authoritative position advanced during animation', mid)
 
@@ -157,23 +173,19 @@ try {
     const snapshot = await evaluate(client, snapshotExpression)
     if (snapshot.playing || snapshot.worldAt !== 1) throw new Error(JSON.stringify(snapshot))
     return snapshot
-  }, 80, 40)
+  }, 90, 40)
   const elapsed = Date.now() - startMs
-  assert(elapsed >= 700 && elapsed <= 1150, `1 AT visual duration drifted outside fixed window: ${elapsed}ms`, afterDrive)
+  assert(elapsed >= 700 && elapsed <= 1650, `focused headless observation drifted too far from fixed 800ms AT: ${elapsed}ms`, afterDrive)
   assert(afterDrive.logicalX > 0.7 && afterDrive.logicalX < 1, 'Drive final continuous position was unexpectedly snapped', afterDrive)
   assert(Math.abs(afterDrive.visualX - afterDrive.logicalX) < 0.03, 'visual and authoritative positions disagree after playback', afterDrive)
 
-  await evaluate(client, `(() => {
-    const cards = [...document.querySelectorAll('.action-card')]
-    if (cards.length !== 5) throw new Error('Expected five motion cards')
-    cards[4].click()
-    return true
-  })()`)
+  await evaluate(client, `document.querySelector('[data-action-id="coast"]').click()`)
   await waitFor('Coast card selection', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
     if (snapshot.selectedActionIndex !== 4) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
+  const coastStartMs = Date.now()
   const coastFired = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2, 0)`)
   assert(coastFired === true, 'Coast could not resolve by clicking a traversed Cell')
   const afterCoast = await waitFor('Coast completion', async () => {
@@ -181,14 +193,16 @@ try {
     if (snapshot.playing || snapshot.worldAt !== 2) throw new Error(JSON.stringify(snapshot))
     return snapshot
   }, 90, 40)
+  const coastElapsed = Date.now() - coastStartMs
   assert(afterCoast.logicalX > 1.45, 'Coast did not preserve continuous velocity', afterCoast)
+  assert(coastElapsed >= 700 && coastElapsed <= 1650, `Coast did not use the same fixed 800ms AT clock: ${coastElapsed}ms`, afterCoast)
 
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'continuous-inertia.png'), Buffer.from(screenshot.data, 'base64'))
-  const evidence = { initial, started, mid, afterDrive, afterCoast, driveElapsedMs: elapsed }
+  const evidence = { initial, started, mid, afterDrive, afterCoast, driveElapsedMs: elapsed, coastElapsedMs: coastElapsed }
   await writeFile(join(artifactDir, 'continuous-inertia.json'), `${JSON.stringify(evidence, null, 2)}\n`)
-  console.log('Verified continuous inertia in real Chrome: no logical teleport, fixed 1 AT playback duration, continuous in-cell positions, click-to-resolve flow, and Coast velocity persistence.')
+  console.log('Verified continuous inertia in real Chrome: one continuous board, no logical teleport, fixed 800ms AT timebase, in-cell positions, click-to-resolve flow, and Coast velocity persistence.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')
