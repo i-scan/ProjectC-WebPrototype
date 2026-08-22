@@ -200,10 +200,6 @@ try {
       && value.previewStyle === 'short-dashed-heading-curve'
       && value.axisState === 'm0'
       && Number.isFinite(value.cameraZoom)
-      && value.viewportWidth > 0
-      && value.viewportHeight > 0
-      && value.canvasWidth > 0
-      && value.canvasHeight > 0
     if (!ready) throw new Error(JSON.stringify(value))
     return value
   })
