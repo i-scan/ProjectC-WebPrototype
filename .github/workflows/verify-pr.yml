@@ -43,17 +43,15 @@ jobs:
       - name: Verify production artifact
         run: pnpm verify:dist
 
-      - name: Verify browser-computed prototype layouts
+      - name: Verify current browser experiment
         run: pnpm verify:browser
 
-      - name: Upload browser evidence
+      - name: Upload current browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: browser-evidence-pr-${{ github.event.pull_request.number || github.run_id }}
           path: |
-            ./artifacts/inspector-layout.*
-            ./artifacts/ut5-axis-inertia.*
-            ./artifacts/ut6-actor-loop.*
+            ./artifacts/ut7-basic-move.*
           if-no-files-found: warn
           retention-days: 14
