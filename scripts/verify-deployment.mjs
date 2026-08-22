@@ -71,7 +71,7 @@ await retry('published JavaScript bundle', async (attempt) => {
   if (!script.includes('data-build-revision')) throw new Error('visible revision marker is missing from the published app')
   if (!script.includes(expectedCommit)) throw new Error('published app bundle does not contain the expected commit')
 
-  if (!script.includes('impulse-inertia-input-v2')) throw new Error('impulse v2 implementation marker is missing')
+  if (!script.includes('impulse-inertia-input-v3')) throw new Error('impulse v3 implementation marker is missing')
   if (!script.includes('Inertia Driving Playground')) throw new Error('impulse playground heading is missing')
   if (!script.includes('Motion Cards · Force / Angle Input')) throw new Error('impulse action hand is missing')
   if (!script.includes('Hover = Preview · Click legal Cell = Resolve 1 AT')) throw new Error('click-to-resolve interaction marker is missing')
@@ -79,8 +79,9 @@ await retry('published JavaScript bundle', async (attempt) => {
   if (script.includes('Apply Impulse · Resolve 1 AT')) throw new Error('obsolete Apply confirmation is still published')
   if (!script.includes('data-click-to-resolve')) throw new Error('click-to-resolve root contract is missing')
   if (!script.includes('data-shared-board')) throw new Error('shared-board root contract is missing')
-  if (!script.includes('Cell-center playback')) throw new Error('Discrete playback identity is missing')
-  if (!script.includes('continuous playback')) throw new Error('Hybrid playback identity is missing')
+  if (!script.includes('hex-three-board')) throw new Error('original HexThreeBoard identity is missing')
+  if (!script.includes('cell-by-cell playback')) throw new Error('Discrete playback identity is missing')
+  if (!script.includes('continuous segment playback')) throw new Error('Hybrid playback identity is missing')
   if (!script.includes('Counter Impulse')) throw new Error('counter impulse card is missing')
   if (!script.includes('Hard Turn')) throw new Error('hard-turn card is missing')
   if (!script.includes('Spatial Playback A/B')) throw new Error('Discrete/Hybrid comparison controls are missing')
@@ -106,6 +107,7 @@ await retry('published stylesheet', async (attempt) => {
   if (/\.impulse-commit-row/.test(style)) throw new Error('obsolete Apply-row styling is still published')
   if (!/\.ut6-action-hand/.test(style)) throw new Error('restored UT6 action-hand styling is missing')
   if (!/\.hex-view-switch/.test(style)) throw new Error('restored 2D/3D view switch styling is missing')
+  if (!/\.hex-board-host/.test(style)) throw new Error('original HexThreeBoard host styling is missing')
   if (!/\.build-revision/.test(style)) throw new Error('build revision styling is missing')
   if (/font-size\s*:\s*6px\s*!important/.test(style)) throw new Error('obsolete 6px Thermal override is still deployed')
   return style
