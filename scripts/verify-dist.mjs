@@ -28,13 +28,14 @@ for (const marker of [
   'Current Velocity + ΔV',
   'Spatial Model A/B',
   'Cell Inspector',
-  'Discrete',
-  'Hybrid',
+  'Axis Indicator',
+  'Grounded / Position Authority',
+  'legacy-hud',
+  'short-dashed-heading-curve',
+  'Down · M',
   '热力钟摆',
   'ProjectC Web Prototype',
   'Thermal Clock Lab',
-  '图形性能实验室',
-  'direction-only',
 ]) assert(script.includes(marker), `current runtime marker missing: ${marker}`)
 assert(script.includes(expectedCommit), 'bundle commit marker missing')
 
@@ -56,7 +57,9 @@ for (const marker of [
   '.thermal-pendulum',
   '.app-switcher',
   '.build-revision',
+  '.axis-preview-grid',
+  '.legacy-axis-hud',
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified movement-corrected Cell World spatial A/B dist for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified legacy Axis HUD + stable thermal playback dist for ${info.branch}@${info.shortCommit}.`)
