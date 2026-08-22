@@ -192,9 +192,19 @@ try {
   await client.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1100, deviceScaleFactor: 1, mobile: false })
   await client.send('Page.navigate', { url: pageUrl })
 
-  const initial = await waitFor('current prototype', async () => {
+  const initial = await waitFor('fully initialized current prototype', async () => {
     const value = await snapshot(client)
-    if (value.implementation !== 'cell-world-spatial-ab-v3' || value.actionCardCount !== 6) throw new Error(JSON.stringify(value))
+    const ready = value.implementation === 'cell-world-spatial-ab-v3'
+      && value.actionCardCount === 6
+      && value.axisStyle === 'legacy-hud'
+      && value.previewStyle === 'short-dashed-heading-curve'
+      && value.axisState === 'm0'
+      && Number.isFinite(value.cameraZoom)
+      && value.viewportWidth > 0
+      && value.viewportHeight > 0
+      && value.canvasWidth > 0
+      && value.canvasHeight > 0
+    if (!ready) throw new Error(JSON.stringify(value))
     return value
   })
   assert(initial.authority === 'cell-world-plus-spatial-state', 'movement authority missing', initial)
