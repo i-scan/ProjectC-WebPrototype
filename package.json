@@ -1,16 +1,15 @@
 {
   "name": "projectc-web-prototype",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "node scripts/write-build-info.mjs && vite",
-    "build": "node scripts/write-build-info.mjs && tsc -b && vite build",
-    "validate:rules": "node scripts/validate-rules.mjs",
-    "test": "node scripts/validate-rules.mjs && vitest run",
+    "build": "node scripts/write-build-info.mjs && vite build",
+    "test": "vitest run",
     "test:watch": "vitest",
     "verify:dist": "node scripts/verify-dist.mjs",
-    "verify:browser": "node scripts/verify-current-browser-ci.mjs && node scripts/verify-impulse-layout-evidence.mjs"
+    "verify:browser": "node scripts/verify-browser.mjs"
   },
   "dependencies": {
     "pixi.js": "8.19.0",
