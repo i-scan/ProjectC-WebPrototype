@@ -8,15 +8,61 @@
 .impulse-inertia-lab .impulse-prediction-card small { color: #7f94aa; }
 .impulse-inertia-lab .impulse-prediction-card small.collision-live { color: #ffb36f; font-weight: 700; }
 
-.impulse-inertia-lab .impulse-action-hand { position: relative; }
-.impulse-inertia-lab .impulse-card-row { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.impulse-inertia-lab .impulse-card-row .ut6-action-card { min-height: 164px; }
-.impulse-inertia-lab .impulse-card-row .ut6-action-card p { min-height: 48px; }
-.impulse-inertia-lab .impulse-commit-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(93, 133, 169, .42); border-radius: 10px; background: rgba(11, 23, 34, .88); }
-.impulse-inertia-lab .impulse-commit-row div { display: flex; gap: 8px; align-items: baseline; }
-.impulse-inertia-lab .impulse-commit-row span { color: #90a7bd; font-size: 11px; }
-.impulse-inertia-lab .impulse-commit-row button { padding: 9px 14px; border-color: #6a9bc2; background: #1d4763; font-weight: 800; }
+/* The commit control is the real movement trigger. Keep it above the cards so
+   the fixed-height UT6 lab can never crop it out, even when the card row has to
+   shrink. The cards stay on one horizontal row instead of wrapping vertically. */
+.impulse-inertia-lab .impulse-action-hand {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 6px;
+  min-height: 0;
+  overflow: hidden;
+}
+.impulse-inertia-lab .impulse-action-hand .visual-hand-heading { grid-row: 1; margin-bottom: 0; }
+.impulse-inertia-lab .impulse-commit-row {
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 0;
+  padding: 7px 10px;
+  border: 1px solid rgba(106, 155, 194, .66);
+  border-radius: 9px;
+  background: rgba(13, 31, 45, .96);
+  box-shadow: 0 0 0 1px rgba(91, 169, 220, .08) inset;
+}
+.impulse-inertia-lab .impulse-commit-row div { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.impulse-inertia-lab .impulse-commit-row span { color: #90a7bd; font-size: 11px; white-space: nowrap; }
+.impulse-inertia-lab .impulse-commit-row button {
+  flex: 0 0 auto;
+  min-width: 210px;
+  padding: 8px 14px;
+  border-color: #73c3ee;
+  background: #1d526f;
+  font-weight: 800;
+}
 .impulse-inertia-lab .impulse-commit-row button:disabled { opacity: .38; }
+.impulse-inertia-lab .impulse-card-row {
+  grid-row: 3;
+  min-height: 0;
+  grid-template-columns: repeat(5, minmax(118px, 1fr));
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.impulse-inertia-lab .impulse-card-row .ut6-action-card {
+  min-height: 0;
+  height: 94px;
+  padding: 6px 7px;
+  overflow: hidden;
+}
+.impulse-inertia-lab .impulse-card-row .ut6-action-card p {
+  min-height: 0;
+  max-height: 32px;
+  margin: 4px 0;
+  overflow: hidden;
+}
 
 .impulse-inertia-lab .impulse-ab-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 7px; }
 .impulse-inertia-lab .impulse-ab-switch button { padding: 7px 8px; }
@@ -41,6 +87,8 @@
 }
 .impulse-inertia-lab .visual-board-frame:has(.inertia-field-board) .visual-board-legend { pointer-events: none; }
 
-@media (max-width: 1500px) {
-  .impulse-inertia-lab .impulse-card-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1100px) {
+  .impulse-inertia-lab .impulse-commit-row { gap: 8px; }
+  .impulse-inertia-lab .impulse-commit-row span { display: none; }
+  .impulse-inertia-lab .impulse-commit-row button { min-width: 190px; }
 }
