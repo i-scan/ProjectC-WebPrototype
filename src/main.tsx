@@ -5,6 +5,7 @@ import { GraphicsLab } from './graphics/GraphicsLab'
 import { ImpulseInertiaPlayground } from './hex/ImpulseInertiaPlayground'
 import './styles.css'
 import './visual/visual.css'
+import './visual/visual-v2.css'
 import './visual/visual-v3.css'
 
 type View = 'impulse' | 'graphics'
