@@ -31,11 +31,10 @@ import {
   type ImpulsePlan,
   type ImpulseSettings,
 } from './actorLoopImpulseMovement'
-import type { HexBoardSelection } from './HexThreeBoard'
+import { HexThreeBoard, type HexBoardSelection } from './HexThreeBoard'
 import { HexTravelMap } from './HexTravelMap'
-import { InertiaFieldBoard, type InertiaFieldPlayback } from './InertiaFieldBoard'
-import { HEX_DIRECTIONS, hexDirectionWorldVector, type HexDirection } from './hexTopology'
-import { normalizedCellCenter, type NormalizedHexPoint } from './actorLoopUt7ReachableField'
+import { Ut5AxisOverlay } from './Ut5AxisOverlay'
+import { HEX_DIRECTIONS, hexAdvance, hexDirectionWorldVector, type HexDirection } from './hexTopology'
 import './hex.css'
 import './hex-travel.css'
 import './hex-view-mode.css'
@@ -50,7 +49,6 @@ type SpatialPlaybackMode = 'discrete' | 'hybrid'
 type HistoryEntry = {
   state: Ut7State
   kinematics: ImpulseKinematics
-  actorPoint: NormalizedHexPoint
 }
 
 const directions = HEX_DIRECTIONS.map((entry) => entry.direction)
@@ -100,45 +98,42 @@ function createInitialLab(radius = 7, spawnEnemies = true) {
   return collisionCourse(createUt7State({ boardRadius: radius, spawnEnemies }))
 }
 
-function chaikin(points: NormalizedHexPoint[]) {
-  if (points.length < 3) return points.map((point) => ({ ...point }))
-  const next: NormalizedHexPoint[] = [{ ...points[0] }]
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const a = points[index]
-    const b = points[index + 1]
-    next.push({ x: a.x * 0.75 + b.x * 0.25, z: a.z * 0.75 + b.z * 0.25 })
-    next.push({ x: a.x * 0.25 + b.x * 0.75, z: a.z * 0.25 + b.z * 0.75 })
-  }
-  next.push({ ...points.at(-1)! })
-  return next
+function directionBetween(from: Coord, to: Coord) {
+  return directions.find((direction) => sameCoord(hexAdvance(from, direction), to)) ?? null
 }
 
-function hybridPoints(start: NormalizedHexPoint, path: Coord[]) {
-  if (path.length === 0) return [start]
-  const centers = path.map(normalizedCellCenter)
-  const points: NormalizedHexPoint[] = [{ ...start }, ...centers.map((point) => ({ ...point }))]
-  if (points.length >= 2) {
-    const target = points.at(-1)!
-    const previous = points.at(-2)!
-    const dx = target.x - previous.x
-    const dz = target.z - previous.z
-    const length = Math.max(0.001, Math.hypot(dx, dz))
-    points[points.length - 1] = {
-      x: target.x - dx / length * 0.26,
-      z: target.z - dz / length * 0.26,
-    }
+function hybridPlaybackPath(start: Coord, path: Coord[]) {
+  const full = [start, ...path]
+  if (full.length <= 2) return full
+  const simplified: Coord[] = [{ ...full[0] }]
+  let previousDirection = directionBetween(full[0], full[1])
+  for (let index = 1; index < full.length - 1; index += 1) {
+    const nextDirection = directionBetween(full[index], full[index + 1])
+    if (nextDirection !== previousDirection) simplified.push({ ...full[index] })
+    previousDirection = nextDirection
   }
-  return chaikin(chaikin(points))
+  simplified.push({ ...full.at(-1)! })
+  return simplified
 }
 
-function eventForImpulse(before: Ut7State, after: Ut7State, path: Coord[], label: string): PlaybackEvent {
+function eventForImpulse(
+  before: Ut7State,
+  after: Ut7State,
+  path: Coord[],
+  label: string,
+  spatialMode: SpatialPlaybackMode,
+): PlaybackEvent {
+  const start = getPlayer(before.game).position
+  const playbackPath = spatialMode === 'hybrid'
+    ? hybridPlaybackPath(start, path)
+    : [start, ...path]
   return {
     id: Date.now(),
     kind: path.length > 0 ? 'move' : 'phase',
     effect: path.length > 0 ? 'move' : 'phase',
     actorId: path.length > 0 ? 'player' : undefined,
     target: { ...getPlayer(after.game).position },
-    path: path.length > 0 ? [{ ...getPlayer(before.game).position }, ...path.map((coord) => ({ ...coord }))] : undefined,
+    path: path.length > 0 ? playbackPath.map((coord) => ({ ...coord })) : undefined,
     label,
     durationAt: 1,
   }
@@ -158,8 +153,6 @@ export function ImpulseInertiaPlayground() {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [cameraResetToken, setCameraResetToken] = useState(0)
   const [event, setEvent] = useState<PlaybackEvent>()
-  const [actorPoint, setActorPoint] = useState<NormalizedHexPoint>(() => normalizedCellCenter(getPlayer(lab.game).position))
-  const [spatialPlayback, setSpatialPlayback] = useState<InertiaFieldPlayback>()
 
   const player = getPlayer(lab.game)
   const playerSpatial = lab.spatialByActorId.player ?? createSpatialState()
@@ -177,13 +170,6 @@ export function ImpulseInertiaPlayground() {
     () => Object.fromEntries(Object.entries(lab.spatialByActorId).map(([actorId, spatial]) => [actorId, spatial.level])),
     [lab.spatialByActorId],
   )
-  const spatialPreviewPoints = useMemo(() => {
-    if (!plan.valid) return []
-    const start = spatialMode === 'hybrid' ? actorPoint : normalizedCellCenter(player.position)
-    return spatialMode === 'hybrid'
-      ? hybridPoints(start, plan.path)
-      : [start, ...plan.path.map(normalizedCellCenter)]
-  }, [plan, spatialMode, actorPoint, player.position.x, player.position.y])
   const aimMarkerCoords = useMemo(() => {
     if (!plan.valid) return []
     if (action.id === 'coast') return previewPath
@@ -200,7 +186,6 @@ export function ImpulseInertiaPlayground() {
     setHistory((current) => [...current, {
       state: structuredClone(lab),
       kinematics: { ...kinematics },
-      actorPoint: { ...actorPoint },
     }].slice(-120))
   }
 
@@ -216,23 +201,12 @@ export function ImpulseInertiaPlayground() {
     if (!resolvedPlan.valid) return
     pushHistory()
     const before = lab
-    const startPoint = spatialMode === 'hybrid' ? actorPoint : normalizedCellCenter(player.position)
-    const points = spatialMode === 'hybrid'
-      ? hybridPoints(startPoint, resolvedPlan.path)
-      : [startPoint, ...resolvedPlan.path.map(normalizedCellCenter)]
     setLab(resolvedPlan.result)
     setKinematics({ headingDeg: resolvedPlan.finalHeadingDeg })
     setSelectedCoord({ ...getPlayer(resolvedPlan.result.game).position })
     setHoverCoord(undefined)
     setHoverAimDeg(null)
-    setEvent(eventForImpulse(before, resolvedPlan.result, resolvedPlan.path, `${action.label} · ${resolvedPlan.summary}`))
-    if (points.length > 1) {
-      setActorPoint(spatialMode === 'hybrid' ? { ...points.at(-1)! } : normalizedCellCenter(getPlayer(resolvedPlan.result.game).position))
-      setSpatialPlayback({ id: Date.now(), points: points.map((point) => ({ ...point })), mode: spatialMode })
-    } else {
-      setActorPoint(normalizedCellCenter(getPlayer(resolvedPlan.result.game).position))
-      setSpatialPlayback(undefined)
-    }
+    setEvent(eventForImpulse(before, resolvedPlan.result, resolvedPlan.path, `${action.label} · ${resolvedPlan.summary}`, spatialMode))
   }
 
   const handleBoardClick = (coord: Coord) => {
@@ -262,12 +236,10 @@ export function ImpulseInertiaPlayground() {
     setHistory((current) => current.slice(0, -1))
     setLab(previous.state)
     setKinematics(previous.kinematics)
-    setActorPoint(previous.actorPoint)
     setSelectedCoord({ ...getPlayer(previous.state.game).position })
     setHoverCoord(undefined)
     setHoverAimDeg(null)
     setEvent({ id: Date.now(), kind: 'reset', effect: 'reset', target: getPlayer(previous.state.game).position, label: 'Undo Whole Action' })
-    setSpatialPlayback(undefined)
   }
 
   const reset = () => {
@@ -279,9 +251,7 @@ export function ImpulseInertiaPlayground() {
     setAimDeg(0)
     setHoverCoord(undefined)
     setHoverAimDeg(null)
-    setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
     setEvent({ id: Date.now(), kind: 'reset', effect: 'reset', target: getPlayer(next.game).position, label: 'Impulse Lab Reset' })
-    setSpatialPlayback(undefined)
   }
 
   const setMomentumPreset = (level: MomentumLevel, direction: HexDirection = 'E') => {
@@ -289,9 +259,7 @@ export function ImpulseInertiaPlayground() {
     const next = setSpatialDebug(lab, 'player', createSpatialState(level, level > 0 ? horizontalAxis(direction) : null))
     setLab(next)
     setKinematics({ headingDeg: level > 0 ? directionAngle(direction) : null })
-    setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
     setAimDeg(level > 0 ? directionAngle(direction) : 0)
-    setSpatialPlayback(undefined)
   }
 
   const setDebugSpatial = (level: MomentumLevel, axis: SpatialAxis | null) => {
@@ -299,8 +267,6 @@ export function ImpulseInertiaPlayground() {
     setLab(next)
     if (selectedActor.id === 'player') {
       setKinematics({ headingDeg: level > 0 && axis?.kind === 'horizontal' ? directionAngle(axis.dir) : null })
-      setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
-      setSpatialPlayback(undefined)
     }
   }
 
@@ -310,8 +276,6 @@ export function ImpulseInertiaPlayground() {
     setHistory([])
     setKinematics({ headingDeg: null })
     setSelectedCoord({ ...getPlayer(next.game).position })
-    setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
-    setSpatialPlayback(undefined)
   }
 
   const toggleEnemies = () => {
@@ -320,16 +284,11 @@ export function ImpulseInertiaPlayground() {
     setHistory([])
     setKinematics({ headingDeg: null })
     setSelectedCoord({ ...getPlayer(next.game).position })
-    setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
-    setSpatialPlayback(undefined)
   }
 
   const rebuildCollisionCourse = () => {
     pushHistory()
-    const next = collisionCourse(lab)
-    setLab(next)
-    setActorPoint(normalizedCellCenter(getPlayer(next.game).position))
-    setSpatialPlayback(undefined)
+    setLab(collisionCourse(lab))
   }
 
   const heading = headingForState(lab, kinematics)
@@ -343,14 +302,14 @@ export function ImpulseInertiaPlayground() {
     <main
       className="visual-prototype hex-prototype coupled-inertia-lab ut4-hex-layout ut6-actor-loop impulse-inertia-lab"
       data-ruleset="VAL-012-UT7-impulse-candidate"
-      data-implementation="impulse-inertia-input-v2"
+      data-implementation="impulse-inertia-input-v3"
       data-spatial-mode={spatialMode}
       data-renderer-mode={rendererMode}
       data-preview-valid={plan.valid}
       data-preview-path-length={previewPath.length}
       data-preview-collision-count={plan.collisions.length}
       data-click-to-resolve="true"
-      data-shared-board="true"
+      data-shared-board="hex-three-board"
     >
       <header className="visual-hud ut4-hud">
         <div className="visual-brand">
@@ -442,20 +401,32 @@ export function ImpulseInertiaPlayground() {
                 onCellHover={handleBoardHover}
               />
             ) : (
-              <InertiaFieldBoard
-                key={`shared-impulse-board-${cameraResetToken}`}
-                state={lab}
-                validCoords={aimMarkerCoords}
-                selectedCoord={selectedCoord}
-                hoverCoord={hoverCoord}
-                previewPoints={spatialPreviewPoints}
-                actorPoint={actorPoint}
-                axis={playerSpatial.axis}
-                playback={spatialPlayback}
-                mode={spatialMode}
-                onCellClick={handleBoardClick}
-                onCellHover={handleBoardHover}
-              />
+              <>
+                <HexThreeBoard
+                  state={lab.game}
+                  mode="tactical"
+                  travelPath={previewPath}
+                  selectedCoord={selectedCoord}
+                  hoverCoord={hoverCoord}
+                  selection={boardSelection}
+                  targetLayer="ground"
+                  cameraResetToken={cameraResetToken}
+                  showSky={false}
+                  showDebug={false}
+                  event={event}
+                  eventDurationMs={spatialMode === 'discrete' ? 430 : 620}
+                  momentumByActorId={momentumByActorId}
+                  onCellClick={handleBoardClick}
+                  onCellHover={handleBoardHover}
+                />
+                <Ut5AxisOverlay
+                  state={lab.game}
+                  spatialByActorId={lab.spatialByActorId}
+                  cameraResetToken={cameraResetToken}
+                  active
+                  showAxisAtZero
+                />
+              </>
             )}
             {event && <div className={`visual-event-banner ${event.kind}`}><strong>{event.label ?? 'Impulse resolved'}</strong></div>}
             <div className="visual-board-legend ut4-board-legend">
@@ -472,7 +443,7 @@ export function ImpulseInertiaPlayground() {
             </div>
             <div className="impulse-fire-status" data-testid="impulse-fire-status">
               <strong>Aim {effectiveAim.toFixed(0)}°</strong>
-              <span>predicted M{plan.afterM} / {previewPath.length} Cell · {spatialMode === 'discrete' ? 'Cell-center playback' : 'continuous playback'}</span>
+              <span>predicted M{plan.afterM} / {previewPath.length} Cell · {spatialMode === 'discrete' ? 'cell-by-cell playback' : 'continuous segment playback'}</span>
             </div>
             <div className="ut4-action-card-row ut6-action-card-row impulse-card-row">
               {impulseActionSpecs.map((entry) => (
@@ -503,7 +474,7 @@ export function ImpulseInertiaPlayground() {
                   </article>
                 ))}
               </div>
-              <div className="ut4-test-strip"><strong>Impulse v2</strong><span>Click-to-Resolve</span><span>Shared Board</span><span>Persistent M</span><span>Forced Travel</span><span>Collision</span><span>Discrete/Hybrid</span></div>
+              <div className="ut4-test-strip"><strong>Impulse v3</strong><span>Click-to-Resolve</span><span>HexThreeBoard</span><span>Persistent M</span><span>Forced Travel</span><span>Collision</span><span>Discrete/Hybrid</span></div>
             </div>
           </details>
         </section>
@@ -512,10 +483,10 @@ export function ImpulseInertiaPlayground() {
           <section>
             <div className="visual-section-heading"><h3>Spatial Playback A/B</h3><span>movement only</span></div>
             <div className="impulse-ab-switch">
-              <button className={spatialMode === 'discrete' ? 'active' : ''} onClick={() => { setSpatialMode('discrete'); setActorPoint(normalizedCellCenter(player.position)); setSpatialPlayback(undefined) }}>Discrete</button>
-              <button className={spatialMode === 'hybrid' ? 'active' : ''} onClick={() => { setSpatialMode('hybrid'); setActorPoint(normalizedCellCenter(player.position)); setSpatialPlayback(undefined) }}>Hybrid</button>
+              <button className={spatialMode === 'discrete' ? 'active' : ''} onClick={() => setSpatialMode('discrete')}>Discrete</button>
+              <button className={spatialMode === 'hybrid' ? 'active' : ''} onClick={() => setSpatialMode('hybrid')}>Hybrid</button>
             </div>
-            <small>同一棋盘、同一相机、同一输入与碰撞规则。Discrete 使用 Cell-center 折线；Hybrid 使用连续平滑轨迹与 Cell 内落点。</small>
+            <small>两者固定使用原 Discrete 的 HexThreeBoard、相机、Actor 与障碍表现。Discrete 保留逐 Cell center 分段；Hybrid 只保留转向节点，在节点间连续播放。</small>
           </section>
 
           <section>
