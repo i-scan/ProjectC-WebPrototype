@@ -32,9 +32,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-      - name: Install locked dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install rebuild dependencies
+        run: pnpm install
       - name: Record build time
         run: echo "VITE_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
       - name: Unit tests
