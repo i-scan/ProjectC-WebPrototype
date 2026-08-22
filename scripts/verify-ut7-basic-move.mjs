@@ -91,27 +91,27 @@ async function evaluate(client, expression, awaitPromise = true) {
 }
 
 const snapshotExpression = `(() => {
-  const root = document.querySelector('.inertia-field-ab[data-implementation="inertia-reachable-field-ab-v1"]')
-  const stateText = root?.querySelector('.ifab-state-strip')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const profile = root?.querySelector('.ifab-profile')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const readout = root?.querySelector('.ifab-readout')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const board = root?.querySelector('.inertia-field-board')
-  const activeMode = root?.querySelector('.ifab-mode-switch button.active')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const activePreset = root?.querySelector('.ifab-preset-grid button.active')?.textContent?.trim() ?? ''
-  const radiusInput = root?.querySelector('[data-testid="ifab-radius"]')
+  const root = document.querySelector('.impulse-inertia-lab[data-implementation="impulse-inertia-input-v1"]')
+  const header = root?.querySelector('.ut4-header-state')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const preview = root?.querySelector('.impulse-prediction-card')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const action = root?.querySelector('.impulse-card-row .selected-action')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const boardRadiusLabel = [...(root?.querySelectorAll('label.ut4-range') ?? [])].find((node) => node.textContent.includes('Board Radius'))
+  const boardRadius = Number(boardRadiusLabel?.querySelector('input')?.value ?? 0)
+  const canvas = Boolean(root?.querySelector('.visual-board-frame canvas'))
+  const collisionLog = [...(root?.querySelectorAll('.ut4-log-list article small') ?? [])].map((node) => node.textContent ?? '').find((text) => text.includes('UT3Hard')) ?? ''
   return {
     implementation: root?.dataset.implementation ?? '',
-    mode: root?.dataset.spatialMode ?? '',
-    targetCount: Number(root?.dataset.targetCount ?? 0),
-    maxDistance: Number(root?.dataset.maxDistance ?? 0),
-    stateText,
-    profile,
-    readout,
-    activeMode,
-    activePreset,
-    radius: Number(radiusInput?.value ?? 0),
-    canvas: Boolean(board?.querySelector('canvas')),
-    boardMode: board?.dataset.mode ?? '',
+    rendererMode: root?.dataset.rendererMode ?? '',
+    spatialMode: root?.dataset.spatialMode ?? '',
+    previewValid: root?.dataset.previewValid === 'true',
+    pathLength: Number(root?.dataset.previewPathLength ?? 0),
+    collisionCount: Number(root?.dataset.previewCollisionCount ?? 0),
+    header,
+    preview,
+    action,
+    boardRadius,
+    canvas,
+    collisionLog,
     navButtons: [...document.querySelectorAll('.app-switcher nav button')].map((button) => button.textContent?.trim() ?? ''),
   }
 })()`
@@ -130,15 +130,15 @@ let client
 
 try {
   previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4180', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
-  previewProcess.stdout.on('data', (chunk) => process.stdout.write(`[ifab-preview] ${chunk}`))
-  previewProcess.stderr.on('data', (chunk) => process.stderr.write(`[ifab-preview] ${chunk}`))
-  await waitFor('Inertia field Vite preview', async () => {
+  previewProcess.stdout.on('data', (chunk) => process.stdout.write(`[impulse-preview] ${chunk}`))
+  previewProcess.stderr.on('data', (chunk) => process.stderr.write(`[impulse-preview] ${chunk}`))
+  await waitFor('Impulse Vite preview', async () => {
     const response = await fetch(pageUrl, { redirect: 'follow' })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return true
   })
 
-  const userDataDir = join(tmpdir(), `projectc-inertia-field-${process.pid}`)
+  const userDataDir = join(tmpdir(), `projectc-impulse-${process.pid}`)
   chromeProcess = spawn(chromeExecutable(), [
     '--headless=new',
     '--no-sandbox',
@@ -147,66 +147,94 @@ try {
     '--remote-debugging-address=127.0.0.1',
     '--remote-debugging-port=9229',
     `--user-data-dir=${userDataDir}`,
-    '--window-size=1366,1080',
+    '--window-size=1600,1100',
     'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] })
-  chromeProcess.stderr.on('data', (chunk) => process.stderr.write(`[ifab-chrome] ${chunk}`))
+  chromeProcess.stderr.on('data', (chunk) => process.stderr.write(`[impulse-chrome] ${chunk}`))
 
-  const version = await waitFor('Inertia field Chrome DevTools', async () => {
+  const version = await waitFor('Impulse Chrome DevTools', async () => {
     const response = await fetch(`${debuggingOrigin}/json/version`)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json()
   })
   const targetResponse = await fetch(`${debuggingOrigin}/json/new?${encodeURIComponent(pageUrl)}`, { method: 'PUT' })
-  assert(targetResponse.ok, 'Failed to create inertia field Chrome target')
+  assert(targetResponse.ok, 'Failed to create impulse Chrome target')
   const target = await targetResponse.json()
   client = new CdpClient(target.webSocketDebuggerUrl || version.webSocketDebuggerUrl)
   await client.open()
   await client.send('Page.enable')
   await client.send('Runtime.enable')
-  await client.send('Emulation.setDeviceMetricsOverride', { width: 1366, height: 1080, deviceScaleFactor: 1, mobile: false })
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1100, deviceScaleFactor: 1, mobile: false })
   await client.send('Page.navigate', { url: pageUrl })
 
-  const initial = await waitFor('Inertia field A/B root', async () => {
+  const initial = await waitFor('Impulse lab root', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.canvas || snapshot.implementation !== 'inertia-reachable-field-ab-v1') throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.canvas || snapshot.implementation !== 'impulse-inertia-input-v1') throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
-  assert(initial.mode === 'discrete' && initial.activePreset === 'M0', 'A/B prototype must start in Discrete M0', initial)
-  assert(initial.maxDistance === 1 && initial.targetCount > 0, 'M0 must expose only the adjacent field', initial)
-  assert(initial.navButtons.length === 2 && initial.navButtons[0].includes('Inertia Field'), 'Prototype navigation was not cleaned to the current experiment + graphics lab', initial)
+  assert(initial.rendererMode === '3d' && initial.spatialMode === 'discrete', 'Impulse lab must restore the default 3D discrete lab view', initial)
+  assert(initial.previewValid && initial.pathLength === 1 && initial.header.includes('M0'), 'M0 Drive must predict one forced cell from force input', initial)
+  assert(initial.action.includes('Drive') && initial.navButtons[0]?.includes('Inertia Driving'), 'Current navigation/action shell is incorrect', initial)
 
-  await evaluate(client, clickText('.ifab-preset-grid', 'M1'))
-  const m1 = await waitFor('M1 compact field', async () => {
+  await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
+  const afterDrive = await waitFor('M0 Drive commit', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.activePreset !== 'M1' || snapshot.maxDistance !== 2 || !snapshot.profile.includes('3×3')) throw new Error(JSON.stringify(snapshot))
-    return snapshot
-  })
-
-  await evaluate(client, clickText('.ifab-preset-grid', 'M2'))
-  const m2 = await waitFor('M2 short teardrop', async () => {
-    const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.activePreset !== 'M2' || snapshot.maxDistance !== 3 || !snapshot.profile.includes('teardrop')) throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.header.includes('1.0 AT') || !snapshot.header.includes('M1')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
-  await evaluate(client, clickText('.ifab-preset-grid', 'M3'))
-  const m3 = await waitFor('M3 long teardrop', async () => {
+  await evaluate(client, clickText('.impulse-card-row', 'Coast'))
+  const coastPreview = await waitFor('M1 Coast preview', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.activePreset !== 'M3' || snapshot.maxDistance !== 4 || snapshot.targetCount <= m2.targetCount) throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.previewValid || snapshot.pathLength !== 1 || !snapshot.action.includes('Coast')) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+  await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
+  const afterCoast = await waitFor('persistent M1 Coast', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (!snapshot.header.includes('2.0 AT') || !snapshot.header.includes('M1')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
-  await evaluate(client, clickText('.ifab-mode-switch', 'Hybrid Spatial'))
-  const hybrid = await waitFor('Hybrid spatial comparison mode', async () => {
+  await evaluate(client, clickText('.ut6-preset-grid', 'E M3'))
+  const m3CrashPreview = await waitFor('M3 forced collision preview', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.mode !== 'hybrid' || snapshot.boardMode !== 'hybrid' || !snapshot.activeMode.includes('Hybrid')) throw new Error(JSON.stringify(snapshot))
-    if (snapshot.targetCount !== m3.targetCount || snapshot.maxDistance !== m3.maxDistance) throw new Error(`Hybrid changed Target Cell field: ${JSON.stringify(snapshot)}`)
+    if (!snapshot.header.includes('M3') || snapshot.pathLength !== 2 || snapshot.collisionCount < 1 || !snapshot.preview.includes('UT3Hard')) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+  await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
+  const afterCrash = await waitFor('M3 collision result', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.header.includes('MomentumM3') || !snapshot.collisionLog.includes('UT3Hard')) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+
+  await evaluate(client, clickText('.ut6-preset-grid', 'E M3'))
+  await evaluate(client, clickText('.impulse-card-row', 'Counter Impulse'))
+  const counterPreview = await waitFor('M3 counter impulse preview', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (!snapshot.previewValid || !snapshot.preview.includes('M3 → M2') || snapshot.pathLength !== 2) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+
+  await evaluate(client, clickText('.hex-view-switch', '2D'))
+  const view2d = await waitFor('restored 2D view', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.rendererMode !== '2d' || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+  await evaluate(client, clickText('.hex-view-switch', '3D'))
+
+  await evaluate(client, clickText('.impulse-ab-switch', 'Hybrid'))
+  const hybrid = await waitFor('Hybrid playback mode', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.rendererMode !== '3d' || snapshot.spatialMode !== 'hybrid' || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
   await evaluate(client, `(() => {
-    const input = document.querySelector('[data-testid="ifab-radius"]')
+    const label = [...document.querySelectorAll('label.ut4-range')].find((node) => node.textContent.includes('Board Radius'))
+    const input = label?.querySelector('input')
     if (!input) throw new Error('Board Radius input missing')
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
     setter.call(input, '10')
@@ -214,19 +242,19 @@ try {
     input.dispatchEvent(new Event('change', { bubbles: true }))
     return true
   })()`)
-  const radius10 = await waitFor('R10 focused board', async () => {
+  const radius10 = await waitFor('R10 impulse board', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.radius !== 10 || !snapshot.readout.includes('331 Cells') || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.boardRadius !== 10 || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'ut7-basic-move.png'), Buffer.from(screenshot.data, 'base64'))
-  const result = { initial, m1, m2, m3, hybrid, radius10 }
+  const result = { initial, afterDrive, coastPreview, afterCoast, m3CrashPreview, afterCrash, counterPreview, view2d, hybrid, radius10 }
   await writeFile(join(artifactDir, 'ut7-basic-move.json'), `${JSON.stringify(result, null, 2)}\n`)
 
-  console.log('Inertia Reachable Field A/B verified in real Chrome: M0 ring, M1 compact rear-closed field, M2/M3 teardrops, identical Hybrid target set, focused navigation, and R10 board all mounted correctly.')
+  console.log('Impulse inertia verified in real Chrome: restored 2D/3D lab shell, force/aim input, persistent Coast M, forced M3 travel, collision without auto-routing, counter impulse, Hybrid playback, and R10 mount.')
   console.log(JSON.stringify(result, null, 2))
 } finally {
   client?.close()
