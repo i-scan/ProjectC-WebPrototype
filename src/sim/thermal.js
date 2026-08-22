@@ -7,6 +7,7 @@ export const THERMAL_DRIFT_VISUAL_MAX = 3
 
 const DAMPING = 1
 const SUBSTEPS_PER_AT = 24
+const FIXED_THERMAL_DT_AT = 1 / SUBSTEPS_PER_AT
 const BEHAVIOR_DRIFT_IMPULSE = 0.8
 const BALANCING_DRIFT_RETENTION = 0.35
 const TARGET_DAMPED_OMEGA = Math.PI * 2 / THERMAL_PERIOD_AT
@@ -32,26 +33,46 @@ export function thermalBehaviorFor({ actionId, beforeSpeed, collisions = 0 }) {
   return 'use'
 }
 
-export function advanceThermal(input, behavior, deltaAt = 1) {
+function applyBehaviorImpulse(input, behavior) {
   const next = { ...input }
   if (behavior === 'generate' || behavior === 'resist') next.drift += BEHAVIOR_DRIFT_IMPULSE
   else if (behavior === 'use') next.drift -= BEHAVIOR_DRIFT_IMPULSE
   else if (behavior === 'passive-dissipation') next.drift *= BALANCING_DRIFT_RETENTION
+  return next
+}
 
-  const duration = Math.max(0, deltaAt)
-  const substeps = Math.max(1, Math.ceil(duration * SUBSTEPS_PER_AT))
-  const dt = duration / substeps
-  for (let index = 0; index < substeps; index += 1) {
-    const offset = next.temperature - next.setPoint
-    const acceleration = -NATURAL_OMEGA * NATURAL_OMEGA * offset - DAMPING * next.drift
-    next.drift += acceleration * dt
-    next.temperature = clamp(next.temperature + next.drift * dt, -6, 6)
-  }
+function integrateThermalStep(next, dt) {
+  const offset = next.temperature - next.setPoint
+  const acceleration = -NATURAL_OMEGA * NATURAL_OMEGA * offset - DAMPING * next.drift
+  next.drift += acceleration * dt
+  next.temperature = clamp(next.temperature + next.drift * dt, -6, 6)
+}
+
+function settleThermal(next) {
   if (Math.abs(next.temperature - next.setPoint) <= 0.025 && Math.abs(next.drift) <= 0.025) {
     next.temperature = next.setPoint
     next.drift = 0
   }
   return next
+}
+
+export function advanceThermal(input, behavior, deltaAt = 1) {
+  const duration = Math.max(0, deltaAt)
+  if (duration <= 0) return { ...input }
+
+  const next = applyBehaviorImpulse(input, behavior)
+  let remainingAt = duration
+
+  // Fractional playback always advances on the same fixed AT grid.
+  // This prevents frame-to-frame direction jitter caused by recomputing the
+  // whole interval with a different dt whenever ceil(progress * 24) changes.
+  while (remainingAt > 1e-9) {
+    const dt = Math.min(FIXED_THERMAL_DT_AT, remainingAt)
+    integrateThermalStep(next, dt)
+    remainingAt -= dt
+  }
+
+  return settleThermal(next)
 }
 
 export function sampleThermalTransition(input, behavior, progressAt) {
