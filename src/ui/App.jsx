@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Board3D } from './Board3D.jsx'
 import { ThermalPendulum } from './ThermalPendulum.jsx'
-import { axialKey, axialToWorld, directionVector, worldToAxial } from '../sim/hex.js'
+import { axialDistance, axialKey, axialToWorld, directionVector, worldToAxial } from '../sim/hex.js'
 import { cellAt, collisionObstaclesFromCells, createCellWorld } from '../sim/world.js'
 import {
   ACTIONS,
@@ -86,18 +86,18 @@ export function App() {
     if (playback) return null
     if (actionId !== 'coast' && !hoverHex) return null
     return simulateSpatial({ spatialMode, state, actionId, aimPoint, config, obstacles })
-  }, [spatialMode, state, actionId, hoverHex, config, obstacles, playback])
+  }, [spatialMode, state, actionId, hoverHex, aimPoint, config, obstacles, playback])
 
   const predictedHex = previewPlan?.valid ? worldToAxial(previewPlan.finalState.position) : null
   const isPlaying = Boolean(playback)
   const thermalDomain = thermalDomainFor(thermal.temperature)
   const actionDescriptor = action.kind === 'basic'
-    ? 'BASE · 1 AT · ΔM 0'
+    ? 'BASE · 1 AT · M2 ⇒ Range +1 ⇒ M-1'
     : action.kind === 'coast'
       ? 'COAST · ΔV 0'
       : `ΔV ${action.force.toFixed(2)}`
   const inputContract = action.kind === 'basic'
-    ? `Basic Move + Aim Cell → Voluntary Move + Current Inertia → ${spatialMode === 'discrete' ? 'Cell-step resolution' : 'Continuous curved resolution'}`
+    ? `Basic Move + adjacent Aim Cell → Axis / Redirect Cell path → ${momentum >= 2 ? 'Range 2' : 'Range 1'}`
     : action.kind === 'coast'
       ? `Coast → Current Velocity → ${spatialMode === 'discrete' ? 'Cell-step resolution' : 'Continuous Position + Velocity'}`
       : `Impulse Card + Aim Cell → Current Velocity + ΔV → ${spatialMode === 'discrete' ? 'Cell-step resolution' : 'Continuous curved resolution'}`
@@ -123,8 +123,19 @@ export function App() {
     return true
   }
 
+  const changeHoverHex = (hex) => {
+    if (isPlaying) return false
+    if (actionId === 'basic-move' && hex && axialDistance(currentHex, hex) !== 1) {
+      setHoverHex(null)
+      return false
+    }
+    setHoverHex(hex)
+    return true
+  }
+
   const resolveClick = (hex) => {
     if (isPlaying) return false
+    if (actionId === 'basic-move' && axialDistance(currentHex, hex) !== 1) return false
     const point = axialToWorld(hex)
     const plan = simulateSpatial({ spatialMode, state, actionId, aimPoint: actionId === 'coast' ? null : point, config, obstacles })
     if (!plan.valid) return false
@@ -171,7 +182,7 @@ export function App() {
       setPlayback((current) => current?.id === playback.id ? null : current)
     }, remainingMs)
     return () => window.clearTimeout(timer)
-  }, [playback?.id, playback?.pausedAt, playback?.pausedTotal])
+  }, [playback?.id, playback?.pausedAt, playback?.pausedTotal, atVisualMs])
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -263,6 +274,11 @@ export function App() {
     setSelectedAimHex(null)
   }
 
+  const idleAimText = actionId === 'basic-move' ? 'Hover an adjacent Cell to steer' : 'Hover a Cell to aim'
+  const handHelp = actionId === 'basic-move'
+    ? 'Basic Move only accepts an adjacent Aim Cell. Momentum may make the resolved 1 AT path cross multiple Cells.'
+    : 'Aim Cell defines impulse direction; preview and execution share one solver.'
+
   return (
     <main
       className="current-prototype cell-world-prototype"
@@ -280,6 +296,7 @@ export function App() {
       data-preview-valid={previewPlan?.valid === true}
       data-authority="cell-world-plus-spatial-state"
       data-cell-world="true"
+      data-basic-aim-contract="adjacent-only"
       data-at-visual-ms={atVisualMs}
       data-solver-steps={config.steps}
       data-axis-indicator-preview={axisIndicatorPreview}
@@ -323,7 +340,7 @@ export function App() {
 
           <section className="panel-card prediction-card">
             <div className="section-heading"><h3>Predicted Outcome</h3><span>{previewPlan?.valid ? spatialMode : 'waiting aim'}</span></div>
-            <p>{previewPlan ? planSummary(previewPlan) : actionId === 'coast' ? 'Coast uses the current velocity direction.' : 'Hover a Cell to preview this action.'}</p>
+            <p>{previewPlan ? planSummary(previewPlan) : actionId === 'coast' ? 'Coast uses the current velocity direction.' : actionId === 'basic-move' ? 'Hover an adjacent Cell to preview the inertia-constrained Cell path.' : 'Hover a Cell to preview this action.'}</p>
             {previewPlan?.valid && (
               <dl className="state-list compact">
                 <div><dt>Aim Cell</dt><dd>{hoverHex ? axialKey(hoverHex) : 'velocity'}</dd></div>
@@ -339,7 +356,7 @@ export function App() {
         <section className="center-column">
           <div className="board-strip">
             <strong>{inputContract}</strong>
-            <span>{isPlaying ? `Resolving 1 AT · ${playback?.summary ?? ''}` : hoverHex ? `Aim Cell ${axialKey(hoverHex)} · ${terrainLabel(aimedCell)}` : 'Hover a Cell to aim'}</span>
+            <span>{isPlaying ? `Resolving 1 AT · ${playback?.summary ?? ''}` : hoverHex ? `Aim Cell ${axialKey(hoverHex)} · ${terrainLabel(aimedCell)}` : idleAimText}</span>
           </div>
           <div className="board-toolbar">
             <div className="view-switch spatial-mode-switch" role="group" aria-label="Spatial model">
@@ -371,11 +388,11 @@ export function App() {
               selectedAimHex={selectedAimHex}
               showWeather={showWeather}
               showThermal={showThermal}
-              onHoverHex={isPlaying ? () => {} : setHoverHex}
+              onHoverHex={isPlaying ? () => {} : changeHoverHex}
               onClickHex={resolveClick}
             />
             <div className="board-legend">
-              <span><i className={spatialMode === 'discrete' ? 'trajectory discrete' : 'trajectory'} />Curved steering / direction preview</span>
+              <span><i className={spatialMode === 'discrete' ? 'trajectory discrete' : 'trajectory'} />Rule-constrained steering preview</span>
               <span><i className="terrain" />Cell terrain / weather</span>
               <span><i className="momentum-axis" />Legacy Axis HUD · dots = M</span>
             </div>
@@ -384,7 +401,7 @@ export function App() {
 
           <section className="action-hand">
             <div className="hand-heading">
-              <div><h2>Basic Command + Momentum Cards · Cell Aim</h2><p>Aim Cell defines direction, never a destination. Preview and execution share one solver.</p></div>
+              <div><h2>Basic Command + Momentum Cards · Cell Aim</h2><p>{handHelp}</p></div>
               <span>{action.label} · {actionDescriptor}</span>
             </div>
             <div className="action-row">
@@ -413,10 +430,10 @@ export function App() {
           <section className="panel-card spatial-ab-card">
             <div className="section-heading"><h3>Spatial Model A/B</h3><span>same board</span></div>
             <div className="ab-explain">
-              <button type="button" data-spatial-panel-select="discrete" className={spatialMode === 'discrete' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('discrete')}><b>Discrete</b><span>Cell-center presentation of the same Aim / action input</span></button>
-              <button type="button" data-spatial-panel-select="hybrid" className={spatialMode === 'hybrid' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('hybrid')}><b>Hybrid</b><span>Continuous P/V with bounded curved momentum blending</span></button>
+              <button type="button" data-spatial-panel-select="discrete" className={spatialMode === 'discrete' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('discrete')}><b>Discrete</b><span>Cell-center presentation of the shared action input</span></button>
+              <button type="button" data-spatial-panel-select="hybrid" className={spatialMode === 'hybrid' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('hybrid')}><b>Hybrid</b><span>Continuous impulse P/V; Basic Move keeps the same logical Cell path</span></button>
             </div>
-            <small>两种模式共用 Aim、基础行动/冲量规则和 1 AT；AT 的实际播放秒数可在右侧 Timebase 调整。</small>
+            <small>Basic Move 在两种模式下共享同一 Cell path；Impulse 才比较离散与连续运动表现。AT 播放速度可在右侧 Timebase 调整。</small>
           </section>
 
           <section className="panel-card cell-inspector">
