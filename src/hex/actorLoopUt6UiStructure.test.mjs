@@ -12,9 +12,9 @@ const rules = readFileSync(rulesPath, 'utf8')
 const config = JSON.parse(readFileSync(configPath, 'utf8'))
 
 describe('UT6 Actor Loop playground structure', () => {
-  it('remains reproducible as historical source while the focused reachable-field experiment owns #hex-prototype', () => {
-    expect(main).toContain("import { ActorLoopReachabilityABPlayground } from './hex/ActorLoopReachabilityABPlayground'")
-    expect(main).toContain("{view === 'field' && <ActorLoopReachabilityABPlayground />}")
+  it('remains reproducible as historical source while the impulse-driving lab owns #hex-prototype', () => {
+    expect(main).toContain("import { ImpulseInertiaPlayground } from './hex/ImpulseInertiaPlayground'")
+    expect(main).toContain("{view === 'impulse' && <ImpulseInertiaPlayground />}")
     expect(main).not.toContain("<ActorLoopPlayground />")
     expect(main).not.toContain("#hex-ut6")
     expect(lab).toContain('VAL-012-UT6-candidate')
