@@ -56,26 +56,34 @@ V_after = clampLength(V_before + AimDirection * Force, MaxSpeed)
 
 ## Spatial A/B
 
-Discrete and Hybrid are intentional comparison modes in the current lab. They share:
-
-- the same board;
-- the same actions;
-- the same Aim Cell input;
-- the same fixed 1 AT logical cost;
-- the same delayed logical-state commit rule.
+Discrete and Hybrid are intentional comparison modes in the current lab. They share the same board, actions, Aim Cell input, fixed 1 AT logical cost and delayed logical-state commit rule.
 
 Discrete presents the result through Cell-centered movement steps.
 
-Hybrid resolves continuous Position / Velocity. When an impulse changes heading, its sampled path may bend continuously from the incoming Velocity direction toward the mixed outgoing Velocity direction. Curve handles are bounded geometry helpers only. Playback speed magnitude comes from physical before/after Velocity, and collisions reflect physical Velocity rather than the Hermite derivative.
+Hybrid resolves continuous Position / Velocity. When an impulse changes heading, its sampled path may bend continuously from incoming Velocity toward mixed outgoing Velocity. Curve geometry is presentation / path shape only; it must not contaminate the physical resultant Velocity or collision response.
 
-## Momentum / preview visualization
+## Axis / Momentum visualization
 
-- the yellow Axis arrow means **direction only**;
-- keep the Axis arrow short, thick and fixed-length; do not scale it by Momentum level;
-- the three actor dots alone encode M1 / M2 / M3 magnitude;
-- prediction is a short, thick dashed guide of the immediate trajectory trend, not a full-path annotation;
-- Hybrid preview follows the same curved solver samples that playback consumes;
-- current preview visual horizon is about 1.55 world units.
+The Axis HUD intentionally reuses the mature pre-rebuild presentation language:
+
+- **Horizontal Axis**: a short, thin yellow screen-space arrow. It encodes direction only and does not grow with M;
+- **M0**: an explicit neutral M0 marker remains visible instead of hiding Axis UI entirely;
+- **Down M**: the cyan ring / downward anchor marker represents the old Grounded / Position Authority axis. Down M is **not downward Velocity** and must not be inserted into the current 2D Position/Velocity movement solver;
+- the current driving lab exposes Down M1–M3 only as an Axis Indicator visual preview until the actual Grounded mechanics are reconnected;
+- the three actor dots remain the magnitude encoding for M1 / M2 / M3.
+
+Do not replace this HUD with a large world-space arrow unless the user explicitly asks to abandon the previous visual language.
+
+## Steering preview
+
+The prediction line is a steering / direction guide, not a full route annotation:
+
+- short horizon, about 1.55 world units;
+- thick-enough dashed segments for readability;
+- begins from current movement heading when one exists;
+- rotates smoothly along the shortest turn toward the resulting movement direction;
+- may therefore show a curve in both Discrete and Hybrid modes;
+- it must not imply that every displayed point is an authoritative Cell path or destination.
 
 ## AT / Thermal timebase
 
@@ -84,16 +92,17 @@ Logical time and playback seconds are separate:
 - one action always costs exactly 1 AT;
 - solver baseline remains 120 substeps / AT;
 - default visual duration is 800ms / AT;
-- the debug Timebase may adjust visual duration from 250ms to 1600ms / AT in 50ms steps;
-- this slider must never alter solver results, distances, Velocity, Momentum or Thermal result after one AT;
-- final logical state commits only after the configured visual duration finishes.
+- debug Timebase may adjust visual duration from 250ms to 1600ms / AT in 50ms steps;
+- this slider must never alter movement solver results or the one-AT Thermal result;
+- final logical state commits only after configured visual playback finishes.
 
-Thermal uses the same fractional AT playback clock:
+Thermal uses one continuous damped-oscillator model in AT space:
 
-- one complete thermal oscillation cycle = 8 AT;
+- one complete visible oscillation = 8 AT;
 - one half swing = 4 AT;
-- the pendulum must visibly evolve continuously during a movement AT instead of updating only at action completion;
-- changing real-time / AT therefore speeds or slows movement and pendulum presentation together without changing AT-space behavior.
+- fractional playback samples are analytic, not frame-rate or substep dependent;
+- do not reintroduce `ceil(progress * substeps)` resampling of the whole interval, which caused repeated left/right numerical jitter inside one AT;
+- the pendulum evolves continuously during movement playback and uses the same fractional AT clock as movement.
 
 ## Playback stability
 
@@ -120,12 +129,11 @@ Historical code remains recoverable from `backup/pre-rebuild-2026-08-22`. Reuse 
 ## Movement architecture
 
 - Deterministic and side-effect-free solver.
-- Preview and execution use the exact same samples.
 - One action resolves exactly 1 AT.
 - Current baseline: 120 simulation substeps / AT.
 - Default visual baseline: 800ms / AT, adjustable only as presentation speed.
 - Do not commit final logical Position before visual playback completes.
-- Renderer consumes solver trajectory samples; it does not infer a new route after state mutation.
+- Renderer consumes solver trajectory samples; it does not infer destination movement after state mutation.
 - Hex Cell and M are derived views, not Hybrid movement authority.
 - Collision response operates on physical movement Velocity; never pathfind around collision.
 
@@ -136,11 +144,12 @@ Until movement feel is accepted, prioritize:
 1. Basic Move + inertia interaction;
 2. Drive / Heavy Drive exact vector-sum turning;
 3. Hybrid curve readability without mathematical contamination;
-4. immediate-direction preview readability;
-5. AT playback speed and camera stability;
-6. Thermal synchronization to fractional AT;
-7. Coast / Counter / Hard Turn;
-8. hard-surface / boundary collision;
-9. only then deepen Thermal and later tactical systems.
+4. Horizontal / M0 / Down Axis HUD readability;
+5. steering-preview turn readability;
+6. AT playback speed and camera stability;
+7. Thermal synchronization without intra-AT numerical jitter;
+8. Coast / Counter / Hard Turn;
+9. hard-surface / boundary collision;
+10. only then deepen Thermal and later tactical systems.
 
 Do not expand enemy AI, deckbuilding, equipment, or session economy to compensate for unresolved movement feel.
