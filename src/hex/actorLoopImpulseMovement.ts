@@ -361,7 +361,7 @@ export function impulsePlan(
     ? vectorFor(beforeHeading, beforeSpatial.level)
     : { x: 0, z: 0 }
   const impulse = action.force > 0 ? vectorFor(aimDeg, action.force) : { x: 0, z: 0 }
-  let resolvedVector = { x: currentVelocity.x + impulse.x, z: currentVelocity.z + impulse.z }
+  const resolvedVector = { x: currentVelocity.x + impulse.x, z: currentVelocity.z + impulse.z }
   const afterImpulseMagnitude = Math.hypot(resolvedVector.x, resolvedVector.z)
   let speed = clampMomentum(afterImpulseMagnitude)
   let heading = speed > 0 ? vectorAngle(resolvedVector) : null
@@ -370,7 +370,7 @@ export function impulsePlan(
   const path: Coord[] = []
   const collisions: ImpulseCollision[] = []
   let current = clone(player.position)
-  let remaining = speed
+  let remaining: number = speed
   let segmentOrigin = clone(current)
   let segmentStep = 0
 
