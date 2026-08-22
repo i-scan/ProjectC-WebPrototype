@@ -10,8 +10,8 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
-assert(info.schemaVersion === 2, 'build-info schema is not rebuild v2')
-assert(info.implementation === 'continuous-inertia-v1', 'build-info implementation mismatch')
+assert(info.schemaVersion === 3, 'build-info schema is not cell-world v3')
+assert(info.implementation === 'cell-world-spatial-ab-v1', 'build-info implementation mismatch')
 assert(info.commit === expectedCommit, `build commit ${info.commit} != ${expectedCommit}`)
 assert(info.status === (expectedCommit === 'local' ? 'local' : 'verified'), 'unexpected build status')
 
@@ -20,30 +20,33 @@ assert(scriptMatch, 'built JavaScript entry missing')
 const scriptPath = scriptMatch[1].replace(/^\/ProjectC-WebPrototype\//, '')
 await stat(resolve(distDir, scriptPath))
 const script = await readFile(resolve(distDir, scriptPath), 'utf8')
-assert(script.includes('continuous-inertia-v1'), 'continuous inertia implementation marker missing')
+for (const marker of [
+  'cell-world-spatial-ab-v1',
+  'Inertia Driving Playground',
+  'Motion Cards · Force / Cell Aim',
+  'Spatial Model A/B',
+  'Cell Inspector',
+  'Discrete',
+  'Hybrid',
+  'Card + Aim Cell',
+]) assert(script.includes(marker), `current runtime marker missing: ${marker}`)
 assert(script.includes(expectedCommit), 'bundle commit marker missing')
-assert(script.includes('Continuous Inertia Playground'), 'current playground heading missing')
-assert(script.includes('Position + Velocity'), 'continuous authoritative state marker missing')
-assert(script.includes('Card + Aim'), 'current input model marker missing')
 
 for (const legacy of [
-  'ImpulseInertiaPlayground',
   'InertiaFieldBoard',
   'Reachable Field',
   'Basic Move',
   'Actor Loop UT6',
-  'UT5',
-  'UT7',
-  'Discrete/Hybrid',
   'Apply Impulse',
   'Graphics Lab',
-]) assert(!script.includes(legacy), `legacy runtime marker still bundled: ${legacy}`)
+]) assert(!script.includes(legacy), `obsolete runtime marker still bundled: ${legacy}`)
 
 const styleMatch = html.match(/<link[^>]+href="([^"]+\.css)"/)
 assert(styleMatch, 'built stylesheet missing')
 const stylePath = styleMatch[1].replace(/^\/ProjectC-WebPrototype\//, '')
 const style = await readFile(resolve(distDir, stylePath), 'utf8')
-assert(style.includes('.continuous-board-host'), 'continuous board styling missing')
-assert(style.includes('.action-hand'), 'current action-hand styling missing')
+assert(style.includes('.continuous-board-host'), 'shared board styling missing')
+assert(style.includes('.spatial-ab-card'), 'spatial A/B styling missing')
+assert(style.includes('.actor-vitals'), 'restored actor/world UI styling missing')
 
-console.log(`Verified clean continuous inertia dist for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified cell-world spatial A/B dist for ${info.branch}@${info.shortCommit}.`)
