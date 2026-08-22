@@ -30,6 +30,14 @@ const velocityPresets = [
   { label: 'E · M3', speed: 2.65 },
 ]
 
+const axisIndicatorOptions = [
+  { id: 'auto', label: 'Auto' },
+  { id: 'm0', label: 'M0' },
+  { id: 'down-1', label: 'Down M1' },
+  { id: 'down-2', label: 'Down M2' },
+  { id: 'down-3', label: 'Down M3' },
+]
+
 function speedOf(velocity) { return Math.hypot(velocity.x, velocity.z) }
 function headingOf(velocity) {
   const speed = speedOf(velocity)
@@ -55,6 +63,7 @@ export function App() {
   const [obstaclesEnabled, setObstaclesEnabled] = useState(true)
   const [restitution, setRestitution] = useState(DEFAULT_SOLVER_CONFIG.restitution)
   const [atVisualMs, setAtVisualMs] = useState(AT_VISUAL_MS)
+  const [axisIndicatorPreview, setAxisIndicatorPreview] = useState('auto')
   const [viewMode, setViewMode] = useState('isometric')
   const [showWeather, setShowWeather] = useState(true)
   const [showThermal, setShowThermal] = useState(true)
@@ -105,6 +114,12 @@ export function App() {
   const changeAtVisualMs = (value) => {
     if (isPlaying || !Number.isFinite(value)) return false
     setAtVisualMs(Math.max(250, Math.min(1600, Math.round(value / 50) * 50)))
+    return true
+  }
+
+  const changeAxisIndicatorPreview = (value) => {
+    if (!axisIndicatorOptions.some((entry) => entry.id === value)) return false
+    setAxisIndicatorPreview(value)
     return true
   }
 
@@ -191,6 +206,7 @@ export function App() {
         return true
       },
       setAtMs(value) { return changeAtVisualMs(Number(value)) },
+      setAxisIndicator(value) { return changeAxisIndicatorPreview(String(value)) },
       trajectory() {
         return structuredClone(playback?.samples ?? previewPlan?.samples ?? [])
       },
@@ -201,6 +217,7 @@ export function App() {
           spatialMode,
           actionId,
           atVisualMs,
+          axisIndicatorPreview,
         }
       },
     }
@@ -265,6 +282,7 @@ export function App() {
       data-cell-world="true"
       data-at-visual-ms={atVisualMs}
       data-solver-steps={config.steps}
+      data-axis-indicator-preview={axisIndicatorPreview}
     >
       <header className="prototype-header">
         <div className="brand">
@@ -275,7 +293,7 @@ export function App() {
           <div><span>World Time</span><strong>{state.worldAt.toFixed(1)} AT</strong></div>
           <div className={`thermal-${thermalDomain.toLowerCase()}`}><span>Thermal</span><strong>{thermalDomain} · T {formatThermal(thermal.temperature)}</strong></div>
           <div><span>Momentum</span><strong>M{momentum}</strong></div>
-          <div><span>Axis</span><strong>{heading === null ? '—' : `${heading.toFixed(0)}°`}</strong></div>
+          <div><span>Axis</span><strong>{heading === null ? 'M0' : `${heading.toFixed(0)}°`}</strong></div>
           <div><span>Spatial</span><strong>{spatialMode === 'discrete' ? 'Discrete' : 'Hybrid'}</strong></div>
         </div>
       </header>
@@ -297,7 +315,7 @@ export function App() {
               <div><dt>Terrain</dt><dd>{terrainLabel(currentCell)}</dd></div>
               <div><dt>Cell Temp</dt><dd>{currentCell?.groundTemp ?? 0}</dd></div>
               <div><dt>Moisture</dt><dd>{currentCell?.moisture ?? 0}</dd></div>
-              <div><dt>Heading</dt><dd>{heading === null ? '—' : `${heading.toFixed(0)}°`}</dd></div>
+              <div><dt>Heading</dt><dd>{heading === null ? 'M0 / none' : `${heading.toFixed(0)}°`}</dd></div>
               <div><dt>Velocity</dt><dd>{speed.toFixed(2)}</dd></div>
               <div><dt>Momentum</dt><dd>M{momentum}</dd></div>
             </dl>
@@ -345,6 +363,7 @@ export function App() {
               previewPlan={previewPlan}
               playback={playback}
               atVisualMs={atVisualMs}
+              axisIndicatorPreview={axisIndicatorPreview}
               boardRadius={boardRadius}
               viewMode={viewMode}
               cameraResetToken={cameraResetToken}
@@ -356,9 +375,9 @@ export function App() {
               onClickHex={resolveClick}
             />
             <div className="board-legend">
-              <span><i className={spatialMode === 'discrete' ? 'trajectory discrete' : 'trajectory'} />Short dashed direction preview</span>
+              <span><i className={spatialMode === 'discrete' ? 'trajectory discrete' : 'trajectory'} />Curved steering / direction preview</span>
               <span><i className="terrain" />Cell terrain / weather</span>
-              <span><i className="momentum-axis" />Axis = direction · dots = M</span>
+              <span><i className="momentum-axis" />Legacy Axis HUD · dots = M</span>
             </div>
             {isPlaying && <div className="playback-badge">{playback?.spatialMode === 'discrete' ? 'Discrete' : 'Hybrid'} · 1 AT · {(playback?.durationMs / 1000).toFixed(2)} s · {playback?.thermalBehavior}</div>}
           </div>
@@ -410,6 +429,22 @@ export function App() {
               <div><dt>Wind</dt><dd>{cell.wind ?? '—'}</dd></div>
               <div><dt>Tags</dt><dd>{cell.tags.length ? cell.tags.join(', ') : '—'}</dd></div>
             </dl> : null })()}
+          </section>
+
+          <section className="panel-card axis-indicator-card">
+            <div className="section-heading"><h3>Axis Indicator</h3><span>legacy HUD preview</span></div>
+            <div className="axis-preview-grid">
+              {axisIndicatorOptions.map((entry) => (
+                <button
+                  type="button"
+                  key={entry.id}
+                  data-axis-indicator-select={entry.id}
+                  className={axisIndicatorPreview === entry.id ? 'active' : ''}
+                  onClick={() => changeAxisIndicatorPreview(entry.id)}
+                >{entry.label}</button>
+              ))}
+            </div>
+            <small>Auto 按当前 Velocity 显示 Horizontal Axis，M0 会保留零惯性标记。Down M 是旧规则中的 Grounded / Position Authority 指示，仅在这里预览视觉，不会伪装成当前二维向下速度。</small>
           </section>
 
           <section className="panel-card">
