@@ -192,7 +192,7 @@ try {
   await client.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1100, deviceScaleFactor: 1, mobile: false })
   await client.send('Page.navigate', { url: pageUrl })
 
-  const initial = await waitFor('fully initialized current prototype', async () => {
+  const initial = await waitFor('fully initialized visible map', async () => {
     const value = await snapshot(client)
     const ready = value.implementation === 'cell-world-spatial-ab-v3'
       && value.actionCardCount === 6
@@ -200,6 +200,10 @@ try {
       && value.previewStyle === 'short-dashed-heading-curve'
       && value.axisState === 'm0'
       && Number.isFinite(value.cameraZoom)
+      && value.viewportWidth >= 700
+      && value.viewportHeight >= 300
+      && value.canvasWidth >= 700
+      && value.canvasHeight >= 300
     if (!ready) throw new Error(JSON.stringify(value))
     return value
   })
@@ -207,6 +211,7 @@ try {
   assert(initial.atVisualMs === 800 && initial.solverSteps === 120, 'AT / solver baseline changed', initial)
   assert(initial.basicMoveCard && !initial.hasApply, 'Basic Move or click-to-resolve UI regressed', initial)
   assert(initial.axisStyle === 'legacy-hud' && initial.previewStyle === 'short-dashed-heading-curve', 'Axis / steering HUD regressed', initial)
+  assert(initial.viewportHeight >= 300 && initial.canvasHeight >= 300, 'map canvas collapsed or invisible', initial)
   assert(initial.thermalCycleAt === 8, 'thermal timebase regressed', initial)
 
   // Basic Move accepts only an adjacent Aim Cell.
@@ -232,6 +237,7 @@ try {
   assert(m0Mid.thermalVisualAt > 0.05 && m0Mid.thermalVisualAt < 0.8, 'thermal pendulum did not advance inside the AT', m0Mid)
   assert(Math.abs(m0Mid.cameraZoom - stableViewport.cameraZoom) < 0.0001, 'camera zoom changed during playback', { stableViewport, m0Mid })
   assert(m0Mid.viewportWidth === stableViewport.viewportWidth && m0Mid.viewportHeight === stableViewport.viewportHeight, 'viewport resized during playback', { stableViewport, m0Mid })
+  assert(m0Mid.canvasHeight >= 300, 'map canvas collapsed during playback', m0Mid)
   const afterM0 = await waitForIdleAt(client, 1)
   assert(Date.now() - m0Start >= 520, 'configured 600ms AT was committed too early', afterM0)
   assert(afterM0.logicalX > 0.94 && afterM0.logicalX < 1.06 && Math.abs(afterM0.logicalZ) < 0.05 && afterM0.momentum === 0, 'M0 Basic Move is not Move1 / M0', afterM0)
@@ -290,7 +296,7 @@ try {
   const evidence = { initial, afterRemote, m0Playback, m0Mid, afterM0, m2Trajectory, afterM2, turnTrajectory, afterTurn, hybridState, hybridCurve: { midpoint, endpoint, cross, sampleCount: hybridTrajectory.length } }
   await writeFile(join(artifactDir, 'axis-thermal-preview-polish.json'), `${JSON.stringify(evidence, null, 2)}\n`)
 
-  console.log('Verified adjacent-only Basic Move, M2 Range+1 -> M1 Cell-path steering, stable AT/thermal playback, and unchanged Hybrid V + ΔV impulses.')
+  console.log('Verified visible non-collapsed map canvas, adjacent-only Basic Move, M2 Range+1 -> M1 Cell-path steering, stable AT/thermal playback, and unchanged Hybrid V + ΔV impulses.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')
