@@ -44,14 +44,14 @@ jobs:
         env:
           EXPECTED_COMMIT: ${{ github.sha }}
         run: pnpm verify:dist
-      - name: Verify Cell World spatial A/B in Chrome
+      - name: Verify movement correction in Chrome
         run: pnpm verify:browser
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cell-world-spatial-ab-evidence-${{ github.sha }}
-          path: artifacts/cell-world-spatial-ab.*
+          name: movement-correction-v3-evidence-${{ github.sha }}
+          path: artifacts/movement-correction-v3.*
           if-no-files-found: warn
           retention-days: 30
       - uses: actions/configure-pages@v5
@@ -99,6 +99,6 @@ jobs:
               context: 'pages/verified-deployment',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               description: ok
-                ? 'Cell World spatial A/B Pages build verified online'
+                ? 'Basic Move / free impulse / curved Hybrid build verified online'
                 : `Pages verification failed: build=${buildResult}, deploy=${deployResult}`
             })

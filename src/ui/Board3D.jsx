@@ -4,6 +4,7 @@ import { AT_VISUAL_MS, momentumLevel, playbackElapsedMs } from '../sim/solver.js
 import { HEX_RADIUS, axialDistance, axialToWorld, directionVector, worldToAxial } from '../sim/hex.js'
 
 const TILE_HEIGHT = 0.18
+const AXIS_ARROW_LENGTH = 0.92
 const DEFAULT_CAMERA = { yaw: Math.PI * 0.25, pitch: 0.74, zoom: 1 }
 const TEMP_COLORS = [0x3e7bd6, 0x5e9de0, 0x75b8ca, 0xa7a89f, 0xd3a55f, 0xdf7545, 0xef493e]
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
@@ -283,6 +284,8 @@ export function Board3D({
     renderer.outputColorSpace = THREE.SRGBColorSpace
     host.replaceChildren(renderer.domElement)
     renderer.domElement.style.touchAction = 'none'
+    host.dataset.axisArrowLength = AXIS_ARROW_LENGTH.toFixed(2)
+    host.dataset.axisArrowMeaning = 'direction-only'
 
     const camera = new THREE.OrthographicCamera(-7, 7, 5, -5, 0.1, 60)
     scene.add(new THREE.HemisphereLight(0xb7d9ff, 0x28313d, 1.65))
@@ -298,7 +301,7 @@ export function Board3D({
     const momentumArrow = new THREE.ArrowHelper(
       new THREE.Vector3(1, 0, 0),
       new THREE.Vector3(0, 0.94, 0),
-      0.8,
+      AXIS_ARROW_LENGTH,
       0xf2c85a,
       0.16,
       0.08,
@@ -459,7 +462,7 @@ export function Board3D({
         if (level > 0 && speed > 0.02) {
           arrow.visible = true
           arrow.setDirection(new THREE.Vector3(visualState.velocity.x / speed, 0, visualState.velocity.z / speed))
-          arrow.setLength(0.58 + level * 0.28, 0.16, 0.08)
+          arrow.setLength(AXIS_ARROW_LENGTH, 0.16, 0.08)
         } else {
           arrow.visible = false
         }
