@@ -81,12 +81,23 @@ export function App() {
     setHoverHex(null)
     setPlayback({
       id: playbackIdRef.current++,
+      startedAt: performance.now(),
       samples: plan.samples,
       finalState: plan.finalState,
       summary: planSummary(plan),
     })
     return true
   }
+
+  useEffect(() => {
+    if (!playback) return undefined
+    const remainingMs = Math.max(0, AT_VISUAL_MS - (performance.now() - playback.startedAt))
+    const timer = window.setTimeout(() => {
+      setState(playback.finalState)
+      setPlayback((current) => current?.id === playback.id ? null : current)
+    }, remainingMs)
+    return () => window.clearTimeout(timer)
+  }, [playback?.id])
 
   useEffect(() => {
     window.__PROJECTC_PROTOTYPE__ = {
@@ -101,11 +112,6 @@ export function App() {
       delete window.__PROJECTC_PROTOTYPE__
     }
   })
-
-  const completePlayback = (finalState) => {
-    setState(finalState)
-    setPlayback(null)
-  }
 
   const undo = () => {
     if (isPlaying) return
@@ -153,6 +159,9 @@ export function App() {
       data-speed={speed.toFixed(4)}
       data-momentum={momentum}
       data-preview-valid={previewPlan?.valid === true}
+      data-authority="position-velocity"
+      data-at-visual-ms={AT_VISUAL_MS}
+      data-solver-steps={config.steps}
     >
       <header className="topbar">
         <div className="brand">
@@ -235,7 +244,6 @@ export function App() {
               cameraResetToken={cameraResetToken}
               onHoverHex={isPlaying ? () => {} : setHoverHex}
               onClickHex={resolveClick}
-              onPlaybackComplete={completePlayback}
             />
             <div className="board-legend">
               <span><i className="trajectory" />Continuous trajectory</span>
@@ -255,6 +263,7 @@ export function App() {
                 <button
                   key={entry.id}
                   className={`action-card ${entry.id === actionId ? 'selected' : ''}`}
+                  data-action-id={entry.id}
                   disabled={isPlaying}
                   onClick={() => { setActionId(entry.id); setHoverHex(null) }}
                 >
