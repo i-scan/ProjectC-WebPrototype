@@ -44,14 +44,14 @@ jobs:
         env:
           EXPECTED_COMMIT: ${{ github.sha }}
         run: pnpm verify:dist
-      - name: Verify driving polish in Chrome
+      - name: Verify Axis and thermal polish in Chrome
         run: pnpm verify:browser
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: driving-polish-v1-evidence-${{ github.sha }}
-          path: artifacts/driving-polish-v1.*
+          name: axis-thermal-preview-polish-evidence-${{ github.sha }}
+          path: artifacts/axis-thermal-preview-polish.*
           if-no-files-found: warn
           retention-days: 30
       - uses: actions/configure-pages@v5
@@ -99,6 +99,6 @@ jobs:
               context: 'pages/verified-deployment',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               description: ok
-                ? 'Driving polish / timebase / thermal sync verified online'
+                ? 'Legacy Axis HUD / steering preview / thermal AT verified online'
                 : `Pages verification failed: build=${buildResult}, deploy=${deployResult}`
             })
