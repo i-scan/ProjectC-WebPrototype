@@ -36,7 +36,6 @@ type MoveAnimation = {
 }
 
 const keyOf = (coord: Coord) => `${coord.x},${coord.y}`
-const clonePoint = (point: NormalizedHexPoint) => ({ x: point.x, z: point.z })
 
 function normalizedCenter(state: Ut7State) {
   const min = hexWorldOffset({ x: 0, y: 0 }, 1)
@@ -120,23 +119,25 @@ export function InertiaFieldBoard({
   onCellHover,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const rendererRef = useRef<THREE.WebGLRenderer>()
-  const cameraRef = useRef<THREE.OrthographicCamera>()
-  const sceneRef = useRef<THREE.Scene>()
-  const staticGroupRef = useRef<THREE.Group>()
-  const overlayGroupRef = useRef<THREE.Group>()
-  const pathGroupRef = useRef<THREE.Group>()
-  const actorRef = useRef<THREE.Group>()
-  const axisRef = useRef<THREE.Line>()
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+  const cameraRef = useRef<THREE.OrthographicCamera | null>(null)
+  const sceneRef = useRef<THREE.Scene | null>(null)
+  const staticGroupRef = useRef<THREE.Group | null>(null)
+  const overlayGroupRef = useRef<THREE.Group | null>(null)
+  const pathGroupRef = useRef<THREE.Group | null>(null)
+  const actorRef = useRef<THREE.Group | null>(null)
+  const axisRef = useRef<THREE.Line | null>(null)
   const cellMeshesRef = useRef<THREE.Mesh[]>([])
-  const moveRef = useRef<MoveAnimation>()
+  const moveRef = useRef<MoveAnimation | null>(null)
   const stateRef = useRef(state)
+  const modeRef = useRef(mode)
   const onClickRef = useRef(onCellClick)
   const onHoverRef = useRef(onCellHover)
-  const playedIdRef = useRef<number>()
+  const playedIdRef = useRef<number | null>(null)
   const zoomRef = useRef(1)
 
   stateRef.current = state
+  modeRef.current = mode
   onClickRef.current = onCellClick
   onHoverRef.current = onCellHover
 
@@ -235,13 +236,14 @@ export function InertiaFieldBoard({
         const scaled = progress * segmentCount
         const segmentIndex = Math.min(segmentCount - 1, Math.floor(scaled))
         const local = scaled - segmentIndex
-        const eased = mode === 'discrete' ? 1 - Math.pow(1 - local, 3) : local * local * (3 - 2 * local)
+        const activeMode = modeRef.current
+        const eased = activeMode === 'discrete' ? 1 - Math.pow(1 - local, 3) : local * local * (3 - 2 * local)
         const from = animation.points[segmentIndex]
         const to = animation.points[segmentIndex + 1] ?? from
         actorRef.current.position.lerpVectors(from, to, eased)
-        host.dataset.playbackMode = mode
+        host.dataset.playbackMode = activeMode
         host.dataset.playbackProgress = progress.toFixed(3)
-        if (progress >= 1) moveRef.current = undefined
+        if (progress >= 1) moveRef.current = null
       }
       renderer.render(scene, camera)
       frame = requestAnimationFrame(render)
@@ -259,6 +261,13 @@ export function InertiaFieldBoard({
       disposeGroup(overlayGroup)
       disposeGroup(pathGroup)
       renderer.dispose()
+      rendererRef.current = null
+      cameraRef.current = null
+      sceneRef.current = null
+      staticGroupRef.current = null
+      overlayGroupRef.current = null
+      pathGroupRef.current = null
+      actorRef.current = null
       host.replaceChildren()
     }
   }, [])
@@ -286,7 +295,6 @@ export function InertiaFieldBoard({
       tile.position.copy(point)
       tile.position.y = blocked ? 0.07 : 0
       tile.receiveShadow = true
-      tile.userData.coord = clonePoint(cell.coord as unknown as NormalizedHexPoint)
       tile.userData.coord = { ...cell.coord }
       cellMeshesRef.current.push(tile)
       group.add(tile)
@@ -367,7 +375,7 @@ export function InertiaFieldBoard({
       scene.remove(axisRef.current)
       axisRef.current.geometry.dispose()
       ;(axisRef.current.material as THREE.Material).dispose()
-      axisRef.current = undefined
+      axisRef.current = null
     }
     if (axis?.kind === 'horizontal') {
       const vector = hexDirectionWorldVector(axis.dir, 1)
