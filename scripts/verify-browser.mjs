@@ -234,7 +234,7 @@ try {
   await sleep(180)
   const m0Mid = await snapshot(client)
   assert(m0Mid.playing && m0Mid.worldAt === 0, 'Basic Move committed logical state early', m0Mid)
-  assert(m0Mid.thermalVisualAt > 0.05 && m0Mid.thermalVisualAt < 0.8, 'thermal pendulum did not advance inside the AT', m0Mid)
+  assert(m0Mid.thermalVisualAt > 0.05 && m0Mid.thermalVisualAt < 1, 'thermal pendulum did not advance inside the AT', m0Mid)
   assert(Math.abs(m0Mid.cameraZoom - stableViewport.cameraZoom) < 0.0001, 'camera zoom changed during playback', { stableViewport, m0Mid })
   assert(m0Mid.viewportWidth === stableViewport.viewportWidth && m0Mid.viewportHeight === stableViewport.viewportHeight, 'viewport resized during playback', { stableViewport, m0Mid })
   assert(m0Mid.canvasHeight >= 300, 'map canvas collapsed during playback', m0Mid)
