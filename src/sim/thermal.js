@@ -1,4 +1,5 @@
 export const THERMAL_PERIOD_AT = 8
+export const THERMAL_HALF_PERIOD_AT = THERMAL_PERIOD_AT / 2
 export const THERMAL_DISPLAY_MIN = -4
 export const THERMAL_DISPLAY_MAX = 4
 export const THERMAL_SET_POINT = 1
@@ -8,6 +9,8 @@ const DAMPING = 1
 const SUBSTEPS_PER_AT = 24
 const BEHAVIOR_DRIFT_IMPULSE = 0.8
 const BALANCING_DRIFT_RETENTION = 0.35
+const TARGET_DAMPED_OMEGA = Math.PI * 2 / THERMAL_PERIOD_AT
+const NATURAL_OMEGA = Math.sqrt(TARGET_DAMPED_OMEGA * TARGET_DAMPED_OMEGA + (DAMPING * 0.5) ** 2)
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
@@ -36,12 +39,11 @@ export function advanceThermal(input, behavior, deltaAt = 1) {
   else if (behavior === 'passive-dissipation') next.drift *= BALANCING_DRIFT_RETENTION
 
   const duration = Math.max(0, deltaAt)
-  const omega = Math.PI * 2 / THERMAL_PERIOD_AT
   const substeps = Math.max(1, Math.ceil(duration * SUBSTEPS_PER_AT))
   const dt = duration / substeps
   for (let index = 0; index < substeps; index += 1) {
     const offset = next.temperature - next.setPoint
-    const acceleration = -omega * omega * offset - DAMPING * next.drift
+    const acceleration = -NATURAL_OMEGA * NATURAL_OMEGA * offset - DAMPING * next.drift
     next.drift += acceleration * dt
     next.temperature = clamp(next.temperature + next.drift * dt, -6, 6)
   }
@@ -50,6 +52,12 @@ export function advanceThermal(input, behavior, deltaAt = 1) {
     next.drift = 0
   }
   return next
+}
+
+export function sampleThermalTransition(input, behavior, progressAt) {
+  const progress = clamp(progressAt, 0, 1)
+  if (progress <= 0) return { ...input }
+  return advanceThermal(input, behavior, progress)
 }
 
 export function thermalZoneClass(value) {
