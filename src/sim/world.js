@@ -7,7 +7,12 @@ function hash(q, r, salt = 0) {
   return value - Math.floor(value)
 }
 
+function isSpawnSafe(q, r) {
+  return axialDistance({ q, r }) <= 1
+}
+
 function terrainFor(q, r, radius) {
+  if (isSpawnSafe(q, r)) return 'grass'
   const distance = axialDistance({ q, r })
   const noise = hash(q, r, 3)
   if (q === 2 && r === -2) return 'fire'
@@ -19,7 +24,7 @@ function terrainFor(q, r, radius) {
 
 function tagsFor(q, r, terrain) {
   const tags = []
-  if (terrain === 'stone' && hash(q, r, 7) > 0.58) tags.push('Mountain')
+  if (!isSpawnSafe(q, r) && terrain === 'stone' && hash(q, r, 7) > 0.58) tags.push('Mountain')
   if (q === -1 && r === 2) tags.push('Shelter')
   if (q === 3 && r === 0) tags.push('UT3Hard')
   if (q === 2 && r === -2) tags.push('UT3ReflectLeft')
@@ -30,11 +35,12 @@ function tagsFor(q, r, terrain) {
 export function createCellWorld(radius = 7) {
   return createHexBoard(radius).map(({ q, r }) => {
     const terrain = terrainFor(q, r, radius)
-    const moisture = terrain === 'water' ? 2 : hash(q, r, 5) > 0.73 ? 2 : hash(q, r, 9) > 0.45 ? 1 : 0
-    const groundTemp = terrain === 'fire' ? 3 : terrain === 'ice' ? -3 : Math.round((hash(q, r, 11) - 0.5) * 4)
+    const spawnSafe = isSpawnSafe(q, r)
+    const moisture = spawnSafe ? 0 : terrain === 'water' ? 2 : hash(q, r, 5) > 0.73 ? 2 : hash(q, r, 9) > 0.45 ? 1 : 0
+    const groundTemp = spawnSafe ? 0 : terrain === 'fire' ? 3 : terrain === 'ice' ? -3 : Math.round((hash(q, r, 11) - 0.5) * 4)
     const skyNoise = hash(q, r, 13)
-    const skyFill = skyNoise > 0.7 ? 'cloud' : 'clear'
-    const rain = skyFill === 'cloud' && moisture > 0 && hash(q, r, 15) > 0.58
+    const skyFill = spawnSafe ? 'clear' : skyNoise > 0.7 ? 'cloud' : 'clear'
+    const rain = !spawnSafe && skyFill === 'cloud' && moisture > 0 && hash(q, r, 15) > 0.58
     const wind = ['E', 'NE', 'NW', 'W', 'SW', 'SE'][Math.floor(hash(q, r, 17) * 6)]
     return {
       q,
