@@ -69,6 +69,7 @@ async function evaluate(client, expression) {
 const snapshotExpression = `(() => {
   const root = document.querySelector('.current-prototype[data-implementation="continuous-inertia-v1"]')
   const board = root?.querySelector('.continuous-board-host')
+  const actionCards = [...(root?.querySelectorAll('.action-card') ?? [])]
   return {
     implementation: root?.dataset.implementation ?? '',
     playing: root?.dataset.playing === 'true',
@@ -80,9 +81,12 @@ const snapshotExpression = `(() => {
     visualZ: Number(board?.dataset.visualZ ?? NaN),
     progress: Number(board?.dataset.playbackProgress ?? 0),
     canvas: Boolean(board?.querySelector('canvas')),
+    canvasCount: root?.querySelectorAll('canvas').length ?? 0,
+    actionCardCount: actionCards.length,
+    selectedActionIndex: actionCards.findIndex((node) => node.classList.contains('selected')),
     hasLegacyBoard: Boolean(root?.querySelector('.inertia-field-board')),
-    hasApply: [...(root?.querySelectorAll('button') ?? [])].some((button) => button.textContent.includes('Apply Impulse')),
-    text: root?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+    hasApply: Boolean(root?.querySelector('[data-testid="impulse-commit"], .impulse-commit-row')),
+    cameraViewButtons: root?.querySelectorAll('.view-switch button').length ?? 0,
   }
 })()`
 
@@ -129,7 +133,8 @@ try {
   })
   assert(!initial.hasLegacyBoard && !initial.hasApply, 'legacy renderer or Apply control leaked into rebuild', initial)
   assert(initial.worldAt === 0 && Math.abs(initial.logicalX) < 0.001, 'initial logical state is incorrect', initial)
-  assert(initial.text.includes('Position + Velocity') && initial.text.includes('No Discrete / Hybrid gameplay modes'), 'current movement contract is not visible', initial)
+  assert(initial.canvasCount === 1 && initial.actionCardCount === 5 && initial.selectedActionIndex === 0, 'single-board current action structure is incorrect', initial)
+  assert(initial.cameraViewButtons === 3, 'camera controls are not the expected non-gameplay view controls', initial)
 
   const startMs = Date.now()
   const fired = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2, 0)`)
@@ -159,11 +164,16 @@ try {
   assert(Math.abs(afterDrive.visualX - afterDrive.logicalX) < 0.03, 'visual and authoritative positions disagree after playback', afterDrive)
 
   await evaluate(client, `(() => {
-    const button = [...document.querySelectorAll('.action-card')].find((node) => node.textContent.includes('Coast'))
-    if (!button) throw new Error('Coast card missing')
-    button.click()
+    const cards = [...document.querySelectorAll('.action-card')]
+    if (cards.length !== 5) throw new Error('Expected five motion cards')
+    cards[4].click()
     return true
   })()`)
+  await waitFor('Coast card selection', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.selectedActionIndex !== 4) throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
   const coastFired = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2, 0)`)
   assert(coastFired === true, 'Coast could not resolve by clicking a traversed Cell')
   const afterCoast = await waitFor('Coast completion', async () => {
