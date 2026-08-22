@@ -7,6 +7,9 @@ export const MAX_SPEED = 3.2
 export const ACTOR_RADIUS = 0.16
 export const BASIC_MOVE_DISTANCE = 1
 
+const CURVE_HANDLE_RATIO = 0.56
+const CURVE_HANDLE_MAX = 0.82
+
 export const ACTIONS = [
   {
     id: 'basic-move',
@@ -72,6 +75,9 @@ export const DEFAULT_SOLVER_CONFIG = Object.freeze({
   maxSpeed: MAX_SPEED,
 })
 
+const lerp = (a, b, t) => a + (b - a) * t
+const smoothstep = (t) => t * t * (3 - 2 * t)
+
 export function momentumLevel(speed) {
   if (speed < 0.18) return 0
   if (speed < 1.2) return 1
@@ -85,6 +91,11 @@ export function createInitialState() {
 
 export function actionById(id) {
   return ACTIONS.find((action) => action.id === id) ?? ACTIONS[1]
+}
+
+export function combineImpulseVelocity(velocity, aimDirection, force, maxSpeed = MAX_SPEED) {
+  const direction = normalize(aimDirection)
+  return clampLength(add(velocity, scale(direction, force)), maxSpeed)
 }
 
 function aimPolicy(state, action, aimPoint) {
@@ -106,8 +117,6 @@ function aimPolicy(state, action, aimPoint) {
   }
   const direction = normalize(aimVector)
 
-  // Drive / Heavy Drive / Hard Turn / Basic Move are direction-free inputs.
-  // Their consequence is constrained by vector addition, not by a pre-check.
   if (action.id !== 'counter') {
     const angle = speed < 0.18 ? 0 : angleDeg(state.velocity, direction)
     return { valid: true, reason: '', direction, angle }
@@ -165,7 +174,7 @@ function actionVectors(state, action, policy, config) {
   }
 
   const impulse = scale(policy.direction, action.force)
-  const momentumVelocity = clampLength(add(state.velocity, impulse), config.maxSpeed)
+  const momentumVelocity = combineImpulseVelocity(state.velocity, policy.direction, action.force, config.maxSpeed)
   return {
     impulse,
     momentumVelocity,
@@ -199,6 +208,26 @@ function hermiteDerivative(start, end, startTangent, endTangent, t) {
   }
 }
 
+function boundedTangent(directionSource, travelDistance) {
+  if (length(directionSource) < 0.001 || travelDistance < 0.001) return { x: 0, z: 0 }
+  const handleLength = Math.min(CURVE_HANDLE_MAX, travelDistance * CURVE_HANDLE_RATIO)
+  return scale(normalize(directionSource), handleLength)
+}
+
+function velocityAlongCurve(derivative, startVelocity, endVelocity, t) {
+  const beforeSpeed = length(startVelocity)
+  const afterSpeed = length(endVelocity)
+  const direction = length(derivative) > 0.001
+    ? normalize(derivative)
+    : afterSpeed > 0.001
+      ? normalize(endVelocity)
+      : beforeSpeed > 0.001
+        ? normalize(startVelocity)
+        : { x: 0, z: 0 }
+  const speed = lerp(beforeSpeed, afterSpeed, smoothstep(t))
+  return scale(direction, speed)
+}
+
 function hybridNominalPath(state, action, vectors) {
   const start = { ...state.position }
   const end = add(start, vectors.travelVector)
@@ -215,10 +244,11 @@ function hybridNominalPath(state, action, vectors) {
   if (action.kind === 'basic') {
     const inertiaSpeed = length(state.velocity)
     const travelSpeed = length(vectors.travelVector)
-    const startTangent = inertiaSpeed > 0.18 ? { ...state.velocity } : { ...vectors.travelVector }
-    const endTangent = { ...vectors.travelVector }
-    const turnAngle = inertiaSpeed > 0.18 && travelSpeed > 0.18 ? angleDeg(startTangent, endTangent) : 0
+    const startDirection = inertiaSpeed > 0.18 ? state.velocity : vectors.travelVector
+    const turnAngle = inertiaSpeed > 0.18 && travelSpeed > 0.18 ? angleDeg(startDirection, vectors.travelVector) : 0
     const curveUsed = turnAngle > 5
+    const startTangent = boundedTangent(startDirection, travelSpeed)
+    const endTangent = boundedTangent(vectors.travelVector, travelSpeed)
     return {
       curveUsed,
       pointAt: curveUsed
@@ -227,7 +257,6 @@ function hybridNominalPath(state, action, vectors) {
       motionVelocityAt: curveUsed
         ? (t) => hermiteDerivative(start, end, startTangent, endTangent, t)
         : () => ({ ...vectors.travelVector }),
-      // Basic Move translates the actor but does not mutate persistent inertia.
       momentumVelocityAt: () => ({ ...vectors.momentumVelocity }),
     }
   }
@@ -238,8 +267,13 @@ function hybridNominalPath(state, action, vectors) {
     ? angleDeg(state.velocity, vectors.momentumVelocity)
     : 0
   const curveUsed = turnAngle > 5
-  const startTangent = curveUsed ? { ...state.velocity } : { ...vectors.momentumVelocity }
-  const endTangent = { ...vectors.momentumVelocity }
+  const travelDistance = length(vectors.travelVector)
+  const startTangent = curveUsed
+    ? boundedTangent(state.velocity, travelDistance)
+    : { ...vectors.momentumVelocity }
+  const endTangent = curveUsed
+    ? boundedTangent(vectors.momentumVelocity, travelDistance)
+    : { ...vectors.momentumVelocity }
   return {
     curveUsed,
     pointAt: curveUsed
@@ -249,7 +283,7 @@ function hybridNominalPath(state, action, vectors) {
       ? (t) => hermiteDerivative(start, end, startTangent, endTangent, t)
       : () => ({ ...vectors.momentumVelocity }),
     momentumVelocityAt: curveUsed
-      ? (t) => clampLength(hermiteDerivative(start, end, startTangent, endTangent, t), MAX_SPEED)
+      ? (t) => velocityAlongCurve(hermiteDerivative(start, end, startTangent, endTangent, t), state.velocity, vectors.momentumVelocity, t)
       : () => ({ ...vectors.momentumVelocity }),
   }
 }
@@ -319,12 +353,11 @@ export function simulateImpulse({ state, actionId, aimPoint, config = DEFAULT_SO
 
     if (!isInsideBoard(candidate, config.boardRadius)) {
       const inwardNormal = normalize(scale(candidate, -1))
-      const reflectedMotion = reflect(motionVelocity, inwardNormal, config.boundaryRestitution)
+      const collisionVelocity = action.kind === 'basic' ? momentumVelocity : sampleVelocity
+      const reflectedMotion = clampLength(reflect(collisionVelocity, inwardNormal, config.boundaryRestitution), config.maxSpeed)
       candidate = { ...position }
       if (action.kind === 'basic') {
-        momentumVelocity = length(momentumVelocity) > 0.02
-          ? reflect(momentumVelocity, inwardNormal, config.boundaryRestitution)
-          : { x: 0, z: 0 }
+        momentumVelocity = length(momentumVelocity) > 0.02 ? reflectedMotion : { x: 0, z: 0 }
         ballisticVelocity = { ...momentumVelocity }
       } else {
         momentumVelocity = { ...reflectedMotion }
@@ -335,18 +368,17 @@ export function simulateImpulse({ state, actionId, aimPoint, config = DEFAULT_SO
     }
 
     for (const obstacle of obstacles) {
-      const activeMotion = ballisticVelocity ?? motionVelocity
-      const resolved = resolveObstacle(candidate, activeMotion, obstacle, config.restitution)
+      const collisionVelocity = action.kind === 'basic' ? momentumVelocity : sampleVelocity
+      const resolved = resolveObstacle(candidate, collisionVelocity, obstacle, config.restitution)
       if (!resolved) continue
       candidate = resolved.position
+      const reflectedVelocity = clampLength(resolved.velocity, config.maxSpeed)
       if (action.kind === 'basic') {
-        momentumVelocity = length(momentumVelocity) > 0.02
-          ? reflect(momentumVelocity, resolved.normal, resolved.bounce)
-          : { x: 0, z: 0 }
+        momentumVelocity = length(momentumVelocity) > 0.02 ? reflectedVelocity : { x: 0, z: 0 }
         ballisticVelocity = { ...momentumVelocity }
       } else {
-        momentumVelocity = { ...resolved.velocity }
-        ballisticVelocity = { ...resolved.velocity }
+        momentumVelocity = { ...reflectedVelocity }
+        ballisticVelocity = { ...reflectedVelocity }
       }
       sampleVelocity = { ...momentumVelocity }
       collisions.push({ t, position: { ...candidate }, ...resolved.collision })
@@ -411,7 +443,7 @@ export function simulateDiscreteImpulse({ state, actionId, aimPoint, config = DE
   const afterImpulseSpeed = length(vectors.momentumVelocity)
   let momentumVelocity = { ...vectors.momentumVelocity }
   let motionVelocity = { ...vectors.travelVector }
-  let movementSteps = action.kind === 'basic'
+  const movementSteps = action.kind === 'basic'
     ? Math.max(1, Math.min(4, Math.round(length(motionVelocity))))
     : momentumLevel(afterImpulseSpeed)
 
@@ -440,7 +472,7 @@ export function simulateDiscreteImpulse({ state, actionId, aimPoint, config = DE
             ? scale(momentumVelocity, -bounce)
             : { x: 0, z: 0 }
         } else {
-          momentumVelocity = { ...motionVelocity }
+          momentumVelocity = clampLength(motionVelocity, config.maxSpeed)
         }
         collisions.push({
           t: index / movementSteps,
