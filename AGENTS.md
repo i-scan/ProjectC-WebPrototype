@@ -2,154 +2,228 @@
 
 ## Active scope
 
-The active runtime is the Cell World inertia A/B lab on `main`.
+本仓库当前用于 ProjectC 的 Cell World / inertia 驾驶规则实验。它是可执行验证环境，不自动等同于最终正式游戏规则。
 
-Hybrid authoritative movement state:
+当前活动拓扑为 Hex6。`Inertia Driving Lab` 同时保留：
 
-```text
-Position(x,z) + Velocity(x,z)
-```
+- Basic Move 的离散 Axis / Momentum 驾驶验证；
+- Drive / Heavy Drive / Counter / Hard Turn 等连续 `Velocity + ΔV` 冲量实验；
+- Discrete / Hybrid 表现 A/B；
+- Thermal 与统一 AT 播放；
+- Collision / Cell World / Axis HUD 的视觉验证。
 
-Shared user input:
+不要把不同实验分支的语义混成一套规则。
 
-```text
-Action + Aim Cell → direction / impulse intent → resolve fixed 1 AT
-```
+---
 
-A clicked Cell defines **direction**, not a requested destination. Preview and execution must use the same solver result.
+## Required reading
 
-## Current actions
+涉及 Actor Loop、Basic Move、Momentum、Axis、AT、Thermal、路径或 steering 时，至少读取：
 
-### Basic Move
+1. 本文件；
+2. `README.md`；
+3. `src/sim/solver.js` 与对应测试；
+4. ProjectC 仓库 `docs/VAL-012-actor-loop-v0-program-handoff.md`；
+5. ProjectC 当前 design / validation 中与该实验有关的最新条目。
 
-Basic Move is a base command, not an impulse card.
+若用户在对话中给出比仓库文档更新的明确修正，以最新用户修正为准，并同步仓库文档与回归测试，禁止继续依赖旧实现自证正确。
 
-- cost: 1 AT;
-- Aim Cell defines voluntary movement direction only;
-- base voluntary displacement: 1 Cell-equivalent / AT;
-- current inertia is added to that voluntary movement;
-- Basic Move does not automatically add, spend, or reset persistent Momentum / Velocity;
-- at M0, Basic Move therefore moves one Cell-equivalent while remaining M0.
+---
 
-Do not restore the old destination-selection / reachable-field interpretation of Basic Move.
+## Basic Move authoritative correction
 
-### Drive / Heavy Drive
-
-Drive actions are free-direction impulses. The physical formula is authoritative:
+当前 Basic Move 不再使用以下旧解释：
 
 ```text
-AimDirection = normalize(AimCellCenter - Position)
-V_after = clampLength(V_before + AimDirection * Force, MaxSpeed)
+Voluntary Move 1 + Current Velocity
 ```
 
-- Drive `Force = 0.85`;
-- Heavy Drive `Force = 1.35`;
-- there is **no pre-impulse steering-angle legality check**;
-- the resulting direction is whatever vector addition produces;
-- Hybrid curve geometry must never alter the final resultant Velocity.
+也不允许把远端 Cell 当作 Basic Move 的方向输入。
 
-### Counter / Hard Turn / Coast
+当前候选规则：
 
-- Counter Impulse keeps its reverse-direction semantic and may enforce a reverse aim window.
-- Hard Turn is a smaller free-direction correction impulse.
-- Coast applies no new impulse and preserves current Velocity.
+```text
+Basic Move = 1 AT
+Aim Cell = 必须与 Actor 当前 Cell 相邻
+M0 = Range 1
+M2+ = 首轮候选 Range 2（即基础 Range +1）
+Horizontal M>0 的移动 AT = 整个 AT 只结算一次 M-1
+```
 
-## Spatial A/B
+这里的 `M-1` 是本移动 AT 对已有 Horizontal Momentum 的一次性结算，不是“支付额外 Momentum 才购买 Range+1”的第二笔成本。禁止按经过的每个 Cell 重复扣 M。
 
-Discrete and Hybrid are intentional comparison modes in the current lab. They share the same board, actions, Aim Cell input, fixed 1 AT logical cost and delayed logical-state commit rule.
+M2 直接示例：
 
-Discrete presents the result through Cell-centered movement steps.
+```text
+E M2 + Basic Move(E adjacent Aim)
+→ Range 2
+→ Cell path: E, E
+→ 本 AT 结束 M2 -> M1
+→ worldAt +1
+```
 
-Hybrid resolves continuous Position / Velocity. When an impulse changes heading, its sampled path may bend continuously from incoming Velocity toward mixed outgoing Velocity. Curve geometry is presentation / path shape only; it must not contaminate the physical resultant Velocity or collision response.
+M0 示例：
 
-## Axis / Momentum visualization
+```text
+M0 + Basic Move(E adjacent Aim)
+→ Range 1
+→ Move E 1 Cell
+→ 仍为 M0
+→ worldAt +1
+```
 
-The Axis HUD intentionally reuses the mature pre-rebuild presentation language:
+---
 
-- **Horizontal Axis**: a short, thin yellow screen-space arrow. It encodes direction only and does not grow with M;
-- **M0**: an explicit neutral M0 marker remains visible instead of hiding Axis UI entirely;
-- **Down M**: the cyan ring / downward anchor marker represents the old Grounded / Position Authority axis. Down M is **not downward Velocity** and must not be inserted into the current 2D Position/Velocity movement solver;
-- the current driving lab exposes Down M1–M3 only as an Axis Indicator visual preview until the actual Grounded mechanics are reconnected;
-- the three actor dots remain the magnitude encoding for M1 / M2 / M3.
+## Basic Move steering / path
 
-Do not replace this HUD with a large world-space arrow unless the user explicitly asks to abandon the previous visual language.
+Aim Cell 是相邻 steering intent，不是远端目的地。
 
-## Steering preview
+当已有 Horizontal Axis 时，每经过一个 Cell-step，Axis 最多朝 Aim 方向 Redirect 60°。
 
-The prediction line is a steering / direction guide, not a full route annotation:
+当前实现遵守：
 
-- short horizon, about 1.55 world units;
-- thick-enough dashed segments for readability;
-- begins from current movement heading when one exists;
-- rotates smoothly along the shortest turn toward the resulting movement direction;
-- may therefore show a curve in both Discrete and Hybrid modes;
-- it must not imply that every displayed point is an authoritative Cell path or destination.
+```text
+oldAxis = 当前 Axis
+newAxis = oldAxis 朝 Aim 最多 Redirect 60°
+residualM = max(0, M - 1) // 整个 AT 只算一次
 
-## AT / Thermal timebase
+if residualM > 0:
+    Actual Move Direction = oldAxis
+else:
+    Actual Move Direction = newAxis
 
-Logical time and playback seconds are separate:
+移动后：Current Axis = newAxis
+```
 
-- one action always costs exactly 1 AT;
-- solver baseline remains 120 substeps / AT;
-- default visual duration is 800ms / AT;
-- debug Timebase may adjust visual duration from 250ms to 1600ms / AT in 50ms steps;
-- this slider must never alter movement solver results or the one-AT Thermal result;
-- final logical state commits only after configured visual playback finishes.
+因此 M2 的一个 2-Cell AT 可以产生受惯性约束的折线路径，而不能从起点直接 Tween 到一个任意远端目标。
 
-Thermal uses one continuous damped-oscillator model in AT space:
+示例：
 
-- one complete visible oscillation = 8 AT;
-- one half swing = 4 AT;
-- fractional playback samples are analytic, not frame-rate or substep dependent;
-- do not reintroduce `ceil(progress * substeps)` resampling of the whole interval, which caused repeated left/right numerical jitter inside one AT;
-- the pendulum evolves continuously during movement playback and uses the same fractional AT clock as movement.
+```text
+E M2 + Aim NW（Aim Cell 仍然只是起点相邻 NW）
+→ step 1: 实际沿 E；Axis E -> NE
+→ step 2: 实际沿 NE；Axis NE -> NW
+→ 最终 M1 / Axis NW
+```
 
-## Playback stability
+Discrete 与 Hybrid 对 Basic Move 必须共享同一逻辑 Cell path；它们可以在视觉插值上不同，但不得得到不同的最终 Cell / M / Axis 规则结果。
 
-- do not auto-follow or auto-zoom the actor during an action;
-- camera zoom/orbit input is frozen while playback is active;
-- defer ResizeObserver-driven viewport changes until playback ends so Three.js projection and canvas geometry do not breathe or subtly scale during motion.
+---
 
-## Hard constraints
+## 180-degree steering
 
-Do not reintroduce any active runtime, compatibility layer, or movement authority based on:
+不允许直接 `E -> W` 180° Redirect。
 
-- Square4;
-- UT5 / UT6 / UT7 historical playgrounds;
-- Reachable Field endpoint selection;
-- target-cell pathfinding movement;
-- `InertiaFieldBoard`;
-- old Cell-center Hybrid waypoint simplification;
-- segmented actor playback;
-- Apply / Confirm movement buttons;
-- automatic per-AT Momentum spending just because movement occurred.
+ProjectC handoff 要求等价的顺/逆时针 U-turn 路线由玩家选择，而不是系统静默替玩家决定。
 
-Historical code remains recoverable from `backup/pre-rebuild-2026-08-22`. Reuse a historical presentation idea only when it can be expressed through the current shared solver contract.
+当前 WebPrototype 尚未完成左右分支选择 UI，因此当前临时行为是：
 
-## Movement architecture
+```text
+已有 Horizontal M + 正后方相邻 Aim
+→ plan invalid
+→ 明确提示需要 left/right steering branch
+```
 
-- Deterministic and side-effect-free solver.
-- One action resolves exactly 1 AT.
-- Current baseline: 120 simulation substeps / AT.
-- Default visual baseline: 800ms / AT, adjustable only as presentation speed.
-- Do not commit final logical Position before visual playback completes.
-- Renderer consumes solver trajectory samples; it does not infer destination movement after state mutation.
-- Hex Cell and M are derived views, not Hybrid movement authority.
-- Collision response operates on physical movement Velocity; never pathfind around collision.
+这是 `prototype-snapshot`，不是最终确认的交互方案。后续实现左右分支时必须补充 UI 与浏览器回归测试。
 
-## Validation order
+---
 
-Until movement feel is accepted, prioritize:
+## Impulse actions remain separate
 
-1. Basic Move + inertia interaction;
-2. Drive / Heavy Drive exact vector-sum turning;
-3. Hybrid curve readability without mathematical contamination;
-4. Horizontal / M0 / Down Axis HUD readability;
-5. steering-preview turn readability;
-6. AT playback speed and camera stability;
-7. Thermal synchronization without intra-AT numerical jitter;
-8. Coast / Counter / Hard Turn;
-9. hard-surface / boundary collision;
-10. only then deepen Thermal and later tactical systems.
+不要因为修正 Basic Move 而破坏冲量卡实验。
 
-Do not expand enemy AI, deckbuilding, equipment, or session economy to compensate for unresolved movement feel.
+Drive / Heavy Drive / Hard Turn 仍使用：
+
+```text
+V_after = clamp(V_before + normalize(Aim) * Force, MaxSpeed)
+```
+
+它们允许远端 Aim Cell 用来定义向量方向；这与 Basic Move 的“相邻 Aim”是两套不同输入契约。
+
+Counter 保留专用反向窗口；Coast 保留当前 Velocity。
+
+Hybrid 的曲线只负责呈现连续转向过程，最终 Velocity 必须仍与向量合成结果一致。
+
+---
+
+## State / presentation boundary
+
+当前运行时仍以以下状态支持现有 A/B：
+
+```text
+Position(x,z) + Velocity(x,z) + worldAt
+```
+
+Momentum level 暂由速度区间映射到 M0~M3；Basic Move 结算后使用 canonical M speed 表示新的 M。
+
+这只是当前 WebPrototype 的承载方式，不代表正式设计已经决定用连续 Velocity 保存所有 Axis / M 状态。
+
+表现层不得自行修改规则结果：
+
+- Three.js 只消费 solver samples / state；
+- React 不重新计算另一套路径；
+- Preview 与 click execution 必须调用同一 solver；
+- Thermal 的真实时间播放不能改变 AT 逻辑结果。
+
+---
+
+## UI invariants
+
+- Basic Move 只能提交相邻 Aim；远端 `fireAt` 必须返回 false。
+- Basic Move 跨多 Cell 时按 solver 输出的 Cell path 播放，不得直接按远端目标直线插值。
+- Axis HUD 与 Momentum dots 必须反映结算后的 M / 方向。
+- `Undo`、`Reset`、Timebase、Thermal Pendulum 在 playback 期间继续保持原有稳定性。
+- 不重新加入独立 `Apply` 按钮；当前交互仍为 click-to-resolve。
+
+如果 UI 文案与 solver 冲突，以 solver + 当前 validation 为故障信号，必须同步修正文案，不能用文案覆盖规则。
+
+---
+
+## Regression gates
+
+影响 movement 的提交至少验证：
+
+```text
+pnpm test
+pnpm build
+pnpm verify:dist
+pnpm verify:browser
+```
+
+Basic Move 的必测用例：
+
+1. M0 + adjacent Aim -> Move1 / M0 / +1AT；
+2. remote Basic Aim -> invalid，且不改变 worldAt；
+3. E M2 + E adjacent Aim -> Range2 / E,E / M1 / +1AT；
+4. E M2 + NW adjacent Aim -> E,NE path / M1；
+5. direct opposite Aim 不得静默选 U-turn 分支；
+6. Discrete / Hybrid Basic Move 最终逻辑路径一致；
+7. Hybrid Drive 的 `V + ΔV` 与曲线表现不得回归。
+
+Pages 发布只有在 build、browser verification、deploy 和 published-commit verification 全部成功后才算完成。
+
+---
+
+## Documentation discipline
+
+禁止再次写入或恢复这些已否定表述：
+
+- “Basic Move = voluntary displacement + current inertia”；
+- “Basic Move 可以用远端 Cell 只定义方向”；
+- “Basic Move 永远 ΔM 0 / Momentum persistent”；
+- “多 Cell Basic Move 可以绕过 Cell path 直接做连续终点插值”。
+
+如果未来用户再次修改规则，先更新本文件与回归契约，再改实现，避免旧测试把错误行为保护成“稳定功能”。
+
+---
+
+## Completion report
+
+完成 movement 任务后回复必须说明：
+
+- 修改文件；
+- Basic Move / Impulse 哪些玩法行为发生变化；
+- 哪些仍是 `prototype-snapshot`；
+- 单元测试 / build / browser gate 结果；
+- Pages 是否部署并验证到具体 commit；
+- 是否需要回写 ProjectC validation / design 文档。
