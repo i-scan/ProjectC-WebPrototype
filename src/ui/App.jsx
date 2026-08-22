@@ -80,6 +80,16 @@ export function App() {
   const predictedHex = previewPlan?.valid ? worldToAxial(previewPlan.finalState.position) : null
   const isPlaying = Boolean(playback)
   const thermalDomain = thermalDomainFor(thermal.temperature)
+  const actionDescriptor = action.kind === 'basic'
+    ? 'BASE · 1 AT · ΔM 0'
+    : action.kind === 'coast'
+      ? 'COAST · ΔV 0'
+      : `ΔV ${action.force.toFixed(2)}`
+  const inputContract = action.kind === 'basic'
+    ? `Basic Move + Aim Cell → Voluntary Move + Current Inertia → ${spatialMode === 'discrete' ? 'Cell-step resolution' : 'Continuous curved resolution'}`
+    : action.kind === 'coast'
+      ? `Coast → Current Velocity → ${spatialMode === 'discrete' ? 'Cell-step resolution' : 'Continuous Position + Velocity'}`
+      : `Impulse Card + Aim Cell → Current Velocity + ΔV → ${spatialMode === 'discrete' ? 'Cell-step resolution' : 'Continuous curved resolution'}`
 
   const changeSpatialMode = (mode) => {
     if (mode !== 'discrete' && mode !== 'hybrid') return false
@@ -157,11 +167,27 @@ export function App() {
     window.__PROJECTC_PROTOTYPE__ = {
       fireAt(q, r) { return resolveClick({ q, r }) },
       setSpatialMode(mode) { return changeSpatialMode(mode) },
+      setAction(id) {
+        if (isPlaying || !ACTIONS.some((entry) => entry.id === id)) return false
+        setActionId(id)
+        setHoverHex(null)
+        return true
+      },
+      setVelocity(x, z) {
+        if (isPlaying || !Number.isFinite(x) || !Number.isFinite(z)) return false
+        setState((current) => ({ ...current, velocity: { x, z } }))
+        setHoverHex(null)
+        return true
+      },
+      trajectory() {
+        return structuredClone(playback?.samples ?? previewPlan?.samples ?? [])
+      },
       snapshot() {
         return {
           ...structuredClone(state),
           thermal: structuredClone(thermal),
           spatialMode,
+          actionId,
         }
       },
     }
@@ -210,8 +236,9 @@ export function App() {
   return (
     <main
       className="current-prototype cell-world-prototype"
-      data-implementation="cell-world-spatial-ab-v2"
+      data-implementation="cell-world-spatial-ab-v3"
       data-spatial-mode={spatialMode}
+      data-action-id={actionId}
       data-playing={isPlaying}
       data-world-at={state.worldAt.toFixed(1)}
       data-logical-x={state.position.x.toFixed(4)}
@@ -265,7 +292,7 @@ export function App() {
 
           <section className="panel-card prediction-card">
             <div className="section-heading"><h3>Predicted Outcome</h3><span>{previewPlan?.valid ? spatialMode : 'waiting aim'}</span></div>
-            <p>{previewPlan ? planSummary(previewPlan) : actionId === 'coast' ? 'Coast uses the current velocity direction.' : 'Hover a Cell to preview this card.'}</p>
+            <p>{previewPlan ? planSummary(previewPlan) : actionId === 'coast' ? 'Coast uses the current velocity direction.' : 'Hover a Cell to preview this action.'}</p>
             {previewPlan?.valid && (
               <dl className="state-list compact">
                 <div><dt>Aim Cell</dt><dd>{hoverHex ? axialKey(hoverHex) : 'velocity'}</dd></div>
@@ -280,7 +307,7 @@ export function App() {
 
         <section className="center-column">
           <div className="board-strip">
-            <strong>Card + Aim Cell → Impulse → {spatialMode === 'discrete' ? 'Cell-step resolution' : 'Continuous Position + Velocity'}</strong>
+            <strong>{inputContract}</strong>
             <span>{isPlaying ? `Resolving 1 AT · ${playback?.summary ?? ''}` : hoverHex ? `Aim Cell ${axialKey(hoverHex)} · ${terrainLabel(aimedCell)}` : 'Hover a Cell to aim'}</span>
           </div>
           <div className="board-toolbar">
@@ -315,17 +342,17 @@ export function App() {
               onClickHex={resolveClick}
             />
             <div className="board-legend">
-              <span><i className={spatialMode === 'discrete' ? 'trajectory discrete' : 'trajectory'} />{spatialMode === 'discrete' ? 'Cell-step trajectory' : 'Continuous trajectory'}</span>
+              <span><i className={spatialMode === 'discrete' ? 'trajectory discrete' : 'trajectory'} />{spatialMode === 'discrete' ? 'Cell-step trajectory' : 'Continuous / curved trajectory'}</span>
               <span><i className="terrain" />Cell terrain / weather</span>
-              <span><i className="momentum-axis" />Momentum axis</span>
+              <span><i className="momentum-axis" />Axis arrow = direction · dots = M</span>
             </div>
             {isPlaying && <div className="playback-badge">{playback?.spatialMode === 'discrete' ? 'Discrete' : 'Hybrid'} · 1 AT · fixed visible {AT_VISUAL_MS} ms · {playback?.thermalBehavior}</div>}
           </div>
 
           <section className="action-hand">
             <div className="hand-heading">
-              <div><h2>Motion Cards · Force / Cell Aim</h2><p>Hover gives deterministic preview. Clicking the aimed Cell resolves immediately.</p></div>
-              <span>{action.label} · F{action.force.toFixed(2)}</span>
+              <div><h2>Basic Command + Momentum Cards · Cell Aim</h2><p>Aim Cell defines direction, never a destination. Preview and execution share one solver.</p></div>
+              <span>{action.label} · {actionDescriptor}</span>
             </div>
             <div className="action-row">
               {ACTIONS.map((entry) => (
@@ -337,7 +364,10 @@ export function App() {
                   disabled={isPlaying}
                   onClick={() => { setActionId(entry.id); setHoverHex(null) }}
                 >
-                  <header><strong>{entry.label}</strong><em>F{entry.force.toFixed(2)}</em></header>
+                  <header>
+                    <strong>{entry.label}</strong>
+                    <em>{entry.kind === 'basic' ? 'BASE' : entry.kind === 'coast' ? 'ΔV 0' : `ΔV ${entry.force.toFixed(2)}`}</em>
+                  </header>
                   <p>{entry.description}</p>
                   <span>{entry.short}</span>
                 </button>
@@ -350,10 +380,10 @@ export function App() {
           <section className="panel-card spatial-ab-card">
             <div className="section-heading"><h3>Spatial Model A/B</h3><span>same board</span></div>
             <div className="ab-explain">
-              <button type="button" data-spatial-panel-select="discrete" className={spatialMode === 'discrete' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('discrete')}><b>Discrete</b><span>Cell center landing · discrete movement state</span></button>
-              <button type="button" data-spatial-panel-select="hybrid" className={spatialMode === 'hybrid' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('hybrid')}><b>Hybrid</b><span>Continuous P/V · Cell remains world / Aim unit</span></button>
+              <button type="button" data-spatial-panel-select="discrete" className={spatialMode === 'discrete' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('discrete')}><b>Discrete</b><span>Cell-center presentation of the same Aim / action input</span></button>
+              <button type="button" data-spatial-panel-select="hybrid" className={spatialMode === 'hybrid' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('hybrid')}><b>Hybrid</b><span>Continuous P/V with curved momentum blending inside the Cell world</span></button>
             </div>
-            <small>只替换空间求解器；棋盘、Aim Cell、卡牌、相机和 1 AT 播放时钟保持一致。</small>
+            <small>两种模式共用 Aim、基础行动/冲量规则和固定 1 AT 时钟；只比较空间呈现与落位方式。</small>
           </section>
 
           <section className="panel-card cell-inspector">
