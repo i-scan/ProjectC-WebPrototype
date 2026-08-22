@@ -4,16 +4,17 @@ import { AT_VISUAL_MS, momentumLevel, playbackElapsedMs } from '../sim/solver.js
 import { HEX_RADIUS, axialDistance, axialToWorld, directionVector, worldToAxial } from '../sim/hex.js'
 
 const TILE_HEIGHT = 0.18
-const AXIS_ARROW_LENGTH = 0.54
-const AXIS_ARROW_THICKNESS = 0.07
-const AXIS_HEAD_LENGTH = 0.15
+const AXIS_HUD_LENGTH_PX = 42
+const AXIS_HUD_STROKE_PX = 2.5
 const PREVIEW_MAX_LENGTH = 1.55
 const PREVIEW_DASH_LENGTH = 0.18
 const PREVIEW_GAP_LENGTH = 0.10
-const PREVIEW_RADIUS = 0.024
+const PREVIEW_RADIUS = 0.022
+const PREVIEW_STEPS = 32
 const DEFAULT_CAMERA = { yaw: Math.PI * 0.25, pitch: 0.74, zoom: 1 }
-const TEMP_COLORS = [0x718fe2, 0x7fb5df, 0x8bcfd0, 0xb8c8b5, 0xe2ce7f, 0xe7ad82, 0xe58a83]
+const TEMP_COLORS = [0x527ee0, 0x66a9df, 0x68c6c8, 0xa9bd95, 0xe3c45a, 0xe5945e, 0xe36c60]
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
+const SVG_NS = 'http://www.w3.org/2000/svg'
 
 function disposeObject(object) {
   object.traverse((child) => {
@@ -34,12 +35,12 @@ function createActor() {
   base.position.y = 0.08
   const body = new THREE.Mesh(
     new THREE.CylinderGeometry(0.21, 0.28, 0.58, 14),
-    new THREE.MeshStandardMaterial({ color: 0x70b8d7, roughness: 0.48, metalness: 0.04 }),
+    new THREE.MeshStandardMaterial({ color: 0x58aed2, roughness: 0.48, metalness: 0.04 }),
   )
   body.position.y = 0.42
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.19, 14, 10),
-    new THREE.MeshStandardMaterial({ color: 0x70b8d7, roughness: 0.48 }),
+    new THREE.MeshStandardMaterial({ color: 0x58aed2, roughness: 0.48 }),
   )
   head.position.y = 0.78
   const sword = new THREE.Mesh(
@@ -71,32 +72,153 @@ function updateMomentumDots(actor, level) {
   dots.forEach((dot, index) => {
     if (!(dot.material instanceof THREE.MeshBasicMaterial)) return
     const active = index < level
-    dot.material.color.setHex(active ? 0xd497e4 : 0x334151)
+    dot.material.color.setHex(active ? 0xcf82e3 : 0x334151)
     dot.material.opacity = active ? 1 : 0.5
   })
 }
 
-function createAxisArrow() {
-  const group = new THREE.Group()
-  const color = 0xf1c86f
-  const shaftLength = AXIS_ARROW_LENGTH - AXIS_HEAD_LENGTH
-  const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.96, depthTest: false, depthWrite: false })
-  const shaft = new THREE.Mesh(
-    new THREE.CylinderGeometry(AXIS_ARROW_THICKNESS * 0.5, AXIS_ARROW_THICKNESS * 0.5, shaftLength, 10),
-    material,
-  )
-  shaft.rotation.z = -Math.PI / 2
-  shaft.position.x = shaftLength * 0.5
-  shaft.renderOrder = 46
-  const head = new THREE.Mesh(
-    new THREE.ConeGeometry(AXIS_ARROW_THICKNESS * 1.25, AXIS_HEAD_LENGTH, 10),
-    material.clone(),
-  )
-  head.rotation.z = -Math.PI / 2
-  head.position.x = shaftLength + AXIS_HEAD_LENGTH * 0.5
-  head.renderOrder = 46
-  group.add(shaft, head)
-  return group
+function svgElement(tag, attributes = {}) {
+  const element = document.createElementNS(SVG_NS, tag)
+  Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value)))
+  return element
+}
+
+function createAxisHud() {
+  const svg = svgElement('svg', {
+    class: 'legacy-axis-hud',
+    'aria-label': 'Legacy Spatial Axis indicator',
+  })
+  Object.assign(svg.style, {
+    position: 'absolute',
+    inset: '0',
+    width: '100%',
+    height: '100%',
+    zIndex: '18',
+    pointerEvents: 'none',
+    overflow: 'visible',
+  })
+
+  const defs = svgElement('defs')
+  const marker = svgElement('marker', {
+    id: 'projectc-axis-arrow-head',
+    viewBox: '0 0 10 10',
+    refX: '8',
+    refY: '5',
+    markerWidth: '5.2',
+    markerHeight: '5.2',
+    orient: 'auto-start-reverse',
+  })
+  marker.appendChild(svgElement('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: '#f2c85a' }))
+  defs.appendChild(marker)
+  svg.appendChild(defs)
+
+  const horizontal = svgElement('g', { 'data-axis-hud-kind': 'horizontal' })
+  const horizontalLine = svgElement('line', {
+    stroke: '#f2c85a',
+    'stroke-width': AXIS_HUD_STROKE_PX,
+    'stroke-linecap': 'round',
+    'marker-end': 'url(#projectc-axis-arrow-head)',
+  })
+  horizontalLine.style.filter = 'drop-shadow(0 0 3px rgba(242,200,90,.66))'
+  horizontal.appendChild(horizontalLine)
+  svg.appendChild(horizontal)
+
+  const down = svgElement('g', { 'data-axis-hud-kind': 'down' })
+  down.appendChild(svgElement('circle', {
+    cx: '0', cy: '10', r: '9',
+    fill: 'rgba(90,190,235,.12)', stroke: '#7ed8ff', 'stroke-width': '2',
+  }))
+  down.appendChild(svgElement('path', {
+    d: 'M 0 4 L 0 15 M -4 11 L 0 15 L 4 11',
+    fill: 'none', stroke: '#7ed8ff', 'stroke-width': '2',
+    'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+  }))
+  const downText = svgElement('text', {
+    x: '12', y: '14', fill: '#bdeeff', 'font-size': '9', 'font-weight': '700',
+  })
+  downText.style.paintOrder = 'stroke'
+  downText.style.stroke = '#111923'
+  downText.style.strokeWidth = '3px'
+  down.appendChild(downText)
+  svg.appendChild(down)
+
+  const m0 = svgElement('g', { 'data-axis-hud-kind': 'm0' })
+  m0.appendChild(svgElement('circle', {
+    cx: '0', cy: '7', r: '6.5', fill: 'rgba(194,207,220,.08)',
+    stroke: '#aebcc9', 'stroke-width': '1.8',
+  }))
+  const m0Text = svgElement('text', {
+    x: '10', y: '10', fill: '#c8d2dc', 'font-size': '9', 'font-weight': '700',
+  })
+  m0Text.textContent = 'M0'
+  m0Text.style.paintOrder = 'stroke'
+  m0Text.style.stroke = '#111923'
+  m0Text.style.strokeWidth = '3px'
+  m0.appendChild(m0Text)
+  svg.appendChild(m0)
+
+  horizontal.style.display = 'none'
+  down.style.display = 'none'
+  m0.style.display = 'none'
+  return { svg, horizontal, horizontalLine, down, downText, m0 }
+}
+
+function projectedPoint(point, camera, width, height) {
+  const projected = point.clone().project(camera)
+  return {
+    x: (projected.x + 1) * 0.5 * width,
+    y: (1 - projected.y) * 0.5 * height,
+  }
+}
+
+function axisDisplayFor(override, level) {
+  if (override === 'm0') return { kind: 'm0', level: 0 }
+  if (override?.startsWith('down-')) {
+    return { kind: 'down', level: clamp(Number(override.split('-')[1]) || 1, 1, 3) }
+  }
+  return level > 0 ? { kind: 'horizontal', level } : { kind: 'm0', level: 0 }
+}
+
+function updateAxisHud(hud, camera, width, height, visualState, display) {
+  hud.horizontal.style.display = display.kind === 'horizontal' ? '' : 'none'
+  hud.down.style.display = display.kind === 'down' ? '' : 'none'
+  hud.m0.style.display = display.kind === 'm0' ? '' : 'none'
+
+  const sourceWorld = new THREE.Vector3(visualState.position.x, 1.22, visualState.position.z)
+  const source = projectedPoint(sourceWorld, camera, width, height)
+
+  if (display.kind === 'horizontal') {
+    const speed = Math.hypot(visualState.velocity.x, visualState.velocity.z)
+    if (speed < 0.02) {
+      hud.horizontal.style.display = 'none'
+      hud.m0.style.display = ''
+      hud.m0.setAttribute('transform', `translate(${source.x.toFixed(2)} ${source.y.toFixed(2)})`)
+      return 'm0'
+    }
+    const direction = { x: visualState.velocity.x / speed, z: visualState.velocity.z / speed }
+    const targetWorld = sourceWorld.clone().add(new THREE.Vector3(direction.x, 0, direction.z))
+    const target = projectedPoint(targetWorld, camera, width, height)
+    const dx = target.x - source.x
+    const dy = target.y - source.y
+    const screenLength = Math.max(1, Math.hypot(dx, dy))
+    const ux = dx / screenLength
+    const uy = dy / screenLength
+    const startOffset = 8
+    hud.horizontalLine.setAttribute('x1', (source.x + ux * startOffset).toFixed(2))
+    hud.horizontalLine.setAttribute('y1', (source.y + uy * startOffset).toFixed(2))
+    hud.horizontalLine.setAttribute('x2', (source.x + ux * AXIS_HUD_LENGTH_PX).toFixed(2))
+    hud.horizontalLine.setAttribute('y2', (source.y + uy * AXIS_HUD_LENGTH_PX).toFixed(2))
+    return 'horizontal'
+  }
+
+  if (display.kind === 'down') {
+    hud.down.setAttribute('transform', `translate(${source.x.toFixed(2)} ${source.y.toFixed(2)})`)
+    hud.downText.textContent = `Down · M${display.level}`
+    return 'down'
+  }
+
+  hud.m0.setAttribute('transform', `translate(${source.x.toFixed(2)} ${source.y.toFixed(2)})`)
+  return 'm0'
 }
 
 function sampleAt(samples, progress) {
@@ -122,21 +244,21 @@ function sampleAt(samples, progress) {
 
 function cellColor(cell, showThermal) {
   const base = cell.tags.includes('Mountain')
-    ? new THREE.Color(0x7f8790)
+    ? new THREE.Color(0x69747f)
     : cell.groundFill === 'grass'
-      ? new THREE.Color(0x7f9f78)
+      ? new THREE.Color(0x6e9b64)
       : cell.groundFill === 'water'
-        ? new THREE.Color(0x6f9fbb)
+        ? new THREE.Color(0x5595b9)
         : cell.groundFill === 'ice'
-          ? new THREE.Color(0xb8d9df)
+          ? new THREE.Color(0xa7dce8)
           : cell.groundFill === 'fire'
-            ? new THREE.Color(0xb98577)
-            : new THREE.Color(0xa29b87)
+            ? new THREE.Color(0xc97862)
+            : new THREE.Color(0x998b72)
   if (!showThermal) return base
   const normalized = clamp(cell.groundTemp, -3, 3) + 3
   return base.lerp(
     new THREE.Color(TEMP_COLORS[normalized]),
-    cell.groundTemp === 0 ? 0.05 : 0.18 + Math.abs(cell.groundTemp) * 0.08,
+    cell.groundTemp === 0 ? 0.05 : 0.20 + Math.abs(cell.groundTemp) * 0.09,
   )
 }
 
@@ -173,8 +295,8 @@ function createTargetReticle(color, height) {
 function createMountain(cell) {
   const group = new THREE.Group()
   const ridge = cell.tags.includes('Ridge')
-  const rock = new THREE.MeshStandardMaterial({ color: ridge ? 0x737c85 : 0x858d95, roughness: 0.94, metalness: 0.02, flatShading: true })
-  const snow = new THREE.MeshStandardMaterial({ color: 0xdde5e5, roughness: 0.86, flatShading: true })
+  const rock = new THREE.MeshStandardMaterial({ color: ridge ? 0x626f7a : 0x75828c, roughness: 0.94, metalness: 0.02, flatShading: true })
+  const snow = new THREE.MeshStandardMaterial({ color: 0xd8e4e6, roughness: 0.86, flatShading: true })
   const seed = Math.abs(cell.q * 17 + cell.r * 31) % 7
   const peaks = ridge
     ? [[-0.16, -0.08, 0.3, 0.74], [0.15, 0.1, 0.25, 0.62]]
@@ -197,7 +319,7 @@ function createMountain(cell) {
 function createCloud(cell, bobAnimations) {
   const group = new THREE.Group()
   const material = new THREE.MeshStandardMaterial({
-    color: cell.skyTemp > 0 ? 0xffe1cf : cell.skyTemp < 0 ? 0xdceeff : 0xf0f1e8,
+    color: cell.skyTemp > 0 ? 0xffd9bf : cell.skyTemp < 0 ? 0xd4ebff : 0xefefe3,
     roughness: 0.92,
     transparent: true,
     opacity: 0.84,
@@ -216,7 +338,7 @@ function createCloud(cell, bobAnimations) {
 
 function createWindArrow(directionId) {
   const group = new THREE.Group()
-  const material = new THREE.MeshBasicMaterial({ color: 0xb7e3ef, transparent: true, opacity: 0.86 })
+  const material = new THREE.MeshBasicMaterial({ color: 0xa8e3f2, transparent: true, opacity: 0.88 })
   const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.48, 7), material)
   shaft.rotation.z = Math.PI / 2
   const head = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.22, 8), material)
@@ -233,17 +355,17 @@ function createMomentumSurface(cell) {
   const group = new THREE.Group()
   const hard = cell.tags.includes('UT3Hard')
   const left = cell.tags.includes('UT3ReflectLeft')
-  const color = hard ? 0x7c8791 : left ? 0x70c8cf : 0xe1ad68
+  const color = hard ? 0x717e8a : left ? 0x55c4ce : 0xe7a84f
   const wall = new THREE.Mesh(
     new THREE.BoxGeometry(hard ? 0.78 : 0.62, hard ? 1.05 : 0.78, hard ? 0.2 : 0.12),
     new THREE.MeshStandardMaterial({
       color,
       emissive: hard ? 0x17202a : left ? 0x17444a : 0x4c351b,
-      emissiveIntensity: 0.42,
+      emissiveIntensity: 0.44,
       metalness: hard ? 0.35 : 0.55,
       roughness: hard ? 0.72 : 0.32,
       transparent: !hard,
-      opacity: hard ? 1 : 0.82,
+      opacity: hard ? 1 : 0.84,
     }),
   )
   wall.position.y = hard ? 0.58 : 0.47
@@ -261,6 +383,66 @@ function createMomentumSurface(cell) {
     group.add(chevron)
   }
   return group
+}
+
+function firstPathDirection(samples) {
+  for (let index = 1; index < samples.length; index += 1) {
+    const dx = samples[index].position.x - samples[index - 1].position.x
+    const dz = samples[index].position.z - samples[index - 1].position.z
+    const distance = Math.hypot(dx, dz)
+    if (distance > 0.001) return { x: dx / distance, z: dz / distance }
+  }
+  return null
+}
+
+function lastPathDirection(samples) {
+  for (let index = samples.length - 1; index > 0; index -= 1) {
+    const dx = samples[index].position.x - samples[index - 1].position.x
+    const dz = samples[index].position.z - samples[index - 1].position.z
+    const distance = Math.hypot(dx, dz)
+    if (distance > 0.001) return { x: dx / distance, z: dz / distance }
+  }
+  return null
+}
+
+function shortestAngleDelta(from, to) {
+  let delta = to - from
+  while (delta > Math.PI) delta -= Math.PI * 2
+  while (delta < -Math.PI) delta += Math.PI * 2
+  return delta
+}
+
+function smoothStep(value) {
+  return value * value * (3 - 2 * value)
+}
+
+function steeringGuideSamples(state, plan) {
+  if (!plan?.samples?.length) return []
+  const pathStart = firstPathDirection(plan.samples)
+  const pathEnd = lastPathDirection(plan.samples) ?? pathStart
+  const stateSpeed = Math.hypot(state.velocity.x, state.velocity.z)
+  const startDirection = stateSpeed > 0.02
+    ? { x: state.velocity.x / stateSpeed, z: state.velocity.z / stateSpeed }
+    : pathStart
+  const endDirection = pathEnd ?? startDirection
+  if (!startDirection || !endDirection) return plan.samples
+
+  const startAngle = Math.atan2(startDirection.z, startDirection.x)
+  const endAngle = Math.atan2(endDirection.z, endDirection.x)
+  const delta = shortestAngleDelta(startAngle, endAngle)
+  const stepDistance = PREVIEW_MAX_LENGTH / (PREVIEW_STEPS - 1)
+  const samples = [{ position: { ...state.position } }]
+  let position = { ...state.position }
+  for (let index = 1; index < PREVIEW_STEPS; index += 1) {
+    const progress = index / (PREVIEW_STEPS - 1)
+    const angle = startAngle + delta * smoothStep(progress)
+    position = {
+      x: position.x + Math.cos(angle) * stepDistance,
+      z: position.z + Math.sin(angle) * stepDistance,
+    }
+    samples.push({ position })
+  }
+  return samples
 }
 
 function polylineData(samples) {
@@ -320,6 +502,7 @@ export function Board3D({
   previewPlan,
   playback,
   atVisualMs,
+  axisIndicatorPreview = 'auto',
   boardRadius,
   viewMode,
   cameraResetToken,
@@ -337,11 +520,12 @@ export function Board3D({
   const interactionRef = useRef(null)
   const actorRef = useRef(null)
   const previewRef = useRef(null)
-  const axisArrowRef = useRef(null)
+  const axisHudRef = useRef(null)
   const orbitRef = useRef({ ...DEFAULT_CAMERA })
   const stateRef = useRef(state)
   const playbackRef = useRef(playback)
   const atVisualMsRef = useRef(atVisualMs)
+  const axisIndicatorPreviewRef = useRef(axisIndicatorPreview)
   const viewModeRef = useRef(viewMode)
   const callbacksRef = useRef({ onHoverHex, onClickHex })
   const bobRef = useRef([])
@@ -350,6 +534,7 @@ export function Board3D({
   stateRef.current = state
   playbackRef.current = playback
   atVisualMsRef.current = atVisualMs
+  axisIndicatorPreviewRef.current = axisIndicatorPreview
   viewModeRef.current = viewMode
   callbacksRef.current = { onHoverHex, onClickHex }
 
@@ -357,24 +542,28 @@ export function Board3D({
     const host = hostRef.current
     if (!host) return undefined
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x172434)
-    scene.fog = new THREE.Fog(0x172434, 12, 27)
+    scene.background = new THREE.Color(0x16283b)
+    scene.fog = new THREE.Fog(0x16283b, 12, 27)
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.outputColorSpace = THREE.SRGBColorSpace
-    host.replaceChildren(renderer.domElement)
+    const axisHud = createAxisHud()
+    axisHudRef.current = axisHud
+    host.style.position = 'relative'
+    host.replaceChildren(renderer.domElement, axisHud.svg)
     renderer.domElement.style.touchAction = 'none'
-    host.dataset.axisArrowLength = AXIS_ARROW_LENGTH.toFixed(2)
-    host.dataset.axisArrowThickness = AXIS_ARROW_THICKNESS.toFixed(2)
-    host.dataset.axisArrowMeaning = 'direction-only'
-    host.dataset.previewStyle = 'short-thick-dashed-curve'
+    host.dataset.axisStyle = 'legacy-hud'
+    host.dataset.axisStrokePx = AXIS_HUD_STROKE_PX.toFixed(1)
+    host.dataset.axisSupportsDown = 'true'
+    host.dataset.axisShowsM0 = 'true'
+    host.dataset.previewStyle = 'short-dashed-heading-curve'
     host.dataset.previewLengthMax = PREVIEW_MAX_LENGTH.toFixed(2)
 
     const camera = new THREE.OrthographicCamera(-7, 7, 5, -5, 0.1, 60)
     scene.add(new THREE.HemisphereLight(0xcbe4ef, 0x415064, 1.8))
-    const sun = new THREE.DirectionalLight(0xfff0d8, 1.85)
+    const sun = new THREE.DirectionalLight(0xfff0d8, 1.9)
     sun.position.set(-6, 11, -5)
     sun.castShadow = true
     sun.shadow.mapSize.set(2048, 2048)
@@ -383,14 +572,12 @@ export function Board3D({
     const boardGroup = new THREE.Group()
     const interaction = new THREE.Group()
     const actor = createActor()
-    const axisArrow = createAxisArrow()
-    scene.add(boardGroup, interaction, actor, axisArrow)
+    scene.add(boardGroup, interaction, actor)
     sceneRef.current = scene
     cameraRef.current = camera
     boardGroupRef.current = boardGroup
     interactionRef.current = interaction
     actorRef.current = actor
-    axisArrowRef.current = axisArrow
 
     const updateCamera = () => {
       const orbit = orbitRef.current
@@ -409,6 +596,7 @@ export function Board3D({
       }
       camera.zoom = orbit.zoom
       camera.updateProjectionMatrix()
+      camera.updateMatrixWorld()
       host.dataset.cameraZoom = camera.zoom.toFixed(4)
     }
 
@@ -422,6 +610,7 @@ export function Board3D({
       viewportWidth = width
       viewportHeight = height
       renderer.setSize(width, height, false)
+      axisHud.svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
       const size = 6.2
       const aspect = width / height
       camera.left = -size * aspect
@@ -429,6 +618,7 @@ export function Board3D({
       camera.top = size
       camera.bottom = -size
       camera.updateProjectionMatrix()
+      camera.updateMatrixWorld()
       host.dataset.viewportWidth = String(width)
       host.dataset.viewportHeight = String(height)
     }
@@ -555,26 +745,19 @@ export function Board3D({
 
       const actorObject = actorRef.current
       const speed = Math.hypot(visualState.velocity.x, visualState.velocity.z)
-      const level = momentumLevel(speed)
+      const actualLevel = momentumLevel(speed)
+      const axisDisplay = axisDisplayFor(axisIndicatorPreviewRef.current, actualLevel)
       if (actorObject) {
         actorObject.position.set(visualState.position.x, 0.1, visualState.position.z)
-        updateMomentumDots(actorObject, level)
+        updateMomentumDots(actorObject, axisDisplay.level)
       }
 
-      const arrow = axisArrowRef.current
-      if (arrow) {
-        arrow.position.set(visualState.position.x, 1.0, visualState.position.z)
-        if (level > 0 && speed > 0.02) {
-          arrow.visible = true
-          arrow.rotation.y = -Math.atan2(visualState.velocity.z, visualState.velocity.x)
-        } else {
-          arrow.visible = false
-        }
-      }
-
+      const renderedAxis = updateAxisHud(axisHud, camera, viewportWidth, viewportHeight, visualState, axisDisplay)
+      host.dataset.axisState = renderedAxis
+      host.dataset.axisDisplayLevel = String(axisDisplay.level)
       host.dataset.visualX = visualState.position.x.toFixed(4)
       host.dataset.visualZ = visualState.position.z.toFixed(4)
-      host.dataset.visualMomentum = String(level)
+      host.dataset.visualMomentum = String(actualLevel)
       host.dataset.cameraZoom = camera.zoom.toFixed(4)
       host.dataset.atVisualMs = String(atVisualMsRef.current)
       renderer.render(scene, camera)
@@ -594,7 +777,6 @@ export function Board3D({
       disposeObject(boardGroup)
       disposeObject(interaction)
       disposeObject(actor)
-      disposeObject(axisArrow)
       renderer.dispose()
       host.replaceChildren()
     }
@@ -613,7 +795,7 @@ export function Board3D({
     const floorSize = (boardRadius * 2 + 3) * 1.08
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(floorSize * 1.3, floorSize),
-      new THREE.MeshStandardMaterial({ color: 0x24364d, roughness: 0.96 }),
+      new THREE.MeshStandardMaterial({ color: 0x223b55, roughness: 0.96 }),
     )
     floor.rotation.x = -Math.PI / 2
     floor.position.y = -0.46
@@ -626,7 +808,7 @@ export function Board3D({
         new THREE.CylinderGeometry(HEX_RADIUS * 0.97, HEX_RADIUS * 0.97, TILE_HEIGHT, 6),
         new THREE.MeshStandardMaterial({
           color: cellColor(cell, showThermal),
-          roughness: cell.moisture === 2 ? 0.36 : cell.moisture === 0 ? 0.88 : 0.66,
+          roughness: cell.moisture === 2 ? 0.34 : cell.moisture === 0 ? 0.86 : 0.64,
           metalness: cell.groundFill === 'ice' ? 0.12 : 0.01,
           flatShading: true,
         }),
@@ -644,14 +826,14 @@ export function Board3D({
         new THREE.LineBasicMaterial({
           color: TEMP_COLORS[clamp(cell.groundTemp, -3, 3) + 3],
           transparent: true,
-          opacity: showThermal ? 0.34 : 0.16,
+          opacity: showThermal ? 0.38 : 0.18,
           depthWrite: false,
         }),
       )
       tile.add(outline)
 
       if (cell.groundFill === 'grass') {
-        const material = new THREE.MeshStandardMaterial({ color: 0xa0bb82, roughness: 0.9 })
+        const material = new THREE.MeshStandardMaterial({ color: 0x8eb65f, roughness: 0.9 })
         for (let index = 0; index < 3; index += 1) {
           const blade = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.27 + index * 0.03, 5), material)
           blade.position.set(center.x - 0.2 + index * 0.19, 0.19, center.z + (index % 2 ? 0.13 : -0.1))
@@ -660,13 +842,13 @@ export function Board3D({
         }
       }
       if (cell.groundFill === 'water') {
-        const water = createHexOverlay(0x8cc7d7, 0.38, 0.058, HEX_RADIUS * 0.86)
+        const water = createHexOverlay(0x71bdd3, 0.42, 0.058, HEX_RADIUS * 0.86)
         water.position.x = center.x
         water.position.z = center.z
         boardGroup.add(water)
       }
       if (cell.groundFill === 'ice') {
-        const ice = createHexOverlay(0xd2edf0, 0.5, 0.105, HEX_RADIUS * 0.87)
+        const ice = createHexOverlay(0xc1eaf0, 0.54, 0.105, HEX_RADIUS * 0.87)
         ice.position.x = center.x
         ice.position.z = center.z
         boardGroup.add(ice)
@@ -675,7 +857,7 @@ export function Board3D({
         for (let index = 0; index < 3; index += 1) {
           const flame = new THREE.Mesh(
             new THREE.ConeGeometry(0.1, 0.42, 9),
-            new THREE.MeshBasicMaterial({ color: index === 1 ? 0xf4d77c : 0xef9475, transparent: true, opacity: 0.88 }),
+            new THREE.MeshBasicMaterial({ color: index === 1 ? 0xf4cf62 : 0xee7f5d, transparent: true, opacity: 0.9 }),
           )
           flame.position.set(center.x + (index - 1) * 0.16, 0.29, center.z + (index === 1 ? 0.04 : -0.05))
           boardGroup.add(flame)
@@ -683,7 +865,7 @@ export function Board3D({
         }
       }
       if (cell.moisture === 2 && cell.groundFill !== 'water') {
-        const puddle = createHexOverlay(0x86b9c9, 0.22, 0.11, 0.27)
+        const puddle = createHexOverlay(0x67acc3, 0.24, 0.11, 0.27)
         puddle.position.set(center.x + 0.13, 0.11, center.z - 0.1)
         boardGroup.add(puddle)
       }
@@ -694,9 +876,9 @@ export function Board3D({
       }
       if (cell.tags.includes('Shelter')) {
         const beacon = new THREE.Group()
-        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 0.48, 12), new THREE.MeshStandardMaterial({ color: 0xddd0aa, roughness: 0.75 }))
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 0.48, 12), new THREE.MeshStandardMaterial({ color: 0xd8bf88, roughness: 0.75 }))
         pillar.position.y = 0.28
-        const glow = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf3d77d }))
+        const glow = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf4cf62 }))
         glow.position.y = 0.62
         beacon.add(pillar, glow)
         beacon.position.set(center.x, 0.08, center.z)
@@ -713,7 +895,7 @@ export function Board3D({
         cloud.position.x = center.x
         cloud.position.z = center.z
         boardGroup.add(cloud)
-        const shadow = createHexOverlay(0x42546b, 0.17, 0.12, 0.38)
+        const shadow = createHexOverlay(0x3b5a76, 0.18, 0.12, 0.38)
         shadow.position.x = center.x
         shadow.position.z = center.z
         boardGroup.add(shadow)
@@ -727,7 +909,7 @@ export function Board3D({
       }
       if (showWeather && cell.rain) {
         for (let index = 0; index < 7; index += 1) {
-          const material = new THREE.MeshBasicMaterial({ color: 0x94d9e7, transparent: true, opacity: 0.64, depthWrite: false })
+          const material = new THREE.MeshBasicMaterial({ color: 0x79d1e5, transparent: true, opacity: 0.68, depthWrite: false })
           const drop = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.34, 5), material)
           const topY = 2.02 + (index % 3) * 0.16
           const bottomY = 0.16
@@ -749,17 +931,28 @@ export function Board3D({
       previewRef.current = null
     }
     host.dataset.previewVisibleLength = '0'
+    host.dataset.previewTurnDeg = '0'
     if (!previewPlan?.valid || previewPlan.samples.length < 2) return
+
+    const guideSamples = steeringGuideSamples(state, previewPlan)
+    const first = firstPathDirection(guideSamples)
+    const last = lastPathDirection(guideSamples)
+    if (first && last) {
+      const startAngle = Math.atan2(first.z, first.x)
+      const endAngle = Math.atan2(last.z, last.x)
+      host.dataset.previewTurnDeg = (shortestAngleDelta(startAngle, endAngle) * 180 / Math.PI).toFixed(1)
+    }
+
     const color = previewPlan.collisions.length
-      ? 0xefa06f
+      ? 0xef8c59
       : previewPlan.spatialMode === 'discrete'
-        ? 0xf0cb75
-        : 0x8bd5e4
-    const preview = createDashedPreview(previewPlan.samples, color)
+        ? 0xf0c84f
+        : 0x65cce2
+    const preview = createDashedPreview(guideSamples, color)
     scene.add(preview)
     previewRef.current = preview
     host.dataset.previewVisibleLength = Number(preview.userData.visibleLength ?? 0).toFixed(3)
-  }, [previewPlan])
+  }, [previewPlan, state.position.x, state.position.z, state.velocity.x, state.velocity.z])
 
   useEffect(() => {
     const layer = interactionRef.current
@@ -770,14 +963,14 @@ export function Board3D({
     }
     if (selectedAimHex) {
       const center = axialToWorld(selectedAimHex)
-      const selected = createHexOverlay(0xf2d084, 0.22, 0.14)
+      const selected = createHexOverlay(0xf2cc68, 0.24, 0.14)
       selected.position.x = center.x
       selected.position.z = center.z
       layer.add(selected)
     }
     if (hoverHex) {
       const center = axialToWorld(hoverHex)
-      const reticle = createTargetReticle(previewPlan?.valid ? 0xf0cb75 : 0xed8585, 0.18)
+      const reticle = createTargetReticle(previewPlan?.valid ? 0xf0c84f : 0xed7373, 0.18)
       reticle.position.x = center.x
       reticle.position.z = center.z
       layer.add(reticle)
@@ -805,6 +998,7 @@ export function Board3D({
     }
     camera.zoom = DEFAULT_CAMERA.zoom
     camera.updateProjectionMatrix()
+    camera.updateMatrixWorld()
     if (host) host.dataset.cameraZoom = camera.zoom.toFixed(4)
   }, [viewMode, cameraResetToken])
 

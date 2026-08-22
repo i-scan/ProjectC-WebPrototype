@@ -22,7 +22,7 @@
   min-height: 360px;
   contain: layout paint;
   isolation: isolate;
-  background: #172434;
+  background: #16283b;
 }
 
 .cell-world-prototype .continuous-board-host {
@@ -40,21 +40,60 @@
   display: block;
 }
 
+.cell-world-prototype .legacy-axis-hud {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
 .cell-world-prototype .board-legend .trajectory {
   height: 3px;
-  background: repeating-linear-gradient(90deg, #8bd5e4 0 7px, transparent 7px 11px);
+  background: repeating-linear-gradient(90deg, #65cce2 0 7px, transparent 7px 11px);
 }
 
 .cell-world-prototype .board-legend .trajectory.discrete {
-  background: repeating-linear-gradient(90deg, #f0cb75 0 7px, transparent 7px 11px);
+  background: repeating-linear-gradient(90deg, #f0c84f 0 7px, transparent 7px 11px);
+}
+
+.cell-world-prototype .board-legend .terrain {
+  background: #6e9b64;
 }
 
 .cell-world-prototype .board-legend .momentum-axis {
-  width: 11px;
-  height: 4px;
+  width: 13px;
+  height: 2.5px;
   border-radius: 999px;
-  background: #f1c86f;
+  background: #f2c85a;
   box-shadow: none;
+}
+
+.cell-world-prototype .axis-indicator-card {
+  border-color: rgba(104, 158, 183, .34);
+}
+
+.cell-world-prototype .axis-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.cell-world-prototype .axis-preview-grid button {
+  min-width: 0;
+  padding: 5px 6px;
+  font-size: 9px;
+}
+
+.cell-world-prototype .axis-preview-grid button[data-axis-indicator-select="auto"] {
+  grid-column: 1 / -1;
+}
+
+.cell-world-prototype .axis-preview-grid button[data-axis-indicator-select^="down-"] {
+  border-color: rgba(126, 216, 255, .28);
+  color: #aee7ff;
+}
+
+.cell-world-prototype .axis-preview-grid button[data-axis-indicator-select^="down-"].active {
+  border-color: #7ed8ff;
+  background: rgba(37, 105, 132, .34);
+  color: #d8f5ff;
 }
 
 .cell-world-prototype .timebase-card {
@@ -73,7 +112,7 @@
 
 .cell-world-prototype .timebase-range > input {
   grid-column: 1 / -1;
-  accent-color: #8bcbd7;
+  accent-color: #70c4d5;
 }
 
 .cell-world-prototype .timebase-range > output {

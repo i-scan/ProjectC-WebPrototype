@@ -6,11 +6,11 @@ export const THERMAL_SET_POINT = 1
 export const THERMAL_DRIFT_VISUAL_MAX = 3
 
 const DAMPING = 1
-const SUBSTEPS_PER_AT = 24
 const BEHAVIOR_DRIFT_IMPULSE = 0.8
 const BALANCING_DRIFT_RETENTION = 0.35
-const TARGET_DAMPED_OMEGA = Math.PI * 2 / THERMAL_PERIOD_AT
-const NATURAL_OMEGA = Math.sqrt(TARGET_DAMPED_OMEGA * TARGET_DAMPED_OMEGA + (DAMPING * 0.5) ** 2)
+const DAMPING_ALPHA = DAMPING * 0.5
+const DAMPED_OMEGA = Math.PI * 2 / THERMAL_PERIOD_AT
+const NATURAL_OMEGA_SQUARED = DAMPED_OMEGA * DAMPED_OMEGA + DAMPING_ALPHA * DAMPING_ALPHA
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
@@ -32,21 +32,15 @@ export function thermalBehaviorFor({ actionId, beforeSpeed, collisions = 0 }) {
   return 'use'
 }
 
-export function advanceThermal(input, behavior, deltaAt = 1) {
+function applyBehaviorImpulse(input, behavior) {
   const next = { ...input }
   if (behavior === 'generate' || behavior === 'resist') next.drift += BEHAVIOR_DRIFT_IMPULSE
   else if (behavior === 'use') next.drift -= BEHAVIOR_DRIFT_IMPULSE
   else if (behavior === 'passive-dissipation') next.drift *= BALANCING_DRIFT_RETENTION
+  return next
+}
 
-  const duration = Math.max(0, deltaAt)
-  const substeps = Math.max(1, Math.ceil(duration * SUBSTEPS_PER_AT))
-  const dt = duration / substeps
-  for (let index = 0; index < substeps; index += 1) {
-    const offset = next.temperature - next.setPoint
-    const acceleration = -NATURAL_OMEGA * NATURAL_OMEGA * offset - DAMPING * next.drift
-    next.drift += acceleration * dt
-    next.temperature = clamp(next.temperature + next.drift * dt, -6, 6)
-  }
+function settleThermal(next) {
   if (Math.abs(next.temperature - next.setPoint) <= 0.025 && Math.abs(next.drift) <= 0.025) {
     next.temperature = next.setPoint
     next.drift = 0
@@ -54,10 +48,46 @@ export function advanceThermal(input, behavior, deltaAt = 1) {
   return next
 }
 
+function analyticThermalAt(initial, durationAt) {
+  const duration = Math.max(0, durationAt)
+  if (duration <= 0) return { ...initial }
+
+  // Solve x'' + DAMPING*x' + w0^2*x = 0 directly.
+  // DAMPED_OMEGA is defined from the visible period, therefore the oscillatory
+  // component completes exactly one cycle every THERMAL_PERIOD_AT regardless
+  // of browser frame rate or playback sampling frequency.
+  const offset0 = initial.temperature - initial.setPoint
+  const drift0 = initial.drift
+  const a = offset0
+  const b = (drift0 + DAMPING_ALPHA * offset0) / DAMPED_OMEGA
+  const phase = DAMPED_OMEGA * duration
+  const cos = Math.cos(phase)
+  const sin = Math.sin(phase)
+  const envelope = Math.exp(-DAMPING_ALPHA * duration)
+  const bracket = a * cos + b * sin
+  const offset = envelope * bracket
+  const drift = envelope * (
+    (-DAMPING_ALPHA * a + DAMPED_OMEGA * b) * cos
+    + (-DAMPING_ALPHA * b - DAMPED_OMEGA * a) * sin
+  )
+
+  return settleThermal({
+    temperature: clamp(initial.setPoint + offset, -6, 6),
+    drift,
+    setPoint: initial.setPoint,
+  })
+}
+
+export function advanceThermal(input, behavior, deltaAt = 1) {
+  const duration = Math.max(0, deltaAt)
+  if (duration <= 0) return { ...input }
+  return analyticThermalAt(applyBehaviorImpulse(input, behavior), duration)
+}
+
 export function sampleThermalTransition(input, behavior, progressAt) {
   const progress = clamp(progressAt, 0, 1)
   if (progress <= 0) return { ...input }
-  return advanceThermal(input, behavior, progress)
+  return analyticThermalAt(applyBehaviorImpulse(input, behavior), progress)
 }
 
 export function thermalZoneClass(value) {
@@ -96,3 +126,10 @@ export function formatThermal(value, digits = 1) {
   const rounded = Number(value.toFixed(digits))
   return rounded > 0 ? `+${rounded.toFixed(digits)}` : rounded.toFixed(digits)
 }
+
+export const THERMAL_MODEL = Object.freeze({
+  damping: DAMPING,
+  dampedOmega: DAMPED_OMEGA,
+  naturalOmegaSquared: NATURAL_OMEGA_SQUARED,
+  sampling: 'analytic',
+})
