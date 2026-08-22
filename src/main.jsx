@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './ui/App.jsx'
 import './styles.css'
 import './ui/cell-world.css'
+import './ui/movement-corrections.css'
 
 const BUILD_COMMIT = __BUILD_COMMIT__
 const BUILD_BRANCH = __BUILD_BRANCH__
