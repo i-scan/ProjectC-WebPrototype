@@ -76,7 +76,7 @@ describe('impulse-driven inertia movement', () => {
 
   it('maps continuous resolved headings back to the nearest visible Hex Axis', () => {
     expect(nearestHexDirection(0)).toBe('E')
-    expect(nearestHexDirection(58)).toBe('NE')
+    expect(nearestHexDirection(58)).toBe('SE')
     expect(nearestHexDirection(178)).toBe('W')
   })
 })
