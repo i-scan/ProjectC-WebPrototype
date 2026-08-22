@@ -118,11 +118,11 @@ describe('shared spatial input contract', () => {
   it('Counter Impulse still enforces its reverse semantic and reduces speed', () => {
     const state = { position: { x: 0, z: 0 }, velocity: { x: 2, z: 0 }, worldAt: 0 }
     const backward = runHybrid(state, 'counter', { q: -2, r: 0 })
-    const sideways = runHybrid(state, 'counter', { q: 0, r: -2 })
+    const forward = runHybrid(state, 'counter', { q: 2, r: 0 })
 
     expect(backward.valid).toBe(true)
     expect(backward.finalSpeed).toBeLessThan(2)
-    expect(sideways.valid).toBe(false)
+    expect(forward.valid).toBe(false)
   })
 
   it('is deterministic for identical mode, state and input', () => {
