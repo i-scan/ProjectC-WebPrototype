@@ -20,23 +20,39 @@ function which(command) {
 }
 
 function chromeExecutable() {
-  const candidates = [process.env.CHROME_BIN, which('google-chrome'), which('google-chrome-stable'), which('chromium'), which('chromium-browser')].filter(Boolean)
+  const candidates = [
+    process.env.CHROME_BIN,
+    which('google-chrome'),
+    which('google-chrome-stable'),
+    which('chromium'),
+    which('chromium-browser'),
+  ].filter(Boolean)
   assert(candidates.length > 0, 'Chrome / Chromium executable was not found')
   return candidates[0]
 }
 
 const sleep = (milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds))
 
-async function waitFor(label, operation, attempts = 240, delay = 100) {
+async function waitFor(label, operation, attempts = 220, delay = 100) {
   let lastError
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try { return await operation() } catch (error) { lastError = error; if (attempt < attempts) await sleep(delay) }
+    try {
+      return await operation()
+    } catch (error) {
+      lastError = error
+      if (attempt < attempts) await sleep(delay)
+    }
   }
   throw new Error(`${label} did not become ready: ${lastError?.message ?? lastError}`)
 }
 
 class CdpClient {
-  constructor(url) { this.nextId = 1; this.pending = new Map(); this.socket = new WebSocket(url) }
+  constructor(url) {
+    this.nextId = 1
+    this.pending = new Map()
+    this.socket = new WebSocket(url)
+  }
+
   async open() {
     if (this.socket.readyState === WebSocket.OPEN) return
     await new Promise((resolvePromise, reject) => {
@@ -44,16 +60,28 @@ class CdpClient {
       this.socket.addEventListener('error', reject, { once: true })
     })
     this.socket.addEventListener('message', (event) => {
-      const payload = JSON.parse(String(event.data)); if (!payload.id) return
-      const pending = this.pending.get(payload.id); if (!pending) return
-      this.pending.delete(payload.id); if (payload.error) pending.reject(new Error(payload.error.message)); else pending.resolve(payload.result)
+      const payload = JSON.parse(String(event.data))
+      if (!payload.id) return
+      const pending = this.pending.get(payload.id)
+      if (!pending) return
+      this.pending.delete(payload.id)
+      if (payload.error) pending.reject(new Error(payload.error.message))
+      else pending.resolve(payload.result)
     })
   }
+
   send(method, params = {}) {
-    const id = this.nextId; this.nextId += 1
-    return new Promise((resolvePromise, reject) => { this.pending.set(id, { resolve: resolvePromise, reject }); this.socket.send(JSON.stringify({ id, method, params })) })
+    const id = this.nextId
+    this.nextId += 1
+    return new Promise((resolvePromise, reject) => {
+      this.pending.set(id, { resolve: resolvePromise, reject })
+      this.socket.send(JSON.stringify({ id, method, params }))
+    })
   }
-  close() { this.socket.close() }
+
+  close() {
+    this.socket.close()
+  }
 }
 
 async function evaluate(client, expression, awaitPromise = true) {
@@ -63,46 +91,28 @@ async function evaluate(client, expression, awaitPromise = true) {
 }
 
 const snapshotExpression = `(() => {
-  const root = document.querySelector('.ut7-actor-loop[data-ruleset="VAL-012-UT7-candidate"]')
-  const header = root?.querySelector('.ut4-header-state')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const preview = root?.querySelector('.ut6-action-preview')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const resolutionNode = root?.querySelector('[data-ut7-move-preview]')
-  const resolution = resolutionNode?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const cellText = root?.querySelector('.ut4-comparison-strip > span:last-child')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
-  const radiusInput = root?.querySelector('.ut7-playground-setup input[type="range"]')
-  const playerMatch = cellText.match(/Cell \\((-?\\d+),(-?\\d+)\\)/)
-  const player = playerMatch ? { x: Number(playerMatch[1]), y: Number(playerMatch[2]) } : null
-  const axial = (coord) => ({ q: coord.x - (coord.y - (coord.y & 1)) / 2, r: coord.y })
-  const distance = (a, b) => {
-    const first = axial(a); const second = axial(b)
-    const dq = first.q - second.q; const dr = first.r - second.r
-    const ds = -first.q - first.r + second.q + second.r
-    return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(ds))
-  }
-  const validTargets = [...(root?.querySelectorAll('.hex-travel-cell.valid-target.drive') ?? [])]
-  const targetDistances = player ? validTargets.map((node) => distance(player, { x: Number(node.dataset.x), y: Number(node.dataset.y) })) : []
-  const worldMatch = header.match(/World Time(\\d+(?:\\.\\d+)?) AT/)
+  const root = document.querySelector('.inertia-field-ab[data-implementation="inertia-reachable-field-ab-v1"]')
+  const stateText = root?.querySelector('.ifab-state-strip')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const profile = root?.querySelector('.ifab-profile')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const readout = root?.querySelector('.ifab-readout')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const board = root?.querySelector('.inertia-field-board')
+  const activeMode = root?.querySelector('.ifab-mode-switch button.active')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
+  const activePreset = root?.querySelector('.ifab-preset-grid button.active')?.textContent?.trim() ?? ''
+  const radiusInput = root?.querySelector('[data-testid="ifab-radius"]')
   return {
     implementation: root?.dataset.implementation ?? '',
-    header, preview, resolution, cellText,
-    player,
-    worldAt: worldMatch ? Number(worldMatch[1]) : null,
-    pageScrollHeight: document.documentElement.scrollHeight,
-    innerHeight: window.innerHeight,
-    basicMoveCard: Boolean(root?.querySelector('[data-action-id="basic-move"]')),
-    steerCard: Boolean(root?.querySelector('[data-action-id="steer"]')),
-    validMoveTargets: validTargets.length,
-    remoteTargets: targetDistances.filter((value) => value >= 3).length,
-    maxTargetDistance: targetDistances.length ? Math.max(...targetDistances) : 0,
-    boardCellCount: root?.querySelectorAll('.hex-travel-cell').length ?? 0,
+    mode: root?.dataset.spatialMode ?? '',
+    targetCount: Number(root?.dataset.targetCount ?? 0),
+    maxDistance: Number(root?.dataset.maxDistance ?? 0),
+    stateText,
+    profile,
+    readout,
+    activeMode,
+    activePreset,
     radius: Number(radiusInput?.value ?? 0),
-    routeAt: Number(resolutionNode?.dataset.ut7RouteAt ?? 0),
-    routeSteps: Number(resolutionNode?.dataset.ut7RouteSteps ?? 0),
-    routeRows: resolutionNode?.querySelectorAll('.ut7-route-rows > div').length ?? 0,
-    latestLog: root?.querySelector('.ut4-log-list article')?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
-    playbackSegments: Number(root?.querySelector('.hex-travel-actor.player')?.dataset.playbackSegments ?? 0),
-    playbackPath: root?.querySelector('.hex-travel-actor.player')?.dataset.playbackPath ?? '',
-    playbackMotion: root?.querySelector('.hex-travel-actor.player animateMotion')?.getAttribute('path') ?? '',
+    canvas: Boolean(board?.querySelector('canvas')),
+    boardMode: board?.dataset.mode ?? '',
+    navButtons: [...document.querySelectorAll('.app-switcher nav button')].map((button) => button.textContent?.trim() ?? ''),
   }
 })()`
 
@@ -110,31 +120,8 @@ const clickText = (scopeSelector, text) => `(() => {
   const scope = document.querySelector(${JSON.stringify(scopeSelector)})
   const button = [...(scope?.querySelectorAll('button') ?? [])].find((node) => node.textContent.trim() === ${JSON.stringify(text)} || node.textContent.includes(${JSON.stringify(text)}))
   if (!button) throw new Error(${JSON.stringify(`button ${text} missing in ${scopeSelector}`)})
-  button.click(); return true
-})()`
-
-const dispatchRemoteTarget = (eventName, minimumDistance = 3) => `(() => {
-  const root = document.querySelector('.ut7-actor-loop')
-  const cellText = root?.querySelector('.ut4-comparison-strip > span:last-child')?.textContent ?? ''
-  const match = cellText.match(/Cell \\((-?\\d+),(-?\\d+)\\)/)
-  if (!match) throw new Error('Unable to read player Cell')
-  const player = { x: Number(match[1]), y: Number(match[2]) }
-  const axial = (coord) => ({ q: coord.x - (coord.y - (coord.y & 1)) / 2, r: coord.y })
-  const distance = (a, b) => {
-    const first = axial(a); const second = axial(b)
-    const dq = first.q - second.q; const dr = first.r - second.r
-    const ds = -first.q - first.r + second.q + second.r
-    return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(ds))
-  }
-  const candidates = [...root.querySelectorAll('.hex-travel-cell.valid-target.drive')]
-    .map((node) => ({ node, coord: { x: Number(node.dataset.x), y: Number(node.dataset.y) } }))
-    .map((entry) => ({ ...entry, distance: distance(player, entry.coord) }))
-    .filter((entry) => entry.distance >= ${minimumDistance})
-    .sort((left, right) => left.distance - right.distance || left.coord.y - right.coord.y || left.coord.x - right.coord.x)
-  const target = candidates[0]
-  if (!target) throw new Error('No remote Basic Move final Target found')
-  target.node.dispatchEvent(new MouseEvent(${JSON.stringify(eventName)}, { bubbles: true }))
-  return { ...target.coord, distance: target.distance }
+  button.click()
+  return true
 })()`
 
 let previewProcess
@@ -143,107 +130,106 @@ let client
 
 try {
   previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4180', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
-  previewProcess.stdout.on('data', (chunk) => process.stdout.write(`[ut7-nav-preview] ${chunk}`))
-  previewProcess.stderr.on('data', (chunk) => process.stderr.write(`[ut7-nav-preview] ${chunk}`))
-  await waitFor('UT7 navigation Vite preview', async () => { const response = await fetch(pageUrl, { redirect: 'follow' }); if (!response.ok) throw new Error(`HTTP ${response.status}`); return true })
+  previewProcess.stdout.on('data', (chunk) => process.stdout.write(`[ifab-preview] ${chunk}`))
+  previewProcess.stderr.on('data', (chunk) => process.stderr.write(`[ifab-preview] ${chunk}`))
+  await waitFor('Inertia field Vite preview', async () => {
+    const response = await fetch(pageUrl, { redirect: 'follow' })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return true
+  })
 
-  const userDataDir = join(tmpdir(), `projectc-ut7-navigation-${process.pid}`)
-  chromeProcess = spawn(chromeExecutable(), ['--headless=new', '--no-sandbox', '--disable-gpu', '--hide-scrollbars', '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9229', `--user-data-dir=${userDataDir}`, '--window-size=1366,1080', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
-  chromeProcess.stderr.on('data', (chunk) => process.stderr.write(`[ut7-nav-chrome] ${chunk}`))
-  const version = await waitFor('UT7 navigation Chrome DevTools', async () => { const response = await fetch(`${debuggingOrigin}/json/version`); if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json() })
+  const userDataDir = join(tmpdir(), `projectc-inertia-field-${process.pid}`)
+  chromeProcess = spawn(chromeExecutable(), [
+    '--headless=new',
+    '--no-sandbox',
+    '--disable-gpu',
+    '--hide-scrollbars',
+    '--remote-debugging-address=127.0.0.1',
+    '--remote-debugging-port=9229',
+    `--user-data-dir=${userDataDir}`,
+    '--window-size=1366,1080',
+    'about:blank',
+  ], { stdio: ['ignore', 'ignore', 'pipe'] })
+  chromeProcess.stderr.on('data', (chunk) => process.stderr.write(`[ifab-chrome] ${chunk}`))
+
+  const version = await waitFor('Inertia field Chrome DevTools', async () => {
+    const response = await fetch(`${debuggingOrigin}/json/version`)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json()
+  })
   const targetResponse = await fetch(`${debuggingOrigin}/json/new?${encodeURIComponent(pageUrl)}`, { method: 'PUT' })
-  assert(targetResponse.ok, 'Failed to create UT7 navigation Chrome target')
-  const target = await targetResponse.json(); client = new CdpClient(target.webSocketDebuggerUrl || version.webSocketDebuggerUrl); await client.open()
-  await client.send('Page.enable'); await client.send('Runtime.enable'); await client.send('Emulation.setDeviceMetricsOverride', { width: 1366, height: 1080, deviceScaleFactor: 1, mobile: false }); await client.send('Page.navigate', { url: pageUrl })
+  assert(targetResponse.ok, 'Failed to create inertia field Chrome target')
+  const target = await targetResponse.json()
+  client = new CdpClient(target.webSocketDebuggerUrl || version.webSocketDebuggerUrl)
+  await client.open()
+  await client.send('Page.enable')
+  await client.send('Runtime.enable')
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 1366, height: 1080, deviceScaleFactor: 1, mobile: false })
+  await client.send('Page.navigate', { url: pageUrl })
 
-  await waitFor('UT7 navigation live root', async () => {
-    const ready = await evaluate(client, `Boolean(document.querySelector('.ut7-actor-loop[data-implementation="inertia-driving-navigation-v4"] .hex-board-host canvas'))`)
-    if (!ready) throw new Error('UT7 navigation root / 3D board canvas not mounted'); return true
-  })
-  await sleep(450)
-
-  const initial = await evaluate(client, snapshotExpression)
-  assert(initial.basicMoveCard && !initial.steerCard, 'UT7 live command row must expose Basic Move and remove Steer', initial)
-  assert(initial.header.includes('0.0 AT') && initial.header.includes('M0'), 'UT7 navigation initial state mismatch', initial)
-  assert(initial.pageScrollHeight <= initial.innerHeight + 2, 'UT7 navigation page requires vertical scrolling at 1366x1080', initial)
-
-  await evaluate(client, clickText('.hex-view-switch', '2D'))
-  const remoteField = await waitFor('UT7 remote final Target field', async () => {
+  const initial = await waitFor('Inertia field A/B root', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.validMoveTargets <= 6 || snapshot.remoteTargets < 1 || snapshot.maxTargetDistance < 3) throw new Error(JSON.stringify(snapshot))
+    if (!snapshot.canvas || snapshot.implementation !== 'inertia-reachable-field-ab-v1') throw new Error(JSON.stringify(snapshot))
+    return snapshot
+  })
+  assert(initial.mode === 'discrete' && initial.activePreset === 'M0', 'A/B prototype must start in Discrete M0', initial)
+  assert(initial.maxDistance === 1 && initial.targetCount > 0, 'M0 must expose only the adjacent field', initial)
+  assert(initial.navButtons.length === 2 && initial.navButtons[0].includes('Inertia Field'), 'Prototype navigation was not cleaned to the current experiment + graphics lab', initial)
+
+  await evaluate(client, clickText('.ifab-preset-grid', 'M1'))
+  const m1 = await waitFor('M1 compact field', async () => {
+    const snapshot = await evaluate(client, snapshotExpression)
+    if (snapshot.activePreset !== 'M1' || snapshot.maxDistance !== 2 || !snapshot.profile.includes('3×3')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
-  const hoveredTarget = await evaluate(client, dispatchRemoteTarget('mouseover', 3))
-  const navigationPreview = await waitFor('UT7 multi-AT Navigation Resolution preview', async () => {
+  await evaluate(client, clickText('.ifab-preset-grid', 'M2'))
+  const m2 = await waitFor('M2 short teardrop', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.resolution.includes('Navigation Resolution') || snapshot.routeAt <= 1 || snapshot.routeRows !== snapshot.routeAt || snapshot.routeSteps < 1 || !snapshot.preview.includes(`${snapshot.routeAt} AT`)) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.activePreset !== 'M2' || snapshot.maxDistance !== 3 || !snapshot.profile.includes('teardrop')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
-  const clickedTarget = await evaluate(client, dispatchRemoteTarget('click', 3))
-  assert(clickedTarget.x === hoveredTarget.x && clickedTarget.y === hoveredTarget.y, 'Hover and click must resolve the same final Target', { hoveredTarget, clickedTarget })
-  const afterNavigation = await waitFor('UT7 complete multi-AT Basic Move navigation', async () => {
+  await evaluate(client, clickText('.ifab-preset-grid', 'M3'))
+  const m3 = await waitFor('M3 long teardrop', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    const pathCells = snapshot.playbackPath ? snapshot.playbackPath.split('>') : []
-    const motionCommands = snapshot.playbackMotion.match(/\b[ML]\b/g) ?? []
-    const reachedTarget = snapshot.player?.x === clickedTarget.x && snapshot.player?.y === clickedTarget.y
-    if (!reachedTarget || snapshot.worldAt !== navigationPreview.routeAt || !snapshot.latestLog.includes('Basic Move') || snapshot.playbackSegments < 2 || pathCells.length !== snapshot.playbackSegments + 1 || motionCommands.length !== pathCells.length) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.activePreset !== 'M3' || snapshot.maxDistance !== 4 || snapshot.targetCount <= m2.targetCount) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
-  await evaluate(client, clickText('.ut7-preset-grid', 'cold-down'))
-  const coldPreset = await waitFor('UT7 cold-down preset', async () => {
+  await evaluate(client, clickText('.ifab-mode-switch', 'Hybrid Spatial'))
+  const hybrid = await waitFor('Hybrid spatial comparison mode', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.header.includes('0.0 AT') || !snapshot.header.includes('M3') || !snapshot.header.includes('Down')) throw new Error(JSON.stringify(snapshot))
-    return snapshot
-  })
-  const coldTarget = await evaluate(client, dispatchRemoteTarget('mouseover', 3))
-  const coldPreview = await waitFor('UT7 Down Breakaway multi-AT route', async () => {
-    const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.routeAt < 4 || snapshot.routeRows !== snapshot.routeAt || !snapshot.resolution.includes('No displacement')) throw new Error(JSON.stringify(snapshot))
-    return snapshot
-  })
-  await evaluate(client, dispatchRemoteTarget('click', 3))
-  const afterColdNavigation = await waitFor('UT7 Down Breakaway route reaches final Target', async () => {
-    const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.player?.x !== coldTarget.x || snapshot.player?.y !== coldTarget.y || snapshot.worldAt !== coldPreview.routeAt) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.mode !== 'hybrid' || snapshot.boardMode !== 'hybrid' || !snapshot.activeMode.includes('Hybrid')) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.targetCount !== m3.targetCount || snapshot.maxDistance !== m3.maxDistance) throw new Error(`Hybrid changed Target Cell field: ${JSON.stringify(snapshot)}`)
     return snapshot
   })
 
   await evaluate(client, `(() => {
-    const input = document.querySelector('.ut7-playground-setup input[type="range"]')
-    if (!input) throw new Error('UT7 Board Radius input missing')
+    const input = document.querySelector('[data-testid="ifab-radius"]')
+    if (!input) throw new Error('Board Radius input missing')
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
     setter.call(input, '10')
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new Event('change', { bubbles: true }))
     return true
   })()`)
-  const radius10 = await waitFor('UT7 navigation real R10 topology rebuild', async () => {
+  const radius10 = await waitFor('R10 focused board', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.radius !== 10 || snapshot.boardCellCount !== 331 || !snapshot.header.includes('0.0 AT') || snapshot.maxTargetDistance < 8) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.radius !== 10 || !snapshot.readout.includes('331 Cells') || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'ut7-basic-move.png'), Buffer.from(screenshot.data, 'base64'))
-  const result = { initial, remoteField, hoveredTarget, navigationPreview, afterNavigation, coldPreset, coldTarget, coldPreview, afterColdNavigation, radius10 }
+  const result = { initial, m1, m2, m3, hybrid, radius10 }
   await writeFile(join(artifactDir, 'ut7-basic-move.json'), `${JSON.stringify(result, null, 2)}\n`)
 
-  console.log('UT7 Basic Move navigation verified in real Chrome: remote final Targets are selectable, full routes settle multiple inertia-valid ATs, actor playback follows every resolved Cell-step, Down Breakaway is included, and R10 remains real.')
-  console.log(JSON.stringify({
-    initial: initial.header,
-    remoteTargets: remoteField.remoteTargets,
-    target: clickedTarget,
-    routeAt: navigationPreview.routeAt,
-    routeSteps: navigationPreview.routeSteps,
-    playbackSegments: afterNavigation.playbackSegments,
-    coldRouteAt: coldPreview.routeAt,
-    r10Cells: radius10.boardCellCount,
-    r10MaxTargetDistance: radius10.maxTargetDistance,
-  }, null, 2))
+  console.log('Inertia Reachable Field A/B verified in real Chrome: M0 ring, M1 compact rear-closed field, M2/M3 teardrops, identical Hybrid target set, focused navigation, and R10 board all mounted correctly.')
+  console.log(JSON.stringify(result, null, 2))
 } finally {
-  client?.close(); chromeProcess?.kill('SIGTERM'); previewProcess?.kill('SIGTERM')
+  client?.close()
+  chromeProcess?.kill('SIGTERM')
+  previewProcess?.kill('SIGTERM')
 }
