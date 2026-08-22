@@ -10,8 +10,8 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
-assert(info.schemaVersion === 4, 'build-info schema is not legacy-aligned cell-world v4')
-assert(info.implementation === 'cell-world-spatial-ab-v2', 'build-info implementation mismatch')
+assert(info.schemaVersion === 5, 'build-info schema is not movement-correction v5')
+assert(info.implementation === 'cell-world-spatial-ab-v3', 'build-info implementation mismatch')
 assert(info.commit === expectedCommit, `build commit ${info.commit} != ${expectedCommit}`)
 assert(info.status === (expectedCommit === 'local' ? 'local' : 'verified'), 'unexpected build status')
 
@@ -21,25 +21,26 @@ const scriptPath = scriptMatch[1].replace(/^\/ProjectC-WebPrototype\//, '')
 await stat(resolve(distDir, scriptPath))
 const script = await readFile(resolve(distDir, scriptPath), 'utf8')
 for (const marker of [
-  'cell-world-spatial-ab-v2',
+  'cell-world-spatial-ab-v3',
   'Inertia Driving Playground',
-  'Motion Cards · Force / Cell Aim',
+  'Basic Move',
+  'Basic Command + Momentum Cards',
+  'Current Velocity + ΔV',
   'Spatial Model A/B',
   'Cell Inspector',
   'Discrete',
   'Hybrid',
-  'Card + Aim Cell',
   '热力钟摆',
   'ProjectC Web Prototype',
   'Thermal Clock Lab',
   '图形性能实验室',
+  'direction-only',
 ]) assert(script.includes(marker), `current runtime marker missing: ${marker}`)
 assert(script.includes(expectedCommit), 'bundle commit marker missing')
 
 for (const obsolete of [
   'InertiaFieldBoard',
   'Reachable Field',
-  'Basic Move',
   'Actor Loop UT6',
   'Apply Impulse',
 ]) assert(!script.includes(obsolete), `obsolete runtime marker still bundled: ${obsolete}`)
@@ -55,6 +56,7 @@ for (const marker of [
   '.thermal-pendulum',
   '.app-switcher',
   '.build-revision',
+  '[data-action-id="basic-move"]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified legacy-aligned Cell World spatial A/B dist for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified movement-corrected Cell World spatial A/B dist for ${info.branch}@${info.shortCommit}.`)
