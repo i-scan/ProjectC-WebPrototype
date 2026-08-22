@@ -97,7 +97,8 @@ const snapshotExpression = `(() => {
   const action = root?.querySelector('.impulse-card-row .selected-action')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''
   const boardRadiusLabel = [...(root?.querySelectorAll('label.ut4-range') ?? [])].find((node) => node.textContent.includes('Board Radius'))
   const boardRadius = Number(boardRadiusLabel?.querySelector('input')?.value ?? 0)
-  const canvas = Boolean(root?.querySelector('.visual-board-frame canvas'))
+  const stateItems = [...(root?.querySelectorAll('.ut4-header-state > div') ?? [])]
+  const stateValue = (label) => stateItems.find((node) => node.querySelector('span')?.textContent?.trim() === label)?.querySelector('strong')?.textContent?.trim() ?? ''
   const collisionLog = [...(root?.querySelectorAll('.ut4-log-list article small') ?? [])].map((node) => node.textContent ?? '').find((text) => text.includes('UT3Hard')) ?? ''
   return {
     implementation: root?.dataset.implementation ?? '',
@@ -106,11 +107,15 @@ const snapshotExpression = `(() => {
     previewValid: root?.dataset.previewValid === 'true',
     pathLength: Number(root?.dataset.previewPathLength ?? 0),
     collisionCount: Number(root?.dataset.previewCollisionCount ?? 0),
+    momentum: stateValue('Momentum'),
+    axis: stateValue('Axis'),
+    worldTime: stateValue('World Time'),
     header,
     preview,
     action,
     boardRadius,
-    canvas,
+    canvas: Boolean(root?.querySelector('.visual-board-frame canvas')),
+    boardMounted: Boolean(root?.querySelector('.visual-board-frame canvas, .visual-board-frame svg')),
     collisionLog,
     navButtons: [...document.querySelectorAll('.app-switcher nav button')].map((button) => button.textContent?.trim() ?? ''),
   }
@@ -173,13 +178,13 @@ try {
     return snapshot
   })
   assert(initial.rendererMode === '3d' && initial.spatialMode === 'discrete', 'Impulse lab must restore the default 3D discrete lab view', initial)
-  assert(initial.previewValid && initial.pathLength === 1 && initial.header.includes('M0'), 'M0 Drive must predict one forced cell from force input', initial)
+  assert(initial.previewValid && initial.pathLength === 1 && initial.momentum === 'M0', 'M0 Drive must predict one forced cell from force input', initial)
   assert(initial.action.includes('Drive') && initial.navButtons[0]?.includes('Inertia Driving'), 'Current navigation/action shell is incorrect', initial)
 
   await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
   const afterDrive = await waitFor('M0 Drive commit', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.header.includes('1.0 AT') || !snapshot.header.includes('M1')) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.worldTime !== '1.0 AT' || snapshot.momentum !== 'M1') throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
@@ -192,23 +197,28 @@ try {
   await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
   const afterCoast = await waitFor('persistent M1 Coast', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.header.includes('2.0 AT') || !snapshot.header.includes('M1')) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.worldTime !== '2.0 AT' || snapshot.momentum !== 'M1') throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
+  // Recenter before the collision test so the hard surface is exactly the third
+  // eastward Cell and M3 must travel two Cells before the impact.
+  await evaluate(client, clickText('.visual-session-controls', 'Reset'))
   await evaluate(client, clickText('.ut6-preset-grid', 'E M3'))
+  await evaluate(client, clickText('.impulse-card-row', 'Coast'))
   const m3CrashPreview = await waitFor('M3 forced collision preview', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (!snapshot.header.includes('M3') || snapshot.pathLength !== 2 || snapshot.collisionCount < 1 || !snapshot.preview.includes('UT3Hard')) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.momentum !== 'M3' || snapshot.pathLength !== 2 || snapshot.collisionCount < 1 || !snapshot.preview.includes('UT3Hard')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
   await evaluate(client, `document.querySelector('[data-testid="impulse-commit"]').click()`)
   const afterCrash = await waitFor('M3 collision result', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.header.includes('MomentumM3') || !snapshot.collisionLog.includes('UT3Hard')) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.momentum === 'M3' || !snapshot.collisionLog.includes('UT3Hard')) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
 
+  await evaluate(client, clickText('.visual-session-controls', 'Reset'))
   await evaluate(client, clickText('.ut6-preset-grid', 'E M3'))
   await evaluate(client, clickText('.impulse-card-row', 'Counter Impulse'))
   const counterPreview = await waitFor('M3 counter impulse preview', async () => {
@@ -220,7 +230,7 @@ try {
   await evaluate(client, clickText('.hex-view-switch', '2D'))
   const view2d = await waitFor('restored 2D view', async () => {
     const snapshot = await evaluate(client, snapshotExpression)
-    if (snapshot.rendererMode !== '2d' || !snapshot.canvas) throw new Error(JSON.stringify(snapshot))
+    if (snapshot.rendererMode !== '2d' || !snapshot.boardMounted) throw new Error(JSON.stringify(snapshot))
     return snapshot
   })
   await evaluate(client, clickText('.hex-view-switch', '3D'))
