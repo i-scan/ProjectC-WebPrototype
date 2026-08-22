@@ -5,13 +5,63 @@ export const AT_VISUAL_MS = 800
 export const SOLVER_STEPS = 120
 export const MAX_SPEED = 3.2
 export const ACTOR_RADIUS = 0.16
+export const BASIC_MOVE_DISTANCE = 1
 
 export const ACTIONS = [
-  { id: 'drive', label: 'Drive', short: '推进', force: 0.85, aimWindow: 80, description: '沿当前速度附近施加冲量；静止时可向任意 Cell 起步。' },
-  { id: 'heavy-drive', label: 'Heavy Drive', short: '重推进', force: 1.35, aimWindow: 65, description: '更强推进冲量，更快建立速度，也更难修正。' },
-  { id: 'counter', label: 'Counter Impulse', short: '反冲', force: 0.9, aimWindow: 70, description: '朝当前速度反方向附近施力，用于主动减速或反向。' },
-  { id: 'hard-turn', label: 'Hard Turn', short: '急转', force: 0.75, aimWindow: 140, description: '允许更大的偏转角，但单位冲量较低。' },
-  { id: 'coast', label: 'Coast', short: '滑行', force: 0, aimWindow: 0, description: '不施加新力；完整保留当前速度完成 1 AT。' },
+  {
+    id: 'basic-move',
+    kind: 'basic',
+    label: 'Basic Move',
+    short: '基础移动 · 1 AT',
+    force: 0,
+    aimWindow: null,
+    description: '基础行动。Aim Cell 只定义自主移动方向；移动与当前惯性叠加，但不会自动增加、消耗或重置 Momentum。',
+  },
+  {
+    id: 'drive',
+    kind: 'impulse',
+    label: 'Drive',
+    short: '推进冲量',
+    force: 0.85,
+    aimWindow: null,
+    description: '向任意 Aim 方向施加 ΔV 0.85；结果由当前 Velocity + Impulse 直接合成，不做转向合法性检查。',
+  },
+  {
+    id: 'heavy-drive',
+    kind: 'impulse',
+    label: 'Heavy Drive',
+    short: '重推进冲量',
+    force: 1.35,
+    aimWindow: null,
+    description: '向任意 Aim 方向施加更强的 ΔV 1.35；同样先做向量合成，再求解轨迹。',
+  },
+  {
+    id: 'counter',
+    kind: 'impulse',
+    label: 'Counter Impulse',
+    short: '反冲',
+    force: 0.9,
+    aimWindow: 70,
+    description: '专用反冲动作；Aim 需要位于当前速度反方向附近，用于主动减速或反向。',
+  },
+  {
+    id: 'hard-turn',
+    kind: 'impulse',
+    label: 'Hard Turn',
+    short: '精细修正',
+    force: 0.75,
+    aimWindow: null,
+    description: '较小的自由方向冲量，用于比 Drive 更细地修正合成后的 Velocity。',
+  },
+  {
+    id: 'coast',
+    kind: 'coast',
+    label: 'Coast',
+    short: '滑行',
+    force: 0,
+    aimWindow: 0,
+    description: '不施加新力；完整保留当前 Velocity 完成 1 AT。',
+  },
 ]
 
 export const DEFAULT_SOLVER_CONFIG = Object.freeze({
@@ -34,29 +84,43 @@ export function createInitialState() {
 }
 
 export function actionById(id) {
-  return ACTIONS.find((action) => action.id === id) ?? ACTIONS[0]
+  return ACTIONS.find((action) => action.id === id) ?? ACTIONS[1]
 }
 
 function aimPolicy(state, action, aimPoint) {
   const speed = length(state.velocity)
-  if (action.id === 'coast') {
+
+  if (action.kind === 'coast') {
     return speed < 0.18
       ? { valid: false, reason: 'Coast requires existing velocity.', direction: { x: 0, z: 0 }, angle: 0 }
       : { valid: true, reason: '', direction: normalize(state.velocity), angle: 0 }
   }
-  if (!aimPoint) return { valid: false, reason: 'Hover a board Cell to preview the impulse.', direction: { x: 0, z: 0 }, angle: 0 }
-  const aimVector = sub(aimPoint, state.position)
-  const direction = normalize(aimVector)
-  if (length(direction) < 0.5) return { valid: false, reason: 'Choose a different Cell to define aim.', direction, angle: 0 }
-  if (speed < 0.18) {
-    if (action.id === 'counter') return { valid: false, reason: 'Counter Impulse requires existing velocity.', direction, angle: 180 }
-    return { valid: true, reason: '', direction, angle: 0 }
+
+  if (!aimPoint) {
+    return { valid: false, reason: 'Hover a board Cell to define Aim direction.', direction: { x: 0, z: 0 }, angle: 0 }
   }
-  const reference = action.id === 'counter' ? scale(state.velocity, -1) : state.velocity
-  const angle = angleDeg(reference, direction)
+
+  const aimVector = sub(aimPoint, state.position)
+  if (length(aimVector) < 0.001) {
+    return { valid: false, reason: 'Choose a different Cell to define Aim direction.', direction: { x: 0, z: 0 }, angle: 0 }
+  }
+  const direction = normalize(aimVector)
+
+  // Drive / Heavy Drive / Hard Turn / Basic Move are direction-free inputs.
+  // Their consequence is constrained by vector addition, not by a pre-check.
+  if (action.id !== 'counter') {
+    const angle = speed < 0.18 ? 0 : angleDeg(state.velocity, direction)
+    return { valid: true, reason: '', direction, angle }
+  }
+
+  if (speed < 0.18) {
+    return { valid: false, reason: 'Counter Impulse requires existing velocity.', direction, angle: 180 }
+  }
+  const reverseReference = scale(state.velocity, -1)
+  const angle = angleDeg(reverseReference, direction)
   return angle <= action.aimWindow
     ? { valid: true, reason: '', direction, angle }
-    : { valid: false, reason: `${action.label} aim is ${angle.toFixed(0)}° outside its ${action.aimWindow}° steering window.`, direction, angle }
+    : { valid: false, reason: `Counter Impulse aim is ${angle.toFixed(0)}° outside its reverse ±${action.aimWindow}° window.`, direction, angle }
 }
 
 function invalidPlan(state, action, reason, beforeSpeed, spatialMode) {
@@ -64,6 +128,7 @@ function invalidPlan(state, action, reason, beforeSpeed, spatialMode) {
     valid: false,
     reason,
     action,
+    actionKind: action.kind,
     spatialMode,
     samples: [{ t: 0, position: { ...state.position }, velocity: { ...state.velocity } }],
     collisions: [],
@@ -74,6 +139,118 @@ function invalidPlan(state, action, reason, beforeSpeed, spatialMode) {
     finalSpeed: beforeSpeed,
     beforeM: momentumLevel(beforeSpeed),
     finalM: momentumLevel(beforeSpeed),
+    curveUsed: false,
+    impulse: { x: 0, z: 0 },
+  }
+}
+
+function actionVectors(state, action, policy, config) {
+  if (action.kind === 'basic') {
+    const control = scale(policy.direction, BASIC_MOVE_DISTANCE)
+    return {
+      impulse: { x: 0, z: 0 },
+      momentumVelocity: { ...state.velocity },
+      travelVector: add(state.velocity, control),
+      control,
+    }
+  }
+
+  if (action.kind === 'coast') {
+    return {
+      impulse: { x: 0, z: 0 },
+      momentumVelocity: { ...state.velocity },
+      travelVector: { ...state.velocity },
+      control: { x: 0, z: 0 },
+    }
+  }
+
+  const impulse = scale(policy.direction, action.force)
+  const momentumVelocity = clampLength(add(state.velocity, impulse), config.maxSpeed)
+  return {
+    impulse,
+    momentumVelocity,
+    travelVector: { ...momentumVelocity },
+    control: { x: 0, z: 0 },
+  }
+}
+
+function hermitePoint(start, end, startTangent, endTangent, t) {
+  const t2 = t * t
+  const t3 = t2 * t
+  const h00 = 2 * t3 - 3 * t2 + 1
+  const h10 = t3 - 2 * t2 + t
+  const h01 = -2 * t3 + 3 * t2
+  const h11 = t3 - t2
+  return {
+    x: h00 * start.x + h10 * startTangent.x + h01 * end.x + h11 * endTangent.x,
+    z: h00 * start.z + h10 * startTangent.z + h01 * end.z + h11 * endTangent.z,
+  }
+}
+
+function hermiteDerivative(start, end, startTangent, endTangent, t) {
+  const t2 = t * t
+  const h00 = 6 * t2 - 6 * t
+  const h10 = 3 * t2 - 4 * t + 1
+  const h01 = -6 * t2 + 6 * t
+  const h11 = 3 * t2 - 2 * t
+  return {
+    x: h00 * start.x + h10 * startTangent.x + h01 * end.x + h11 * endTangent.x,
+    z: h00 * start.z + h10 * startTangent.z + h01 * end.z + h11 * endTangent.z,
+  }
+}
+
+function hybridNominalPath(state, action, vectors) {
+  const start = { ...state.position }
+  const end = add(start, vectors.travelVector)
+
+  if (action.kind === 'coast') {
+    return {
+      curveUsed: false,
+      pointAt: (t) => add(start, scale(vectors.travelVector, t)),
+      motionVelocityAt: () => ({ ...vectors.travelVector }),
+      momentumVelocityAt: () => ({ ...vectors.momentumVelocity }),
+    }
+  }
+
+  if (action.kind === 'basic') {
+    const inertiaSpeed = length(state.velocity)
+    const travelSpeed = length(vectors.travelVector)
+    const startTangent = inertiaSpeed > 0.18 ? { ...state.velocity } : { ...vectors.travelVector }
+    const endTangent = { ...vectors.travelVector }
+    const turnAngle = inertiaSpeed > 0.18 && travelSpeed > 0.18 ? angleDeg(startTangent, endTangent) : 0
+    const curveUsed = turnAngle > 5
+    return {
+      curveUsed,
+      pointAt: curveUsed
+        ? (t) => hermitePoint(start, end, startTangent, endTangent, t)
+        : (t) => add(start, scale(vectors.travelVector, t)),
+      motionVelocityAt: curveUsed
+        ? (t) => hermiteDerivative(start, end, startTangent, endTangent, t)
+        : () => ({ ...vectors.travelVector }),
+      // Basic Move translates the actor but does not mutate persistent inertia.
+      momentumVelocityAt: () => ({ ...vectors.momentumVelocity }),
+    }
+  }
+
+  const beforeSpeed = length(state.velocity)
+  const afterSpeed = length(vectors.momentumVelocity)
+  const turnAngle = beforeSpeed > 0.18 && afterSpeed > 0.18
+    ? angleDeg(state.velocity, vectors.momentumVelocity)
+    : 0
+  const curveUsed = turnAngle > 5
+  const startTangent = curveUsed ? { ...state.velocity } : { ...vectors.momentumVelocity }
+  const endTangent = { ...vectors.momentumVelocity }
+  return {
+    curveUsed,
+    pointAt: curveUsed
+      ? (t) => hermitePoint(start, end, startTangent, endTangent, t)
+      : (t) => add(start, scale(vectors.travelVector, t)),
+    motionVelocityAt: curveUsed
+      ? (t) => hermiteDerivative(start, end, startTangent, endTangent, t)
+      : () => ({ ...vectors.momentumVelocity }),
+    momentumVelocityAt: curveUsed
+      ? (t) => clampLength(hermiteDerivative(start, end, startTangent, endTangent, t), MAX_SPEED)
+      : () => ({ ...vectors.momentumVelocity }),
   }
 }
 
@@ -88,6 +265,8 @@ function resolveObstacle(candidate, velocity, obstacle, restitution) {
   return {
     position: add(center, scale(normal, minDistance + 0.002)),
     velocity: reflect(velocity, normal, bounce),
+    normal,
+    bounce,
     collision: { kind: obstacle.kind, obstacleId: obstacle.id, normal },
   }
 }
@@ -98,50 +277,107 @@ export function simulateImpulse({ state, actionId, aimPoint, config = DEFAULT_SO
   const beforeSpeed = length(state.velocity)
   if (!policy.valid) return invalidPlan(state, action, policy.reason, beforeSpeed, 'hybrid')
 
-  const impulse = action.force === 0 ? { x: 0, z: 0 } : scale(policy.direction, action.force)
-  let velocity = clampLength(add(state.velocity, impulse), config.maxSpeed)
-  const afterImpulseSpeed = length(velocity)
+  const vectors = actionVectors(state, action, policy, config)
+  const afterImpulseSpeed = length(vectors.momentumVelocity)
+  const nominal = hybridNominalPath(state, action, vectors)
   let position = { ...state.position }
-  const samples = [{ t: 0, position: { ...position }, velocity: { ...velocity } }]
+  let momentumVelocity = { ...vectors.momentumVelocity }
+  let ballisticVelocity = null
+  const samples = [{ t: 0, position: { ...position }, velocity: { ...state.velocity } }]
   const collisions = []
   const traversed = []
   const traversedKeys = new Set()
   const pushCell = (point) => {
     const hex = worldToAxial(point)
     const key = axialKey(hex)
-    if (!traversedKeys.has(key)) { traversedKeys.add(key); traversed.push(hex) }
+    if (!traversedKeys.has(key)) {
+      traversedKeys.add(key)
+      traversed.push(hex)
+    }
   }
   pushCell(position)
 
   const steps = Math.max(24, Math.round(config.steps))
   const dt = 1 / steps
   for (let index = 1; index <= steps; index += 1) {
-    let candidate = add(position, scale(velocity, dt))
+    const t = index / steps
+    let candidate
+    let motionVelocity
+    let sampleVelocity
+
+    if (ballisticVelocity) {
+      motionVelocity = { ...ballisticVelocity }
+      candidate = add(position, scale(ballisticVelocity, dt))
+      sampleVelocity = { ...momentumVelocity }
+    } else {
+      candidate = nominal.pointAt(t)
+      motionVelocity = scale(sub(candidate, position), 1 / dt)
+      sampleVelocity = action.kind === 'basic'
+        ? { ...momentumVelocity }
+        : nominal.momentumVelocityAt(t)
+    }
+
     if (!isInsideBoard(candidate, config.boardRadius)) {
       const inwardNormal = normalize(scale(candidate, -1))
-      velocity = reflect(velocity, inwardNormal, config.boundaryRestitution)
+      const reflectedMotion = reflect(motionVelocity, inwardNormal, config.boundaryRestitution)
       candidate = { ...position }
-      collisions.push({ t: index / steps, kind: 'boundary', position: { ...position }, normal: inwardNormal })
+      if (action.kind === 'basic') {
+        momentumVelocity = length(momentumVelocity) > 0.02
+          ? reflect(momentumVelocity, inwardNormal, config.boundaryRestitution)
+          : { x: 0, z: 0 }
+        ballisticVelocity = { ...momentumVelocity }
+      } else {
+        momentumVelocity = { ...reflectedMotion }
+        ballisticVelocity = { ...reflectedMotion }
+      }
+      sampleVelocity = { ...momentumVelocity }
+      collisions.push({ t, kind: 'boundary', position: { ...position }, normal: inwardNormal })
     }
+
     for (const obstacle of obstacles) {
-      const resolved = resolveObstacle(candidate, velocity, obstacle, config.restitution)
+      const activeMotion = ballisticVelocity ?? motionVelocity
+      const resolved = resolveObstacle(candidate, activeMotion, obstacle, config.restitution)
       if (!resolved) continue
       candidate = resolved.position
-      velocity = resolved.velocity
-      collisions.push({ t: index / steps, position: { ...candidate }, ...resolved.collision })
+      if (action.kind === 'basic') {
+        momentumVelocity = length(momentumVelocity) > 0.02
+          ? reflect(momentumVelocity, resolved.normal, resolved.bounce)
+          : { x: 0, z: 0 }
+        ballisticVelocity = { ...momentumVelocity }
+      } else {
+        momentumVelocity = { ...resolved.velocity }
+        ballisticVelocity = { ...resolved.velocity }
+      }
+      sampleVelocity = { ...momentumVelocity }
+      collisions.push({ t, position: { ...candidate }, ...resolved.collision })
     }
+
     position = candidate
     pushCell(position)
-    samples.push({ t: index / steps, position: { ...position }, velocity: { ...velocity } })
+    samples.push({ t, position: { ...position }, velocity: { ...sampleVelocity } })
   }
 
-  const finalSpeed = length(velocity)
+  if (!ballisticVelocity) momentumVelocity = { ...vectors.momentumVelocity }
+  const finalSpeed = length(momentumVelocity)
   return {
-    valid: true, reason: '', action, spatialMode: 'hybrid', aimAngle: policy.angle, impulse,
-    samples, collisions, traversedCells: traversed,
-    finalState: { position: { ...position }, velocity: { ...velocity }, worldAt: state.worldAt + 1 },
-    beforeSpeed, afterImpulseSpeed, finalSpeed,
-    beforeM: momentumLevel(beforeSpeed), finalM: momentumLevel(finalSpeed),
+    valid: true,
+    reason: '',
+    action,
+    actionKind: action.kind,
+    spatialMode: 'hybrid',
+    aimAngle: policy.angle,
+    impulse: vectors.impulse,
+    control: vectors.control,
+    samples,
+    collisions,
+    traversedCells: traversed,
+    finalState: { position: { ...position }, velocity: { ...momentumVelocity }, worldAt: state.worldAt + 1 },
+    beforeSpeed,
+    afterImpulseSpeed,
+    finalSpeed,
+    beforeM: momentumLevel(beforeSpeed),
+    finalM: momentumLevel(finalSpeed),
+    curveUsed: nominal.curveUsed,
   }
 }
 
@@ -153,7 +389,10 @@ function nearestHexDirection(vector) {
     const world = axialToWorld({ q: direction.q, r: direction.r })
     const unit = normalize(world)
     const dot = unit.x * normalized.x + unit.z * normalized.z
-    if (dot > bestDot) { bestDot = dot; best = direction }
+    if (dot > bestDot) {
+      bestDot = dot
+      best = direction
+    }
   }
   return best
 }
@@ -168,54 +407,81 @@ export function simulateDiscreteImpulse({ state, actionId, aimPoint, config = DE
   const beforeSpeed = length(state.velocity)
   if (!policy.valid) return invalidPlan(state, action, policy.reason, beforeSpeed, 'discrete')
 
-  const impulse = action.force === 0 ? { x: 0, z: 0 } : scale(policy.direction, action.force)
-  let velocity = clampLength(add(state.velocity, impulse), config.maxSpeed)
-  const afterImpulseSpeed = length(velocity)
-  let movementM = momentumLevel(afterImpulseSpeed)
-  if (movementM === 0 && action.force > 0) movementM = 1
+  const vectors = actionVectors(state, action, policy, config)
+  const afterImpulseSpeed = length(vectors.momentumVelocity)
+  let momentumVelocity = { ...vectors.momentumVelocity }
+  let motionVelocity = { ...vectors.travelVector }
+  let movementSteps = action.kind === 'basic'
+    ? Math.max(1, Math.min(4, Math.round(length(motionVelocity))))
+    : momentumLevel(afterImpulseSpeed)
 
   let cell = worldToAxial(state.position)
-  let direction = nearestHexDirection(velocity)
   const startPosition = axialToWorld(cell)
-  const samples = [{ t: 0, position: startPosition, velocity: { ...velocity } }]
+  const samples = [{ t: 0, position: startPosition, velocity: { ...state.velocity } }]
   const traversed = [{ ...cell }]
   const collisions = []
-  const totalSteps = Math.max(1, movementM)
 
-  for (let index = 1; index <= totalSteps; index += 1) {
-    let next = { q: cell.q + direction.q, r: cell.r + direction.r }
-    let obstacle = obstacleAt(obstacles, next)
-    const outOfBounds = axialDistance(next) > config.boardRadius
-    if (obstacle || outOfBounds) {
-      const bounce = obstacle?.kind === 'reflector' ? Math.min(0.92, config.restitution + 0.22) : outOfBounds ? config.boundaryRestitution : config.restitution
-      velocity = scale(velocity, -bounce)
-      direction = nearestHexDirection(velocity)
-      collisions.push({
-        t: index / totalSteps,
-        kind: outOfBounds ? 'boundary' : obstacle.kind,
-        obstacleId: obstacle?.id,
-        position: axialToWorld(cell),
-        cell: { ...next },
-      })
-      next = { q: cell.q + direction.q, r: cell.r + direction.r }
-      obstacle = obstacleAt(obstacles, next)
-      if (axialDistance(next) > config.boardRadius || obstacle) {
-        samples.push({ t: index / totalSteps, position: axialToWorld(cell), velocity: { ...velocity } })
-        continue
+  if (movementSteps > 0 && length(motionVelocity) > 0.001) {
+    let direction = nearestHexDirection(motionVelocity)
+    for (let index = 1; index <= movementSteps; index += 1) {
+      let next = { q: cell.q + direction.q, r: cell.r + direction.r }
+      let obstacle = obstacleAt(obstacles, next)
+      const outOfBounds = axialDistance(next) > config.boardRadius
+      if (obstacle || outOfBounds) {
+        const bounce = obstacle?.kind === 'reflector'
+          ? Math.min(0.92, config.restitution + 0.22)
+          : outOfBounds
+            ? config.boundaryRestitution
+            : config.restitution
+        motionVelocity = scale(motionVelocity, -bounce)
+        direction = nearestHexDirection(motionVelocity)
+        if (action.kind === 'basic') {
+          momentumVelocity = length(momentumVelocity) > 0.02
+            ? scale(momentumVelocity, -bounce)
+            : { x: 0, z: 0 }
+        } else {
+          momentumVelocity = { ...motionVelocity }
+        }
+        collisions.push({
+          t: index / movementSteps,
+          kind: outOfBounds ? 'boundary' : obstacle.kind,
+          obstacleId: obstacle?.id,
+          position: axialToWorld(cell),
+          cell: { ...next },
+        })
+        next = { q: cell.q + direction.q, r: cell.r + direction.r }
+        obstacle = obstacleAt(obstacles, next)
+        if (axialDistance(next) > config.boardRadius || obstacle) {
+          samples.push({ t: index / movementSteps, position: axialToWorld(cell), velocity: { ...momentumVelocity } })
+          continue
+        }
       }
+      cell = next
+      traversed.push({ ...cell })
+      samples.push({ t: index / movementSteps, position: axialToWorld(cell), velocity: { ...momentumVelocity } })
     }
-    cell = next
-    traversed.push({ ...cell })
-    samples.push({ t: index / totalSteps, position: axialToWorld(cell), velocity: { ...velocity } })
   }
 
-  const finalSpeed = length(velocity)
+  const finalSpeed = length(momentumVelocity)
   return {
-    valid: true, reason: '', action, spatialMode: 'discrete', aimAngle: policy.angle, impulse,
-    samples, collisions, traversedCells: traversed,
-    finalState: { position: axialToWorld(cell), velocity: { ...velocity }, worldAt: state.worldAt + 1 },
-    beforeSpeed, afterImpulseSpeed, finalSpeed,
-    beforeM: momentumLevel(beforeSpeed), finalM: momentumLevel(finalSpeed),
+    valid: true,
+    reason: '',
+    action,
+    actionKind: action.kind,
+    spatialMode: 'discrete',
+    aimAngle: policy.angle,
+    impulse: vectors.impulse,
+    control: vectors.control,
+    samples,
+    collisions,
+    traversedCells: traversed,
+    finalState: { position: axialToWorld(cell), velocity: { ...momentumVelocity }, worldAt: state.worldAt + 1 },
+    beforeSpeed,
+    afterImpulseSpeed,
+    finalSpeed,
+    beforeM: momentumLevel(beforeSpeed),
+    finalM: momentumLevel(finalSpeed),
+    curveUsed: false,
   }
 }
 
@@ -231,7 +497,12 @@ export function playbackElapsedMs(playback, now = performance.now()) {
 
 export function planSummary(plan) {
   if (!plan.valid) return plan.reason
-  const collision = plan.collisions.length > 0 ? ` · ${plan.collisions.length} collision${plan.collisions.length > 1 ? 's' : ''}` : ''
+  const collision = plan.collisions.length > 0
+    ? ` · ${plan.collisions.length} collision${plan.collisions.length > 1 ? 's' : ''}`
+    : ''
   const space = plan.spatialMode === 'discrete' ? 'Discrete' : 'Hybrid'
-  return `${space} · M${plan.beforeM} → M${plan.finalM} · speed ${plan.beforeSpeed.toFixed(2)} → ${plan.finalSpeed.toFixed(2)} · ${plan.traversedCells.length} cells touched${collision}`
+  if (plan.actionKind === 'basic') {
+    return `${space} · Basic Move · M${plan.beforeM} → M${plan.finalM} persistent · ${plan.traversedCells.length} cells touched${plan.curveUsed ? ' · curved blend' : ''}${collision}`
+  }
+  return `${space} · ${plan.action.label} · M${plan.beforeM} → M${plan.finalM} · speed ${plan.beforeSpeed.toFixed(2)} → ${plan.finalSpeed.toFixed(2)} · ${plan.traversedCells.length} cells touched${plan.curveUsed ? ' · curved blend' : ''}${collision}`
 }
