@@ -41,15 +41,14 @@ describe('right inspector component boundaries', () => {
     expect(inspectorCssSource).not.toContain('font-size: 6px')
   })
 
-  it('keeps the stable-width inspector contract on the hidden historical Hex route only', () => {
-    expect(mainSource).toContain("import { InspectorLayoutContract } from './hex/InspectorLayoutContract'")
-    expect(mainSource).toContain("{view === 'hex-legacy' && <InspectorLayoutContract />}")
-    expect(mainSource).toContain("{view === 'hex' && <ActorLoopUt7BasicMovePlayground />}")
-    expect(mainSource).toContain("{view === 'hex-ut6' && <ActorLoopPlayground />}")
+  it('retains the historical inspector contract in source without mounting it in the focused current entry', () => {
+    expect(mainSource).toContain("import { ActorLoopReachabilityABPlayground } from './hex/ActorLoopReachabilityABPlayground'")
+    expect(mainSource).not.toContain("import { InspectorLayoutContract } from './hex/InspectorLayoutContract'")
+    expect(mainSource).not.toContain('<InspectorLayoutContract />')
+    expect(mainSource).not.toContain('<ActorLoopUt7BasicMovePlayground />')
+    expect(mainSource).not.toContain('<ActorLoopPlayground />')
     expect(actorLoopSource).toContain('VAL-012-UT6-candidate')
     expect(ut7Source).toContain('VAL-012-UT7-candidate')
-    expect(mainSource).not.toContain("{view === 'hex' && <InspectorLayoutContract />}")
-    expect(mainSource).not.toContain("{view === 'hex-ut6' && <InspectorLayoutContract />}")
     expect(mainSource).not.toContain("import './hex/right-inspector-contract.css'")
     expect(runtimeContractSource).toContain('data-inspector-layout-contract="runtime-v3"')
     expect(runtimeContractSource).toContain('.inspector-hex > .visual-layout,')
@@ -68,7 +67,7 @@ describe('right inspector component boundaries', () => {
     expect(runtimeContractSource).not.toContain('--tc-value-emphasis: 20px')
   })
 
-  it('checks computed stable width and typography in the historical Hex browser contract', () => {
+  it('checks computed stable width and typography in the archived historical Hex browser contract', () => {
     expect(browserVerificationSource).toContain('for (const width of [1920, 1366])')
     expect(browserVerificationSource).toContain('tab buttons are not on the same row')
     expect(browserVerificationSource).toContain('inspector width changes when switching tabs')

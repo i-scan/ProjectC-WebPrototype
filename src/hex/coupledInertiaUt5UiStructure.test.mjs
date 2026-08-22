@@ -12,10 +12,11 @@ const main = readFileSync(mainPath, 'utf8')
 const config = JSON.parse(readFileSync(configPath, 'utf8'))
 
 describe('UT5 axis inertia lab contract', () => {
-  it('routes the live rules lab to UT5 rather than the historical UT4 sandbox', () => {
-    expect(main).toContain("import { Ut5InertiaLab } from './hex/Ut5InertiaLab'")
-    expect(main).toContain('惯性实验室 UT5')
-    expect(main).toContain("{view === 'rules' && <Ut5InertiaLab />}")
+  it('keeps the UT5 lab reproducible but removes it from the current prototype navigation', () => {
+    expect(main).toContain('Inertia Field A/B')
+    expect(main).not.toContain("import { Ut5InertiaLab } from './hex/Ut5InertiaLab'")
+    expect(main).not.toContain("{view === 'rules' && <Ut5InertiaLab />}")
+    expect(lab).toContain('VAL-012-UT5')
     expect(config.rulesetVersion).toBe('VAL-012-UT5')
     expect(config.implementationId).toBe('axis-inertia-sandbox-v1')
   })
