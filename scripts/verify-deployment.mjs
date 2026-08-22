@@ -20,17 +20,25 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const infoText = await fresh(new URL('build-info.json', baseUrl), attempt)
     const info = JSON.parse(infoText)
     if (info.commit !== expectedCommit) throw new Error(`published commit is ${info.commit}`)
-    if (info.implementation !== 'cell-world-spatial-ab-v1') throw new Error(`published implementation is ${info.implementation}`)
+    if (info.implementation !== 'cell-world-spatial-ab-v2') throw new Error(`published implementation is ${info.implementation}`)
     const html = await fresh(baseUrl, attempt)
     const match = html.match(/<script[^>]+src="([^"]+\.js)"/)
     if (!match) throw new Error('published bundle missing')
     const bundleUrl = new URL(match[1], baseUrl.origin)
     const bundle = await fresh(bundleUrl, attempt)
     if (!bundle.includes(expectedCommit)) throw new Error('published bundle commit mismatch')
-    for (const marker of ['cell-world-spatial-ab-v1', 'Spatial Model A/B', 'Cell Inspector', 'Motion Cards · Force / Cell Aim']) {
+    for (const marker of [
+      'cell-world-spatial-ab-v2',
+      'Spatial Model A/B',
+      'Cell Inspector',
+      'Motion Cards · Force / Cell Aim',
+      'ProjectC Web Prototype',
+      'Thermal Clock Lab',
+      '热力钟摆',
+    ]) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · cell-world spatial A/B`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · legacy-aligned Cell World spatial A/B`)
     process.exit(0)
   } catch (error) {
     lastError = error
