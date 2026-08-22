@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install rebuild dependencies
+      - name: Install prototype dependencies
         run: pnpm install
       - name: Record build time
         run: echo "VITE_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
@@ -40,18 +40,18 @@ jobs:
         run: pnpm test
       - name: Build production site
         run: pnpm build
-      - name: Verify clean production artifact
+      - name: Verify production artifact
         env:
           EXPECTED_COMMIT: ${{ github.sha }}
         run: pnpm verify:dist
-      - name: Verify continuous movement in Chrome
+      - name: Verify Cell World spatial A/B in Chrome
         run: pnpm verify:browser
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: continuous-browser-evidence-${{ github.sha }}
-          path: artifacts/continuous-inertia.*
+          name: cell-world-spatial-ab-evidence-${{ github.sha }}
+          path: artifacts/cell-world-spatial-ab.*
           if-no-files-found: warn
           retention-days: 30
       - uses: actions/configure-pages@v5
@@ -90,7 +90,7 @@ jobs:
               state: 'success',
               context: 'pages/verified-deployment',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              description: 'Continuous inertia Pages build verified online'
+              description: 'Cell World spatial A/B Pages build verified online'
             })
       - name: Mark failed deployment verification
         if: failure()
