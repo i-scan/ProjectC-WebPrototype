@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { playbackElapsedMs } from '../sim/solver.js'
 import {
   THERMAL_DISPLAY_MAX,
   THERMAL_DISPLAY_MIN,
+  THERMAL_HALF_PERIOD_AT,
   THERMAL_PERIOD_AT,
   formatThermal,
+  sampleThermalTransition,
   thermalAngleFor,
   thermalDialAngleFor,
   thermalDriftProjectionFor,
@@ -14,6 +17,7 @@ const pivot = { x: 130, y: 28 }
 const arcRadius = 88
 const driftRadius = 101
 const armLength = 72
+const clamp01 = (value) => Math.max(0, Math.min(1, value))
 
 function pointOnArc(angle, radius) {
   const radians = angle * Math.PI / 180
@@ -41,8 +45,31 @@ function driftArrowHeadPath(angle, direction, radius) {
   return `M ${tip.x.toFixed(2)} ${tip.y.toFixed(2)} L ${left.x.toFixed(2)} ${left.y.toFixed(2)} L ${right.x.toFixed(2)} ${right.y.toFixed(2)} Z`
 }
 
-export function ThermalPendulum({ thermal, elapsedAt }) {
+export function ThermalPendulum({ thermal, elapsedAt, playback }) {
   const [debugOpen, setDebugOpen] = useState(false)
+  const [frameNow, setFrameNow] = useState(() => performance.now())
+
+  useEffect(() => {
+    if (!playback) return undefined
+    let frame = 0
+    const tick = () => {
+      setFrameNow(performance.now())
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [playback?.id, playback?.pausedAt, playback?.pausedTotal, playback?.durationMs])
+
+  const progress = playback
+    ? clamp01(playbackElapsedMs(playback, frameNow) / Math.max(1, playback.durationMs ?? 800))
+    : 0
+  const displayThermal = playback?.startThermal
+    ? sampleThermalTransition(playback.startThermal, playback.thermalBehavior, progress)
+    : thermal
+  const displayAt = playback
+    ? (playback.startWorldAt ?? elapsedAt) + progress
+    : elapsedAt
+
   const zoneValues = useMemo(
     () => Array.from({ length: THERMAL_DISPLAY_MAX - THERMAL_DISPLAY_MIN + 1 }, (_, index) => THERMAL_DISPLAY_MIN + index),
     [],
@@ -50,20 +77,26 @@ export function ThermalPendulum({ thermal, elapsedAt }) {
   const zonePaths = useMemo(() => zoneValues.map((value) => ({
     value,
     className: thermalZoneClass(value),
-    path: sampledArcPath(thermalDialAngleFor(value - 0.5, thermal.setPoint), thermalDialAngleFor(value + 0.5, thermal.setPoint)),
-  })), [thermal.setPoint, zoneValues])
-  const bobAngle = thermalAngleFor(thermal.temperature, thermal.setPoint)
+    path: sampledArcPath(thermalDialAngleFor(value - 0.5, displayThermal.setPoint), thermalDialAngleFor(value + 0.5, displayThermal.setPoint)),
+  })), [displayThermal.setPoint, zoneValues])
+  const bobAngle = thermalAngleFor(displayThermal.temperature, displayThermal.setPoint)
   const bobPoint = pointOnArc(bobAngle, armLength)
-  const bobClass = thermalZoneClass(thermal.temperature)
-  const drift = thermalDriftProjectionFor(thermal.temperature, thermal.setPoint, thermal.drift)
+  const bobClass = thermalZoneClass(displayThermal.temperature)
+  const drift = thermalDriftProjectionFor(displayThermal.temperature, displayThermal.setPoint, displayThermal.drift)
   const driftIdlePoint = pointOnArc(drift.startAngle, driftRadius)
   const driftPath = Math.abs(drift.displayedAngle) < 0.001 ? '' : sampledArcPath(drift.startAngle, drift.endAngle, driftRadius)
   const driftArrowPath = drift.direction === 'still' ? '' : driftArrowHeadPath(drift.endAngle, drift.direction, driftRadius)
 
   return (
-    <section className="thermal-pendulum" aria-label={`热力钟摆，当前温度 ${formatThermal(thermal.temperature)}，漂移 ${formatThermal(thermal.drift)}`}>
+    <section
+      className="thermal-pendulum"
+      data-visual-at={displayAt.toFixed(3)}
+      data-visual-temperature={displayThermal.temperature.toFixed(4)}
+      data-cycle-at={THERMAL_PERIOD_AT}
+      aria-label={`热力钟摆，当前温度 ${formatThermal(displayThermal.temperature)}，漂移 ${formatThermal(displayThermal.drift)}`}
+    >
       <div className="thermal-pendulum-heading">
-        <strong>热力钟摆</strong>
+        <strong>热力钟摆 · 1 cycle = {THERMAL_PERIOD_AT} AT</strong>
         <button type="button" onClick={() => setDebugOpen((value) => !value)}>{debugOpen ? 'Close Debug' : 'Thermal Debug'}</button>
       </div>
       <div className="thermal-pendulum-dial">
@@ -91,14 +124,16 @@ export function ThermalPendulum({ thermal, elapsedAt }) {
         </svg>
       </div>
       <div className="thermal-pendulum-readout">
-        <span>T <b>{formatThermal(thermal.temperature)}</b></span>
-        <span>Drift <b>{formatThermal(thermal.drift)}</b></span>
-        <span>Period <b>{THERMAL_PERIOD_AT} AT</b></span>
-        <span>World <b>{elapsedAt.toFixed(1)}</b></span>
+        <span>T <b>{formatThermal(displayThermal.temperature)}</b></span>
+        <span>Drift <b>{formatThermal(displayThermal.drift)}</b></span>
+        <span>Cycle <b>{THERMAL_PERIOD_AT} AT</b></span>
+        <span>Half swing <b>{THERMAL_HALF_PERIOD_AT} AT</b></span>
+        <span>World <b>{displayAt.toFixed(2)} AT</b></span>
+        <span>Action <b>{playback ? `${Math.round(progress * 100)}%` : 'idle'}</b></span>
       </div>
       {debugOpen && (
         <div className="thermal-pendulum-debug-grid">
-          <span>Set Point <b>{formatThermal(thermal.setPoint)}</b></span>
+          <span>Set Point <b>{formatThermal(displayThermal.setPoint)}</b></span>
           <span>Angle <b>{bobAngle.toFixed(1)}°</b></span>
           <span>Drift Dir <b>{drift.direction}</b></span>
         </div>

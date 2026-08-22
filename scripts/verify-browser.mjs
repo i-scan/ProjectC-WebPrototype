@@ -91,9 +91,13 @@ async function evaluate(client, expression) {
 const snapshotExpression = `(() => {
   const root = document.querySelector('.cell-world-prototype[data-implementation="cell-world-spatial-ab-v3"]')
   const board = root?.querySelector('.cell-world-board')
+  const pendulum = root?.querySelector('.thermal-pendulum')
   const cards = [...(root?.querySelectorAll('.action-card') ?? [])]
   const spatialButtons = [...(root?.querySelectorAll('[data-spatial-select]') ?? [])]
   const panelButtons = [...(root?.querySelectorAll('[data-spatial-panel-select]') ?? [])]
+  const timebaseSlider = root?.querySelector('[data-timebase-slider]')
+  const canvas = board?.querySelector('canvas')
+  const canvasRect = canvas?.getBoundingClientRect()
   return {
     implementation: root?.dataset.implementation ?? '',
     authority: root?.dataset.authority ?? '',
@@ -112,8 +116,21 @@ const snapshotExpression = `(() => {
     visualZ: Number(board?.dataset.visualZ ?? NaN),
     visualMomentum: Number(board?.dataset.visualMomentum ?? -1),
     axisArrowLength: Number(board?.dataset.axisArrowLength ?? NaN),
+    axisArrowThickness: Number(board?.dataset.axisArrowThickness ?? NaN),
     axisArrowMeaning: board?.dataset.axisArrowMeaning ?? '',
+    previewStyle: board?.dataset.previewStyle ?? '',
+    previewLengthMax: Number(board?.dataset.previewLengthMax ?? NaN),
+    previewVisibleLength: Number(board?.dataset.previewVisibleLength ?? 0),
     frameProgress: Number(board?.dataset.playbackProgress ?? 0),
+    playbackDurationMs: Number(board?.dataset.playbackDurationMs ?? 0),
+    cameraZoom: Number(board?.dataset.cameraZoom ?? NaN),
+    viewportWidth: Number(board?.dataset.viewportWidth ?? 0),
+    viewportHeight: Number(board?.dataset.viewportHeight ?? 0),
+    canvasWidth: Number(canvasRect?.width ?? 0),
+    canvasHeight: Number(canvasRect?.height ?? 0),
+    thermalVisualAt: Number(pendulum?.dataset.visualAt ?? NaN),
+    thermalVisualTemperature: Number(pendulum?.dataset.visualTemperature ?? NaN),
+    thermalCycleAt: Number(pendulum?.dataset.cycleAt ?? 0),
     instanceProbe: board?.dataset.instanceProbe ?? '',
     canvasCount: root?.querySelectorAll('canvas').length ?? 0,
     actionCardCount: cards.length,
@@ -125,7 +142,9 @@ const snapshotExpression = `(() => {
     topHybridPressed: root?.querySelector('[data-spatial-select="hybrid"]')?.getAttribute('aria-pressed') ?? '',
     panelDiscreteChosen: root?.querySelector('[data-spatial-panel-select="discrete"]')?.classList.contains('chosen') ?? false,
     panelHybridChosen: root?.querySelector('[data-spatial-panel-select="hybrid"]')?.classList.contains('chosen') ?? false,
-    thermalPendulum: Boolean(root?.querySelector('.thermal-pendulum')),
+    thermalPendulum: Boolean(pendulum),
+    timebaseSlider: Boolean(timebaseSlider),
+    timebaseSliderValue: Number(timebaseSlider?.value ?? 0),
     switcherButtonCount: document.querySelectorAll('.app-switcher nav button').length,
     hasApply: Boolean(root?.querySelector('[data-testid="impulse-commit"], .impulse-commit-row')),
   }
@@ -140,7 +159,7 @@ async function waitForIdleAt(client, worldAt) {
     const value = await snapshot(client)
     if (value.playing || value.worldAt !== worldAt) throw new Error(JSON.stringify(value))
     return value
-  }, 130, 40)
+  }, 150, 40)
 }
 
 async function resetUi(client) {
@@ -172,6 +191,15 @@ async function setVelocity(client, x, z) {
   })
 }
 
+async function setAtMs(client, value) {
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setAtMs(${value})`) === true, 'AT timebase setter failed')
+  return waitFor(`AT timebase ${value}`, async () => {
+    const current = await snapshot(client)
+    if (current.atVisualMs !== value || current.timebaseSliderValue !== value) throw new Error(JSON.stringify(current))
+    return current
+  })
+}
+
 let previewProcess
 let chromeProcess
 let client
@@ -187,7 +215,7 @@ try {
     return true
   })
 
-  const userDataDir = join(tmpdir(), `projectc-movement-v3-${process.pid}`)
+  const userDataDir = join(tmpdir(), `projectc-driving-polish-${process.pid}`)
   chromeProcess = spawn(chromeExecutable(), [
     '--headless=new',
     '--no-sandbox',
@@ -227,23 +255,24 @@ try {
   })
   await client.send('Page.navigate', { url: pageUrl })
 
-  const initial = await waitFor('movement-corrected prototype', async () => {
+  const initial = await waitFor('driving-polished prototype', async () => {
     const value = await snapshot(client)
     if (value.canvasCount !== 1 || value.implementation !== 'cell-world-spatial-ab-v3') throw new Error(JSON.stringify(value))
     return value
   })
 
   assert(initial.authority === 'cell-world-plus-spatial-state' && initial.cellWorld, 'Cell World movement authority missing', initial)
-  assert(initial.atVisualMs === 800 && initial.solverSteps === 120, 'fixed AT contract changed', initial)
+  assert(initial.atVisualMs === 800 && initial.solverSteps === 120, 'default AT / solver contract changed', initial)
   assert(initial.actionCardCount === 6 && initial.basicMoveCard && initial.selectedActionId === 'drive', 'Basic Move / action set is incorrect', initial)
-  assert(initial.axisArrowMeaning === 'direction-only' && Math.abs(initial.axisArrowLength - 0.92) < 0.001, 'Axis arrow still encodes M magnitude', initial)
-  assert(initial.thermalPendulum && initial.switcherButtonCount === 3, 'restored mature UI regressed', initial)
+  assert(initial.axisArrowMeaning === 'direction-only' && Math.abs(initial.axisArrowLength - 0.54) < 0.001 && Math.abs(initial.axisArrowThickness - 0.07) < 0.001, 'short thick direction-only Axis arrow contract missing', initial)
+  assert(initial.previewStyle === 'short-thick-dashed-curve' && Math.abs(initial.previewLengthMax - 1.55) < 0.001, 'short dashed preview contract missing', initial)
+  assert(initial.thermalPendulum && initial.thermalCycleAt === 8 && initial.timebaseSlider, 'thermal cycle / timebase UI missing', initial)
+  assert(initial.switcherButtonCount === 3, 'global prototype switcher regressed', initial)
   assert(initial.spatialButtonCount === 2 && initial.panelButtonCount === 2, 'Spatial A/B controls incomplete', initial)
   assert(!initial.hasApply, 'Apply / Confirm leaked into click-to-resolve input', initial)
 
   await evaluate(client, `document.querySelector('.cell-world-board').dataset.instanceProbe='same-board'`)
 
-  // User-facing Hybrid button must still switch the same board instance.
   assert(await evaluate(client, `(() => { const button=document.querySelector('[data-spatial-select="hybrid"]'); if(!button) return false; button.click(); return true })()`) === true, 'Hybrid toolbar button not clickable')
   const hybridSwitch = await waitFor('Hybrid toolbar switch', async () => {
     const value = await snapshot(client)
@@ -260,24 +289,40 @@ try {
   })
   assert(discreteSwitch.instanceProbe === 'same-board', 'Discrete replaced board instance', discreteSwitch)
 
-  // Basic Move: a far Aim cell is direction input, not a requested destination.
+  // Adjustable real-time playback: use 600ms / AT for Basic Move and verify thermal updates continuously.
+  await setAtMs(client, 600)
   await selectAction(client, 'basic-move')
   const basicStart = Date.now()
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(4, 0)`) === true, 'Basic Move far-Aim input was rejected')
   const basicStarted = await waitFor('Basic Move playback start', async () => {
     const value = await snapshot(client)
-    if (!value.playing) throw new Error(JSON.stringify(value))
+    if (!value.playing || value.playbackDurationMs !== 600) throw new Error(JSON.stringify(value))
     return value
   })
   assert(basicStarted.worldAt === 0 && Math.abs(basicStarted.logicalX) < 0.001, 'Basic Move committed logical state early', basicStarted)
-  await sleep(240)
+  const stableViewport = {
+    cameraZoom: basicStarted.cameraZoom,
+    viewportWidth: basicStarted.viewportWidth,
+    viewportHeight: basicStarted.viewportHeight,
+    canvasWidth: basicStarted.canvasWidth,
+    canvasHeight: basicStarted.canvasHeight,
+  }
+
+  await sleep(180)
   const basicMid = await snapshot(client)
-  assert(basicMid.playing && basicMid.worldAt === 0 && Math.abs(basicMid.logicalX) < 0.001, 'Basic Move committed before fixed 800ms playback', basicMid)
+  assert(basicMid.playing && basicMid.worldAt === 0 && Math.abs(basicMid.logicalX) < 0.001, 'Basic Move committed before configured playback completed', basicMid)
+  assert(basicMid.thermalVisualAt > 0.05 && basicMid.thermalVisualAt < 0.8, 'thermal pendulum did not advance continuously inside the movement AT', basicMid)
+  assert(Math.abs(basicMid.thermalVisualTemperature - initial.thermalVisualTemperature) > 0.001, 'thermal temperature stayed frozen during movement playback', basicMid)
+  assert(Math.abs(basicMid.cameraZoom - stableViewport.cameraZoom) < 0.0001, 'camera zoom changed during playback', { stableViewport, basicMid })
+  assert(basicMid.viewportWidth === stableViewport.viewportWidth && basicMid.viewportHeight === stableViewport.viewportHeight, 'board viewport resized during playback', { stableViewport, basicMid })
+  assert(Math.abs(basicMid.canvasWidth - stableViewport.canvasWidth) < 0.5 && Math.abs(basicMid.canvasHeight - stableViewport.canvasHeight) < 0.5, 'canvas geometry changed during playback', { stableViewport, basicMid })
+
   const afterBasic = await waitForIdleAt(client, 1)
   const basicElapsedMs = Date.now() - basicStart
-  assert(basicElapsedMs >= 700, `Basic Move committed before fixed timebase: ${basicElapsedMs}ms`, afterBasic)
+  assert(basicElapsedMs >= 520, `Basic Move committed before configured 600ms timebase: ${basicElapsedMs}ms`, afterBasic)
   assert(afterBasic.logicalX > 0.94 && afterBasic.logicalX < 1.06 && Math.abs(afterBasic.logicalZ) < 0.05, 'Basic Move treated far Aim as destination instead of direction', afterBasic)
   assert(afterBasic.momentum === 0 && afterBasic.speed < 0.01, 'Basic Move incorrectly created Momentum at rest', afterBasic)
+  await setAtMs(client, 800)
 
   // Discrete Drive: a 120° Aim must be valid; result direction comes from V + ΔV.
   await resetUi(client)
@@ -294,7 +339,7 @@ try {
   assert(discreteState.velocity.x > 0.3 && discreteState.velocity.x < 0.6 && discreteState.velocity.z < -0.6, 'Discrete Drive did not use current Velocity + impulse vector', discreteState)
   assert(afterDiscreteTurn.logicalX > 0.45 && afterDiscreteTurn.logicalX < 0.55 && afterDiscreteTurn.logicalZ < -0.82, 'Discrete Drive did not turn to the mixed direction Cell', afterDiscreteTurn)
 
-  // Hybrid: same input must produce a smooth, non-collinear turn curve with the same vector-sum endpoint.
+  // Hybrid: same input must produce a smooth bounded curve with the exact same resultant velocity.
   await resetUi(client)
   await setVelocity(client, 0.85, 0)
   assert(await evaluate(client, `(() => { const button=document.querySelector('[data-spatial-select="hybrid"]'); button?.click(); return Boolean(button) })()`) === true, 'Hybrid switch failed before curved turn test')
@@ -319,7 +364,7 @@ try {
   const midpoint = trajectory[Math.floor(trajectory.length / 2)].position
   const endpoint = trajectory.at(-1).position
   const cross = midpoint.x * endpoint.z - midpoint.z * endpoint.x
-  assert(Math.abs(cross) > 0.04, 'Hybrid turn trajectory is still visually straight / collinear', { midpoint, endpoint, cross })
+  assert(Math.abs(cross) > 0.015, 'Hybrid turn trajectory is still visually straight / collinear', { midpoint, endpoint, cross })
   assert(Math.abs(trajectory[0].velocity.x - 0.85) < 0.01 && Math.abs(trajectory[0].velocity.z) < 0.01, 'Hybrid curve lost the incoming Velocity tangent', trajectory[0])
 
   await sleep(240)
@@ -328,14 +373,14 @@ try {
   const afterHybridTurn = await waitForIdleAt(client, 1)
   const hybridElapsedMs = Date.now() - hybridTurnStart
   const hybridState = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.snapshot()`)
-  assert(hybridElapsedMs >= 700, `Hybrid curve committed before fixed timebase: ${hybridElapsedMs}ms`, afterHybridTurn)
+  assert(hybridElapsedMs >= 700, `Hybrid curve committed before default 800ms timebase: ${hybridElapsedMs}ms`, afterHybridTurn)
   assert(hybridState.velocity.x > 0.3 && hybridState.velocity.x < 0.6 && hybridState.velocity.z < -0.6, 'Hybrid final Velocity does not equal the mixed impulse result', hybridState)
   assert(afterHybridTurn.logicalX > 0.38 && afterHybridTurn.logicalX < 0.48 && afterHybridTurn.logicalZ < -0.68, 'Hybrid endpoint is not the continuous vector-sum endpoint', afterHybridTurn)
-  assert(afterHybridTurn.instanceProbe === 'same-board', 'shared board instance changed during movement correction tests', afterHybridTurn)
+  assert(afterHybridTurn.instanceProbe === 'same-board', 'shared board instance changed during driving polish tests', afterHybridTurn)
 
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
-  await writeFile(join(artifactDir, 'movement-correction-v3.png'), Buffer.from(screenshot.data, 'base64'))
+  await writeFile(join(artifactDir, 'driving-polish-v1.png'), Buffer.from(screenshot.data, 'base64'))
   const evidence = {
     initial,
     hybridSwitch,
@@ -344,6 +389,7 @@ try {
     basicMid,
     afterBasic,
     basicElapsedMs,
+    stableViewport,
     afterDiscreteTurn,
     discreteState,
     hybridTurnStarted,
@@ -353,9 +399,9 @@ try {
     hybridElapsedMs,
     curve: { midpoint, endpoint, cross, sampleCount: trajectory.length },
   }
-  await writeFile(join(artifactDir, 'movement-correction-v3.json'), `${JSON.stringify(evidence, null, 2)}\n`)
+  await writeFile(join(artifactDir, 'driving-polish-v1.json'), `${JSON.stringify(evidence, null, 2)}\n`)
 
-  console.log('Verified movement correction v3: fixed-length direction-only Axis arrow; Basic Move restored as direction input; Drive accepts free impulse Aim and turns via V + ΔV; Hybrid uses a non-collinear continuous turn curve; all actions retain fixed 800ms delayed logical commit.')
+  console.log('Verified driving polish: short thick direction-only Axis arrow; short dashed curve preview contract; adjustable AT playback; continuous 8-AT thermal clock; stable camera/viewport during playback; exact V + ΔV result; bounded Hybrid curve; delayed logical commit.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')

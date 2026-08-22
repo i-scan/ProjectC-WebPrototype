@@ -35,16 +35,18 @@ Do not restore the old destination-selection / reachable-field interpretation of
 
 ### Drive / Heavy Drive
 
-Drive actions are free-direction impulses:
+Drive actions are free-direction impulses. The physical formula is authoritative:
 
 ```text
-V_after = clamp(V_before + ΔV_aim)
+AimDirection = normalize(AimCellCenter - Position)
+V_after = clampLength(V_before + AimDirection * Force, MaxSpeed)
 ```
 
-- Drive `|ΔV| = 0.85`;
-- Heavy Drive `|ΔV| = 1.35`;
+- Drive `Force = 0.85`;
+- Heavy Drive `Force = 1.35`;
 - there is **no pre-impulse steering-angle legality check**;
-- the resulting direction is whatever vector addition produces.
+- the resulting direction is whatever vector addition produces;
+- Hybrid curve geometry must never alter the final resultant Velocity.
 
 ### Counter / Hard Turn / Coast
 
@@ -59,18 +61,45 @@ Discrete and Hybrid are intentional comparison modes in the current lab. They sh
 - the same board;
 - the same actions;
 - the same Aim Cell input;
-- the same fixed 1 AT clock;
+- the same fixed 1 AT logical cost;
 - the same delayed logical-state commit rule.
 
 Discrete presents the result through Cell-centered movement steps.
 
-Hybrid resolves continuous Position / Velocity. When an impulse changes heading, its sampled path may bend continuously from the incoming Velocity tangent toward the mixed outgoing Velocity tangent. This curve is part of the solver samples consumed by both preview and playback; it must not be invented later by the renderer.
+Hybrid resolves continuous Position / Velocity. When an impulse changes heading, its sampled path may bend continuously from the incoming Velocity direction toward the mixed outgoing Velocity direction. Curve handles are bounded geometry helpers only. Playback speed magnitude comes from physical before/after Velocity, and collisions reflect physical Velocity rather than the Hermite derivative.
 
-## Momentum visualization
+## Momentum / preview visualization
 
-- the yellow Axis arrow means **direction only** and uses a fixed visual length;
+- the yellow Axis arrow means **direction only**;
+- keep the Axis arrow short, thick and fixed-length; do not scale it by Momentum level;
 - the three actor dots alone encode M1 / M2 / M3 magnitude;
-- do not scale the Axis arrow by Momentum level.
+- prediction is a short, thick dashed guide of the immediate trajectory trend, not a full-path annotation;
+- Hybrid preview follows the same curved solver samples that playback consumes;
+- current preview visual horizon is about 1.55 world units.
+
+## AT / Thermal timebase
+
+Logical time and playback seconds are separate:
+
+- one action always costs exactly 1 AT;
+- solver baseline remains 120 substeps / AT;
+- default visual duration is 800ms / AT;
+- the debug Timebase may adjust visual duration from 250ms to 1600ms / AT in 50ms steps;
+- this slider must never alter solver results, distances, Velocity, Momentum or Thermal result after one AT;
+- final logical state commits only after the configured visual duration finishes.
+
+Thermal uses the same fractional AT playback clock:
+
+- one complete thermal oscillation cycle = 8 AT;
+- one half swing = 4 AT;
+- the pendulum must visibly evolve continuously during a movement AT instead of updating only at action completion;
+- changing real-time / AT therefore speeds or slows movement and pendulum presentation together without changing AT-space behavior.
+
+## Playback stability
+
+- do not auto-follow or auto-zoom the actor during an action;
+- camera zoom/orbit input is frozen while playback is active;
+- defer ResizeObserver-driven viewport changes until playback ends so Three.js projection and canvas geometry do not breathe or subtly scale during motion.
 
 ## Hard constraints
 
@@ -94,23 +123,24 @@ Historical code remains recoverable from `backup/pre-rebuild-2026-08-22`. Reuse 
 - Preview and execution use the exact same samples.
 - One action resolves exactly 1 AT.
 - Current baseline: 120 simulation substeps / AT.
-- Current visual baseline: 800ms / AT, independent of distance or sample count.
+- Default visual baseline: 800ms / AT, adjustable only as presentation speed.
 - Do not commit final logical Position before visual playback completes.
 - Renderer consumes solver trajectory samples; it does not infer a new route after state mutation.
 - Hex Cell and M are derived views, not Hybrid movement authority.
-- Collision response operates on movement vectors; never pathfind around collision.
+- Collision response operates on physical movement Velocity; never pathfind around collision.
 
 ## Validation order
 
 Until movement feel is accepted, prioritize:
 
 1. Basic Move + inertia interaction;
-2. Drive / Heavy Drive free impulse turning;
-3. Hybrid curve readability;
-4. Coast;
-5. Counter Impulse;
-6. Hard Turn;
-7. hard-surface / boundary collision;
-8. only then deepen Thermal and later tactical systems.
+2. Drive / Heavy Drive exact vector-sum turning;
+3. Hybrid curve readability without mathematical contamination;
+4. immediate-direction preview readability;
+5. AT playback speed and camera stability;
+6. Thermal synchronization to fractional AT;
+7. Coast / Counter / Hard Turn;
+8. hard-surface / boundary collision;
+9. only then deepen Thermal and later tactical systems.
 
 Do not expand enemy AI, deckbuilding, equipment, or session economy to compensate for unresolved movement feel.

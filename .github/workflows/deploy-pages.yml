@@ -44,14 +44,14 @@ jobs:
         env:
           EXPECTED_COMMIT: ${{ github.sha }}
         run: pnpm verify:dist
-      - name: Verify movement correction in Chrome
+      - name: Verify driving polish in Chrome
         run: pnpm verify:browser
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: movement-correction-v3-evidence-${{ github.sha }}
-          path: artifacts/movement-correction-v3.*
+          name: driving-polish-v1-evidence-${{ github.sha }}
+          path: artifacts/driving-polish-v1.*
           if-no-files-found: warn
           retention-days: 30
       - uses: actions/configure-pages@v5
@@ -99,6 +99,6 @@ jobs:
               context: 'pages/verified-deployment',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               description: ok
-                ? 'Basic Move / free impulse / curved Hybrid build verified online'
+                ? 'Driving polish / timebase / thermal sync verified online'
                 : `Pages verification failed: build=${buildResult}, deploy=${deployResult}`
             })

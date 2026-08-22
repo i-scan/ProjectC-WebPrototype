@@ -15,6 +15,7 @@ import {
   simulateSpatial,
 } from '../sim/solver.js'
 import {
+  THERMAL_PERIOD_AT,
   advanceThermal,
   createInitialThermalState,
   formatThermal,
@@ -53,6 +54,7 @@ export function App() {
   const [boardRadius, setBoardRadius] = useState(7)
   const [obstaclesEnabled, setObstaclesEnabled] = useState(true)
   const [restitution, setRestitution] = useState(DEFAULT_SOLVER_CONFIG.restitution)
+  const [atVisualMs, setAtVisualMs] = useState(AT_VISUAL_MS)
   const [viewMode, setViewMode] = useState('isometric')
   const [showWeather, setShowWeather] = useState(true)
   const [showThermal, setShowThermal] = useState(true)
@@ -100,6 +102,12 @@ export function App() {
     return true
   }
 
+  const changeAtVisualMs = (value) => {
+    if (isPlaying || !Number.isFinite(value)) return false
+    setAtVisualMs(Math.max(250, Math.min(1600, Math.round(value / 50) * 50)))
+    return true
+  }
+
   const resolveClick = (hex) => {
     if (isPlaying) return false
     const point = axialToWorld(hex)
@@ -126,6 +134,9 @@ export function App() {
       startedAt: performance.now(),
       pausedAt: null,
       pausedTotal: 0,
+      durationMs: atVisualMs,
+      startWorldAt: state.worldAt,
+      startThermal: structuredClone(thermal),
       samples: plan.samples,
       finalState: plan.finalState,
       finalThermal,
@@ -138,7 +149,7 @@ export function App() {
 
   useEffect(() => {
     if (!playback || playback.pausedAt !== null) return undefined
-    const remainingMs = Math.max(0, AT_VISUAL_MS - playbackElapsedMs(playback))
+    const remainingMs = Math.max(0, (playback.durationMs ?? atVisualMs) - playbackElapsedMs(playback))
     const timer = window.setTimeout(() => {
       setState(playback.finalState)
       setThermal(playback.finalThermal)
@@ -179,6 +190,7 @@ export function App() {
         setHoverHex(null)
         return true
       },
+      setAtMs(value) { return changeAtVisualMs(Number(value)) },
       trajectory() {
         return structuredClone(playback?.samples ?? previewPlan?.samples ?? [])
       },
@@ -188,6 +200,7 @@ export function App() {
           thermal: structuredClone(thermal),
           spatialMode,
           actionId,
+          atVisualMs,
         }
       },
     }
@@ -250,7 +263,7 @@ export function App() {
       data-preview-valid={previewPlan?.valid === true}
       data-authority="cell-world-plus-spatial-state"
       data-cell-world="true"
-      data-at-visual-ms={AT_VISUAL_MS}
+      data-at-visual-ms={atVisualMs}
       data-solver-steps={config.steps}
     >
       <header className="prototype-header">
@@ -278,7 +291,7 @@ export function App() {
             <div className="section-heading"><h3>Actor / World State</h3><span>{thermalDomain}</span></div>
             <div className="vital-row"><span>HP</span><i><b style={{ width: '84%' }} /></i><strong>84/100</strong></div>
             <div className="vital-row thermal"><span>Thermal</span><i><b style={{ width: `${Math.max(8, Math.min(92, (thermal.temperature + 4) / 8 * 100))}%` }} /></i><strong>{formatThermal(thermal.temperature)}</strong></div>
-            <ThermalPendulum thermal={thermal} elapsedAt={state.worldAt} />
+            <ThermalPendulum thermal={thermal} elapsedAt={state.worldAt} playback={playback} />
             <dl className="state-list actor-state-list">
               <div><dt>Cell</dt><dd>{currentHex.q},{currentHex.r}</dd></div>
               <div><dt>Terrain</dt><dd>{terrainLabel(currentCell)}</dd></div>
@@ -331,6 +344,7 @@ export function App() {
               state={state}
               previewPlan={previewPlan}
               playback={playback}
+              atVisualMs={atVisualMs}
               boardRadius={boardRadius}
               viewMode={viewMode}
               cameraResetToken={cameraResetToken}
@@ -342,11 +356,11 @@ export function App() {
               onClickHex={resolveClick}
             />
             <div className="board-legend">
-              <span><i className={spatialMode === 'discrete' ? 'trajectory discrete' : 'trajectory'} />{spatialMode === 'discrete' ? 'Cell-step trajectory' : 'Continuous / curved trajectory'}</span>
+              <span><i className={spatialMode === 'discrete' ? 'trajectory discrete' : 'trajectory'} />Short dashed direction preview</span>
               <span><i className="terrain" />Cell terrain / weather</span>
-              <span><i className="momentum-axis" />Axis arrow = direction · dots = M</span>
+              <span><i className="momentum-axis" />Axis = direction · dots = M</span>
             </div>
-            {isPlaying && <div className="playback-badge">{playback?.spatialMode === 'discrete' ? 'Discrete' : 'Hybrid'} · 1 AT · fixed visible {AT_VISUAL_MS} ms · {playback?.thermalBehavior}</div>}
+            {isPlaying && <div className="playback-badge">{playback?.spatialMode === 'discrete' ? 'Discrete' : 'Hybrid'} · 1 AT · {(playback?.durationMs / 1000).toFixed(2)} s · {playback?.thermalBehavior}</div>}
           </div>
 
           <section className="action-hand">
@@ -381,9 +395,9 @@ export function App() {
             <div className="section-heading"><h3>Spatial Model A/B</h3><span>same board</span></div>
             <div className="ab-explain">
               <button type="button" data-spatial-panel-select="discrete" className={spatialMode === 'discrete' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('discrete')}><b>Discrete</b><span>Cell-center presentation of the same Aim / action input</span></button>
-              <button type="button" data-spatial-panel-select="hybrid" className={spatialMode === 'hybrid' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('hybrid')}><b>Hybrid</b><span>Continuous P/V with curved momentum blending inside the Cell world</span></button>
+              <button type="button" data-spatial-panel-select="hybrid" className={spatialMode === 'hybrid' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('hybrid')}><b>Hybrid</b><span>Continuous P/V with bounded curved momentum blending</span></button>
             </div>
-            <small>两种模式共用 Aim、基础行动/冲量规则和固定 1 AT 时钟；只比较空间呈现与落位方式。</small>
+            <small>两种模式共用 Aim、基础行动/冲量规则和 1 AT；AT 的实际播放秒数可在右侧 Timebase 调整。</small>
           </section>
 
           <section className="panel-card cell-inspector">
@@ -407,6 +421,30 @@ export function App() {
           <section className="panel-card">
             <div className="section-heading"><h3>Quick Momentum</h3><span>debug</span></div>
             <div className="quick-grid">{velocityPresets.map((preset) => <button type="button" key={preset.label} disabled={isPlaying} onClick={() => setPreset(preset)}>{preset.label}</button>)}</div>
+          </section>
+
+          <section className="panel-card timebase-card">
+            <div className="section-heading"><h3>Timebase</h3><span>visual speed</span></div>
+            <label className="range-row timebase-range">
+              <span>Real time / AT</span>
+              <input
+                data-timebase-slider
+                type="range"
+                min="250"
+                max="1600"
+                step="50"
+                value={atVisualMs}
+                disabled={isPlaying}
+                onChange={(event) => changeAtVisualMs(Number(event.target.value))}
+              />
+              <output>{(atVisualMs / 1000).toFixed(2)} s</output>
+            </label>
+            <div className="timebase-facts">
+              <span>1 AT <b>{atVisualMs} ms</b></span>
+              <span>Thermal cycle <b>{THERMAL_PERIOD_AT} AT</b></span>
+              <span>Cycle real time <b>{(THERMAL_PERIOD_AT * atVisualMs / 1000).toFixed(1)} s</b></span>
+            </div>
+            <small>滑杆只改变播放速度，不改变求解结果。热力摆仍以 AT 为单位，因此会跟随同一时间轴同步加速或减速。</small>
           </section>
 
           <section className="panel-card">

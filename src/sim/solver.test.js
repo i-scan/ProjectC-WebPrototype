@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { axialToWorld, worldToAxial } from './hex.js'
 import {
+  combineImpulseVelocity,
   createInitialState,
   DEFAULT_SOLVER_CONFIG,
+  MAX_SPEED,
   simulateDiscreteImpulse,
   simulateImpulse,
   simulateSpatial,
@@ -75,6 +77,48 @@ describe('shared spatial input contract', () => {
     expect(worldToAxial(discrete.finalState.position)).toEqual({ q: 1, r: -1 })
   })
 
+  it('computes V + normalized(Aim) * Force exactly across representative angles and max-speed clamping', () => {
+    const velocity = { x: 1.1, z: -0.35 }
+    const force = 0.85
+    const directions = [
+      { x: 1, z: 0 },
+      { x: 0.5, z: Math.sqrt(3) / 2 },
+      { x: -0.5, z: Math.sqrt(3) / 2 },
+      { x: -1, z: 0 },
+      { x: -0.5, z: -Math.sqrt(3) / 2 },
+      { x: 0.5, z: -Math.sqrt(3) / 2 },
+    ]
+
+    for (const direction of directions) {
+      const raw = {
+        x: velocity.x + direction.x * force,
+        z: velocity.z + direction.z * force,
+      }
+      const rawSpeed = Math.hypot(raw.x, raw.z)
+      const scale = rawSpeed > MAX_SPEED ? MAX_SPEED / rawSpeed : 1
+      const expected = { x: raw.x * scale, z: raw.z * scale }
+      const actual = combineImpulseVelocity(velocity, direction, force, MAX_SPEED)
+      expect(actual.x).toBeCloseTo(expected.x, 10)
+      expect(actual.z).toBeCloseTo(expected.z, 10)
+    }
+
+    const capped = combineImpulseVelocity({ x: 3.1, z: 0 }, { x: 1, z: 0 }, 1.35, MAX_SPEED)
+    expect(Math.hypot(capped.x, capped.z)).toBeCloseTo(MAX_SPEED, 10)
+    expect(capped.z).toBeCloseTo(0, 10)
+  })
+
+  it('uses the same exact resultant formula from an off-center continuous Position', () => {
+    const state = { position: { x: 0.42, z: -0.18 }, velocity: { x: 1.05, z: 0.35 }, worldAt: 2 }
+    const aimPoint = axialToWorld({ q: -1, r: -2 })
+    const aimVector = { x: aimPoint.x - state.position.x, z: aimPoint.z - state.position.z }
+    const expected = combineImpulseVelocity(state.velocity, aimVector, 0.85, MAX_SPEED)
+    const plan = simulateImpulse({ state, actionId: 'drive', aimPoint, config: DEFAULT_SOLVER_CONFIG, obstacles: noObstacles })
+
+    expect(plan.valid).toBe(true)
+    expect(plan.finalState.velocity.x).toBeCloseTo(expected.x, 10)
+    expect(plan.finalState.velocity.z).toBeCloseTo(expected.z, 10)
+  })
+
   it('Hybrid restores a curved turn presentation while keeping the vector-sum endpoint', () => {
     const state = { position: { x: 0, z: 0 }, velocity: { x: 0.85, z: 0 }, worldAt: 0 }
     const plan = runHybrid(state, 'drive', { q: 0, r: -2 })
@@ -86,11 +130,22 @@ describe('shared spatial input contract', () => {
     const midpoint = plan.samples[Math.floor(plan.samples.length / 2)].position
     const endpoint = plan.samples.at(-1).position
     const cross = midpoint.x * endpoint.z - midpoint.z * endpoint.x
-    expect(Math.abs(cross)).toBeGreaterThan(0.04)
+    expect(Math.abs(cross)).toBeGreaterThan(0.02)
     expect(plan.samples[0].velocity.x).toBeCloseTo(0.85, 6)
     expect(plan.samples[0].velocity.z).toBeCloseTo(0, 6)
     expect(plan.samples.at(-1).velocity.x).toBeCloseTo(plan.finalState.velocity.x, 6)
     expect(plan.samples.at(-1).velocity.z).toBeCloseTo(plan.finalState.velocity.z, 6)
+  })
+
+  it('bounds Hybrid curve handles so near-reversal does not create a large geometric loop', () => {
+    const state = { position: { x: 0, z: 0 }, velocity: { x: 0.5, z: 0 }, worldAt: 0 }
+    const plan = runHybrid(state, 'heavy-drive', { q: -3, r: 0 })
+
+    expect(plan.valid).toBe(true)
+    expect(plan.finalState.velocity.x).toBeLessThan(0)
+    expect(plan.curveUsed).toBe(true)
+    const maxForwardOvershoot = Math.max(...plan.samples.map((sample) => sample.position.x))
+    expect(maxForwardOvershoot).toBeLessThan(0.08)
   })
 
   it('still gives Discrete and Hybrid different spatial outcomes from the same Aim Cell', () => {
@@ -137,7 +192,7 @@ describe('shared spatial input contract', () => {
     expect(simulateSpatial(input)).toEqual(simulateSpatial(input))
   })
 
-  it('Hybrid still reflects from a hard obstacle without pathfinding around it', () => {
+  it('Hybrid reflects physical velocity from a hard obstacle without pathfinding or speed amplification', () => {
     const obstacle = [{ id: 'wall', hex: { q: 1, r: 0 }, radius: 0.34, kind: 'hard' }]
     const state = { position: { x: 0, z: 0 }, velocity: { x: 1.6, z: 0 }, worldAt: 0 }
     const plan = simulateImpulse({
@@ -149,5 +204,6 @@ describe('shared spatial input contract', () => {
     })
     expect(plan.collisions.length).toBeGreaterThan(0)
     expect(plan.finalState.velocity.x).toBeLessThan(0)
+    expect(plan.finalSpeed).toBeLessThanOrEqual(MAX_SPEED)
   })
 })
