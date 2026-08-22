@@ -1,31 +1,24 @@
 {
   "name": "projectc-web-prototype",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0-rebuild",
   "type": "module",
   "scripts": {
     "dev": "node scripts/write-build-info.mjs && vite",
-    "build": "node scripts/write-build-info.mjs && tsc -b && vite build",
-    "validate:rules": "node scripts/validate-rules.mjs",
-    "test": "node scripts/validate-rules.mjs && vitest run",
+    "build": "node scripts/write-build-info.mjs && vite build",
+    "test": "vitest run",
     "test:watch": "vitest",
     "verify:dist": "node scripts/verify-dist.mjs",
-    "verify:browser": "node scripts/verify-current-browser-ci.mjs && node scripts/verify-impulse-layout-evidence.mjs"
+    "verify:browser": "node scripts/verify-browser.mjs"
   },
   "dependencies": {
-    "pixi.js": "8.19.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "three": "0.185.1"
   },
   "devDependencies": {
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.2",
-    "@types/three": "^0.185.0",
-    "@vitejs/plugin-react": "^5.0.4",
-    "ajv": "^8.17.1",
-    "typescript": "^5.9.3",
-    "vite": "^8.1.4",
-    "vitest": "^4.1.9"
+    "@vitejs/plugin-react": "5.2.0",
+    "vite": "8.2.0",
+    "vitest": "4.1.10"
   }
 }
