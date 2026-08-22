@@ -26,13 +26,18 @@ const script = await readFile(resolve(distDir, scriptPath), 'utf8')
 assert(script.includes('data-build-revision'), 'visible build revision marker is missing from the app bundle')
 assert(script.includes(expectedCommit), 'app bundle does not contain the expected build commit')
 
-// Current production entry restores the UT6-style lab shell while replacing
-// target-cell movement with impulse/aim input and deterministic simulation.
-assert(script.includes('impulse-inertia-input-v1'), 'impulse input implementation marker is missing')
+// Current production entry uses impulse/aim input. Cell click finalizes the aim
+// and resolves the action immediately; Discrete/Hybrid share the same board.
+assert(script.includes('impulse-inertia-input-v2'), 'impulse v2 implementation marker is missing')
 assert(script.includes('Inertia Driving Playground'), 'impulse playground heading is missing')
 assert(script.includes('Motion Cards · Force / Angle Input'), 'impulse action hand is missing')
-assert(script.includes('Click Cell = Aim only'), 'aim-not-target interaction marker is missing')
-assert(script.includes('Apply Impulse · Resolve 1 AT'), 'explicit impulse commit control is missing')
+assert(script.includes('Hover = Preview · Click legal Cell = Resolve 1 AT'), 'click-to-resolve interaction marker is missing')
+assert(script.includes('Click board to fire'), 'click-to-fire hand state is missing')
+assert(!script.includes('Apply Impulse · Resolve 1 AT'), 'obsolete second-confirm Apply button is still bundled')
+assert(script.includes('data-click-to-resolve'), 'click-to-resolve root contract is missing')
+assert(script.includes('data-shared-board'), 'shared-board root contract is missing')
+assert(script.includes('Cell-center playback'), 'Discrete playback identity is missing')
+assert(script.includes('continuous playback'), 'Hybrid playback identity is missing')
 assert(script.includes('Counter Impulse'), 'counter impulse card is missing')
 assert(script.includes('Hard Turn'), 'hard-turn card is missing')
 assert(script.includes('Spatial Playback A/B'), 'Discrete/Hybrid comparison controls are missing')
@@ -43,8 +48,6 @@ assert(script.includes('Thermal State'), 'restored thermal debug section is miss
 assert(script.includes('Spatial Debug'), 'restored spatial debug section is missing')
 assert(script.includes('图形性能实验室'), 'graphics performance lab navigation entry is missing')
 
-// Superseded full-map target navigation and the focused old A/B shell must not
-// return as the active production entry.
 assert(!script.includes('inertia-driving-navigation-v4'), 'superseded multi-AT navigation UI was unexpectedly bundled')
 assert(!script.includes('Inertia Reachable Field A/B'), 'superseded focused reachable-field page was unexpectedly bundled')
 
@@ -55,10 +58,11 @@ await stat(resolve(distDir, stylePath))
 const style = await readFile(resolve(distDir, stylePath), 'utf8')
 
 assert(/\.impulse-inertia-lab/.test(style), 'impulse lab styling is missing')
-assert(/\.impulse-commit-row/.test(style), 'impulse commit styling is missing')
+assert(/\.impulse-fire-status/.test(style), 'click-to-resolve status styling is missing')
+assert(!/\.impulse-commit-row/.test(style), 'obsolete Apply-row styling is still bundled')
 assert(/\.ut6-action-hand/.test(style), 'restored UT6 action-hand styling is missing')
 assert(/\.hex-view-switch/.test(style), 'restored 2D/3D view switch styling is missing')
 assert(/\.build-revision/.test(style), 'build revision styling is missing')
 assert(!/font-size\s*:\s*6px\s*!important/.test(style), 'obsolete 6px Thermal override is still bundled')
 
-console.log(`Verified impulse driving lab dist for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified shared-board click-to-resolve impulse lab for ${info.branch}@${info.shortCommit}.`)
