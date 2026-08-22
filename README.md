@@ -1,105 +1,152 @@
 # ProjectC Web Prototype · Inertia A/B Lab
 
-本仓库用于验证 ProjectC 当前的 **Basic Move / Impulse + Aim → Inertia Motion** 核心驾驶体验。
+本仓库是 ProjectC 的可执行规则实验环境。当前主实验用于验证 `Axis + Momentum + AT + Thermal` 如何形成可学习、可预测的 Hex6 驾驶体验。
 
-2026-08-22 完成运行时重建；随后恢复成熟版界面、热力摆与 Discrete / Hybrid A/B，并持续围绕驾驶感、空间反馈和统一 AT 时间轴迭代。旧 UT5/UT6/UT7 playground、Reachable Field endpoint selection、Target-cell navigation 与 segmented playback 仍只保留在历史备份中。
+> 重要：2026-08-22 之后曾出现一次 Basic Move 语义倒退，把它错误实现为“自主位移 + 当前惯性”。该解释已经被用户后续明确否定。本仓库当前修复方向以“相邻 Aim + 规则约束 Cell path”为准。
 
-## 当前输入与运动模型
-
-Aim Cell 只定义方向，不是玩家要求到达的终点。
-
-### Basic Move
+## 当前 Basic Move 契约
 
 ```text
-Basic Move + Aim direction
-+ current inertia
-→ 1 AT movement
+Basic Move = 1 AT
+Aim Cell = 当前 Cell 的相邻 Hex
+M0 = Range 1
+M2+ = 首轮候选 Range 2（基础 Range +1）
+已有 Horizontal M = 整个移动 AT 只做一次 M-1
 ```
 
-当前验证解释：基础自主移动量为 1 Cell-equivalent / AT；它与当前惯性叠加，但 **不会自动增加、消耗或清空 Momentum / Velocity**。因此 M0 使用 Basic Move 会移动但仍保持 M0。
+`M-1` 是移动 AT 对已有 Momentum 的一次结算，不是为了 Range+1 再支付一次额外 Momentum，也绝不能按经过的 Cell 数重复扣除。
 
-### Drive / Heavy Drive
+### M0
 
 ```text
-AimDirection = normalize(AimCellCenter - continuous Position)
-V_after = clampLength(V_before + AimDirection × Force, MaxSpeed)
+M0 + adjacent Aim E
+→ Move 1 Cell E
+→ M0
+→ +1 AT
 ```
 
-- Drive: `Force = 0.85`
-- Heavy Drive: `Force = 1.35`
-- Drive 类冲量允许任意 Aim 方向，不做“当前朝向 ±N°”的预先合法性检查；转弯结果由向量合成自然产生。
-- Counter Impulse 仍保留反向动作自己的语义检查。
-- Hybrid 曲线只负责空间形状，不能改变上述合向量结果；曲线 handle 已限制长度，collision 反射的也是物理 Velocity，而不是 Hermite 几何导数。
+### M2 顺势
 
-### Hybrid
-
-Hybrid 的权威状态是连续 `Position(x,z) + Velocity(x,z)`。当冲量改变运动方向时，120 个固定求解采样会从旧 Velocity 方向连续弯向新的合成 Velocity 方向，因此预览与实际播放共享同一条连续转向曲线；这不是 renderer 事后拟合 Cell waypoint。
-
-### Discrete
-
-Discrete 与 Hybrid 共用同一个 Aim、动作规则、棋盘和 1 AT 逻辑时钟，但把空间结果呈现为 Cell-centered movement，用于直接比较棋盘化与连续化的驾驶手感。
-
-## AT 与 Thermal 时间轴
-
-逻辑时间与真实播放秒数分离：
-
-- 每个动作恒定消耗 `1 AT`；
-- solver 恒定 `120 simulation substeps / AT`；
-- 默认播放速度为 `800ms / AT`；
-- 页面 Timebase 滑杆可在 `250–1600ms / AT` 之间调整，50ms 一档；
-- 调整只影响视觉播放速度，不改变任何求解结果；
-- 正式逻辑 Position / Velocity / Thermal 仍只在该 1 AT 播放结束后提交。
-
-热力摆与移动共用同一 AT 时间轴：
-
-- 一个完整 Thermal cycle = `8 AT`；
-- 一次 half swing = `4 AT`；
-- 默认 800ms/AT 时，一个完整周期对应 6.4 秒真实时间；
-- 移动播放的 1 AT 内，热力摆会按当前 fractional AT 连续更新，而不是动作结束后整步跳变。
-
-## 棋盘反馈
-
-- 黄色 Axis 箭头只表达当前 Velocity 方向，使用短、粗、固定长度的视觉符号；
-- M1 / M2 / M3 大小只由角色上方三颗点表达；
-- 预测线只显示前方约 1.55 world units 的即时趋势，不再标整条路径；
-- 预测线是较粗的虚线，并直接沿 solver sample 形成弯曲趋势；
-- 运动播放期间锁定 camera zoom 与 Three.js viewport resize，避免棋盘产生轻微的呼吸式缩放；
-- 当前 terrain / weather / thermal palette 使用更低饱和、更明亮的 pastel 方向，保持规则颜色差异但弱化沉重感。
-
-## 当前页面
-
-- 顶栏：版本信息 + Inertia / Thermal / Graphics 测试空间入口；
-- 左栏：Actor 状态、连续热力摆、预测结果；
-- 中栏：同一个 Three.js Hex6 棋盘、Discrete / Hybrid、Basic Move + Momentum Cards；
-- 右栏：A/B 解释、Cell Inspector、World Layers、Quick Momentum、Timebase、Collision / Board 调试。
-
-当前动作：
-
-- Basic Move
-- Drive
-- Heavy Drive
-- Counter Impulse
-- Hard Turn
-- Coast
-
-## 历史备份
-
-重建前完整快照：
-
-`backup/pre-rebuild-2026-08-22`
-
-旧 Hybrid 曲线表现可以作为视觉/交互参考，但不得重新引入 Reachable Field endpoint selection、旧 Cell-center Hybrid authority 或 segmented playback。
-
-## 本地运行
-
-Node.js 22 + pnpm 10：
-
-```bash
-pnpm install
-pnpm dev
+```text
+E M2 + adjacent Aim E
+→ Range 2
+→ path: E, E
+→ M2 -> M1
+→ +1 AT
 ```
 
-验证：
+### M2 转向
+
+每经过 1 个 Cell-step，当前 Axis 最多朝 Aim 方向 Redirect 60°。
+
+```text
+oldAxis = 当前 Axis
+newAxis = oldAxis 朝 Aim 最多 Redirect 60°
+residualM = max(0, M - 1) // 每 AT 只算一次
+
+residualM > 0:
+  实际位移沿 oldAxis
+
+residualM == 0:
+  实际位移沿 newAxis
+
+移动后 Current Axis = newAxis
+```
+
+例如：
+
+```text
+E M2 + adjacent Aim NW
+step 1: Move E, Axis E -> NE
+step 2: Move NE, Axis NE -> NW
+AT end: M1 / Axis NW
+```
+
+因此 Basic Move 的 Aim 虽然只允许选择相邻格，但一个 AT 的实际路径可能因为 Momentum 跨越多个 Cell。玩家选择的是当下 steering intent，而不是远端终点。
+
+## 180° 转向
+
+直接 `E -> W` 180° Redirect 不允许。ProjectC 的候选规则要求等价的顺/逆时针 U-turn 路线由玩家选择，不能由系统静默决定。
+
+当前 WebPrototype 尚未接入左右分支选择 UI，因此已有 Horizontal M 时，正后方相邻 Aim 暂时返回 invalid，并提示需要 left/right branch。该行为属于 `prototype-snapshot`，不是最终交互结论。
+
+## Impulse actions
+
+Basic Move 与冲量卡不是同一个输入模型。
+
+Drive / Heavy Drive / Hard Turn 仍使用：
+
+```text
+V_after = clamp(V_before + normalize(Aim) * Force, MaxSpeed)
+```
+
+这些冲量动作允许远端 Aim Cell 仅用于定义方向。Counter 保留反向窗口；Coast 保留当前 Velocity。
+
+Hybrid 模式可以用连续曲线表现冲量转向，但最终 Velocity 必须与上述向量合成一致。
+
+## Discrete / Hybrid
+
+两种模式共用同一个 board、AT 和 action input。
+
+对 Basic Move：
+
+- 逻辑 Cell path 必须一致；
+- 最终 Cell / M / Axis 规则结果必须一致；
+- 表现插值可以不同，但不得绕过逐 Cell 路径。
+
+对 Impulse：
+
+- Discrete 用 Cell-step 表现；
+- Hybrid 保留连续 Position / Velocity 与曲线转向表现。
+
+## Thermal / Timebase
+
+- 逻辑时间统一使用 AT；
+- 默认视觉播放 `1 AT = 800 ms`；
+- Timebase 滑杆只改变播放速度，不改变 solver 结果；
+- Thermal Pendulum 与 movement playback 共用 AT 进度；
+- 页面切后台时 playback 会暂停，避免视觉时间与逻辑时间漂移。
+
+## 当前 UI
+
+`#hex-prototype` / 默认页面包含：
+
+- Inertia Driving Lab；
+- Hex6 Cell World；
+- Discrete / Hybrid A/B；
+- Basic Move + Momentum/Impulse actions；
+- Axis HUD 与 M dots；
+- Thermal Pendulum；
+- Cell Inspector；
+- Collision / restitution / board radius debug；
+- 可调 real-time / AT；
+- Undo / Reset。
+
+`#thermal-lab` 与 `#graphics-lab` 当前保留独立入口。
+
+## Debug API
+
+浏览器验证使用：
+
+```js
+window.__PROJECTC_PROTOTYPE__.setAction('basic-move')
+window.__PROJECTC_PROTOTYPE__.setVelocity(1.7, 0) // E M2 preset equivalent
+window.__PROJECTC_PROTOTYPE__.fireAt(1, 0)       // adjacent E Aim
+window.__PROJECTC_PROTOTYPE__.trajectory()
+window.__PROJECTC_PROTOTYPE__.snapshot()
+```
+
+修正后的关键契约：
+
+```js
+setAction('basic-move')
+fireAt(2, 0) // false: remote Basic Aim
+
+setVelocity(1.7, 0)
+fireAt(1, 0) // true: M2 Range2, then M1
+```
+
+## 回归验证
 
 ```bash
 pnpm test
@@ -108,19 +155,41 @@ pnpm verify:dist
 pnpm verify:browser
 ```
 
-浏览器门禁会实际验证：
+Movement gate 至少覆盖：
 
-- Discrete / Hybrid 页面按钮可切换且共用同一棋盘；
-- Axis 是短粗固定长度、只表达方向；
-- Basic Move 把远处 Cell 仅当作 Aim direction，而不是 destination；
-- Drive 在已有速度下允许大角度 Aim，并严格按 `V + normalize(Aim) × Force` 转向；
-- Hybrid 曲线不会改变最终物理合向量；
-- Timebase 改变真实播放时长但不改变运动结果；
-- 热力摆在动作播放中连续推进，并与同一 fractional AT 对齐；
-- 播放期间 camera zoom、viewport 与 canvas geometry 不发生变化；
-- 正式逻辑状态在配置的 AT 播放时长完成前不会提前提交。
+1. M0 adjacent Basic Move = Move1 / M0 / +1AT；
+2. remote Basic Aim 被拒绝且不推进 AT；
+3. E M2 + E Aim = Range2 / E,E / M1；
+4. E M2 + NW Aim = E,NE path / M1；
+5. 180° Aim 不静默选择转向分支；
+6. Basic Move 在 Discrete / Hybrid 得到同一逻辑 Cell path；
+7. Hybrid Drive 仍保持曲线表现与 `V + ΔV` 最终速度；
+8. Thermal / AT playback 与 viewport 稳定性不回归。
 
-## 在线入口
+## GitHub Pages
 
-- Stable Pages: https://i-scan.github.io/ProjectC-WebPrototype/
-- Build info: https://i-scan.github.io/ProjectC-WebPrototype/build-info.json
+`main` push 会触发：
+
+```text
+unit tests
+→ production build
+→ dist verification
+→ headless Chrome browser verification
+→ Pages deploy
+→ published commit verification
+→ pages/verified-deployment status
+```
+
+只有以上链路全部成功，才可以认为网页端已经发布到对应 commit。
+
+## 规则边界
+
+本仓库是 prototype reference implementation，不自动把实验值冻结成正式平衡方案。尤其：
+
+- `M2+ -> Range2` 当前是首轮候选；
+- canonical M speed 只是当前 runtime 表示方式；
+- 180° steering branch UI 尚未完成；
+- Collision 对 Basic Move 的最终规则仍可能继续调整；
+- ProjectC design / validation 与用户最新明确修正优先于历史实现。
+
+如发现文档、测试与最新规则冲突，应先修正回归契约，而不是让旧测试把错误实现保护成“稳定功能”。
