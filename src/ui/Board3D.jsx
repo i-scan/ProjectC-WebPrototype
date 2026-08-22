@@ -79,10 +79,8 @@ export function Board3D({
   cameraResetToken,
   onHoverHex,
   onClickHex,
-  onPlaybackComplete,
 }) {
   const hostRef = useRef(null)
-  const rendererRef = useRef(null)
   const sceneRef = useRef(null)
   const cameraRef = useRef(null)
   const boardGroupRef = useRef(null)
@@ -91,12 +89,14 @@ export function Board3D({
   const velocityArrowRef = useRef(null)
   const orbitRef = useRef({ ...DEFAULT_CAMERA })
   const stateRef = useRef(state)
-  const callbacksRef = useRef({ onHoverHex, onClickHex, onPlaybackComplete })
-  const playbackRef = useRef(null)
-  const completedPlaybackIdRef = useRef(null)
+  const playbackRef = useRef(playback)
+  const viewModeRef = useRef(viewMode)
+  const callbacksRef = useRef({ onHoverHex, onClickHex })
 
   stateRef.current = state
-  callbacksRef.current = { onHoverHex, onClickHex, onPlaybackComplete }
+  playbackRef.current = playback
+  viewModeRef.current = viewMode
+  callbacksRef.current = { onHoverHex, onClickHex }
 
   useEffect(() => {
     const host = hostRef.current
@@ -127,7 +127,6 @@ export function Board3D({
     const velocityArrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0.9, 0), 0.8, 0xc978ff, 0.16, 0.08)
     scene.add(boardGroup, actor, velocityArrow)
 
-    rendererRef.current = renderer
     sceneRef.current = scene
     cameraRef.current = camera
     boardGroupRef.current = boardGroup
@@ -136,7 +135,7 @@ export function Board3D({
 
     const updateCamera = () => {
       const orbit = orbitRef.current
-      if (viewMode === 'top') {
+      if (viewModeRef.current === 'top') {
         camera.position.set(0, 18, 0.01)
         camera.lookAt(0, 0, 0)
       } else {
@@ -198,7 +197,7 @@ export function Board3D({
         drag.x = event.clientX
         drag.y = event.clientY
         if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) drag.moved = true
-        if (viewMode !== 'top') {
+        if (viewModeRef.current !== 'top') {
           orbitRef.current.yaw -= dx * 0.008
           orbitRef.current.pitch = clamp(orbitRef.current.pitch + dy * 0.006, 0.38, 1.22)
           updateCamera()
@@ -251,13 +250,9 @@ export function Board3D({
         if (sampled) visualState = { ...stateRef.current, position: sampled.position, velocity: sampled.velocity }
         host.dataset.playbackProgress = progress.toFixed(3)
         host.dataset.playbackId = String(activePlayback.id)
-        if (progress >= 1 && completedPlaybackIdRef.current !== activePlayback.id) {
-          completedPlaybackIdRef.current = activePlayback.id
-          playbackRef.current = null
-          queueMicrotask(() => callbacksRef.current.onPlaybackComplete?.(activePlayback.finalState))
-        }
       } else {
         host.dataset.playbackProgress = '0'
+        delete host.dataset.playbackId
       }
 
       const actorObject = actorRef.current
@@ -362,20 +357,10 @@ export function Board3D({
   }, [previewPlan])
 
   useEffect(() => {
-    if (!playback) return
-    completedPlaybackIdRef.current = null
-    playbackRef.current = {
-      id: playback.id,
-      samples: playback.samples,
-      finalState: playback.finalState,
-      startedAt: performance.now(),
-    }
-  }, [playback?.id])
-
-  useEffect(() => {
     const camera = cameraRef.current
     if (!camera) return
     orbitRef.current = { ...DEFAULT_CAMERA }
+    viewModeRef.current = viewMode
     if (viewMode === 'top') {
       camera.position.set(0, 18, 0.01)
       camera.lookAt(0, 0, 0)
