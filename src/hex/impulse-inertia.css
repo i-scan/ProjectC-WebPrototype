@@ -1,0 +1,37 @@
+.impulse-inertia-lab .visual-brand h1 { margin-bottom: 0; }
+.impulse-inertia-lab .impulse-prediction-card { display: grid; gap: 8px; }
+.impulse-inertia-lab .impulse-prediction-card p { margin: 0; color: #c5d3e3; font-size: 12px; line-height: 1.5; }
+.impulse-inertia-lab .impulse-prediction-card dl { display: grid; gap: 5px; margin: 0; }
+.impulse-inertia-lab .impulse-prediction-card dl > div { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; }
+.impulse-inertia-lab .impulse-prediction-card dt { color: #8295ab; }
+.impulse-inertia-lab .impulse-prediction-card dd { margin: 0; text-align: right; color: #eff6ff; }
+.impulse-inertia-lab .impulse-prediction-card small { color: #7f94aa; }
+.impulse-inertia-lab .impulse-prediction-card small.collision-live { color: #ffb36f; font-weight: 700; }
+
+.impulse-inertia-lab .impulse-action-hand { position: relative; }
+.impulse-inertia-lab .impulse-card-row { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.impulse-inertia-lab .impulse-card-row .ut6-action-card { min-height: 164px; }
+.impulse-inertia-lab .impulse-card-row .ut6-action-card p { min-height: 48px; }
+.impulse-inertia-lab .impulse-commit-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(93, 133, 169, .42); border-radius: 10px; background: rgba(11, 23, 34, .88); }
+.impulse-inertia-lab .impulse-commit-row div { display: flex; gap: 8px; align-items: baseline; }
+.impulse-inertia-lab .impulse-commit-row span { color: #90a7bd; font-size: 11px; }
+.impulse-inertia-lab .impulse-commit-row button { padding: 9px 14px; border-color: #6a9bc2; background: #1d4763; font-weight: 800; }
+.impulse-inertia-lab .impulse-commit-row button:disabled { opacity: .38; }
+
+.impulse-inertia-lab .impulse-ab-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 7px; }
+.impulse-inertia-lab .impulse-ab-switch button { padding: 7px 8px; }
+.impulse-inertia-lab .impulse-ab-switch button.active,
+.impulse-inertia-lab .impulse-direction-grid button.active { border-color: #73c3ee; background: #214d68; box-shadow: 0 0 0 1px rgba(115,195,238,.18) inset; }
+.impulse-inertia-lab .impulse-direction-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 9px; }
+.impulse-inertia-lab .impulse-direction-grid button { padding: 7px 6px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.impulse-inertia-lab .impulse-aim-window { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 7px 8px; border-radius: 7px; background: rgba(16, 27, 39, .9); font-size: 11px; }
+.impulse-inertia-lab .impulse-aim-window span { color: #8fa4b8; }
+.impulse-inertia-lab .impulse-aim-window strong { color: #dfefff; }
+
+.impulse-inertia-lab .inertia-field-board { min-height: 620px; height: min(68vh, 760px); border-radius: 12px; overflow: hidden; border: 1px solid rgba(79, 111, 143, .45); }
+.impulse-inertia-lab .visual-board-frame:has(.inertia-field-board) { min-height: 640px; }
+.impulse-inertia-lab .visual-board-frame:has(.inertia-field-board) .visual-board-legend { pointer-events: none; }
+
+@media (max-width: 1500px) {
+  .impulse-inertia-lab .impulse-card-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
