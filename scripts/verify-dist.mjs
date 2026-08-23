@@ -29,10 +29,13 @@ for (const marker of [
   'Spatial Model A/B',
   'Cell Inspector',
   'Axis Indicator',
-  'Grounded / Position Authority',
-  'legacy-hud',
-  'short-dashed-heading-curve',
-  'Down · M',
+  'unified-v2',
+  'axis-build-turn-radius-v2',
+  'Basic Steering Envelope',
+  'atomic prototype',
+  '4 AT',
+  '6 AT',
+  '8 AT',
   '热力钟摆',
   'ProjectC Web Prototype',
   'Thermal Clock Lab',
@@ -58,8 +61,7 @@ for (const marker of [
   '.app-switcher',
   '.build-revision',
   '.axis-preview-grid',
-  '.legacy-axis-hud',
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified legacy Axis HUD + stable thermal playback dist for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified foundation Axis / Thermal / Cell Conflict dist for ${info.branch}@${info.shortCommit}.`)
