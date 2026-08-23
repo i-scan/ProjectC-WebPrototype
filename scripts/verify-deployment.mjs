@@ -35,16 +35,19 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'Spatial Model A/B',
       'Cell Inspector',
       'Axis Indicator',
-      'Grounded / Position Authority',
-      'legacy-hud',
-      'short-dashed-heading-curve',
+      'unified-v2',
+      'axis-build-turn-radius-v2',
+      'Basic Steering Envelope',
+      'data-thermal-period',
+      'setThermalPeriod',
+      'atomic prototype',
       'ProjectC Web Prototype',
       'Thermal Clock Lab',
       '热力钟摆',
     ]) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · legacy Axis HUD + curved steering guide + stable thermal AT playback`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · adjustable Thermal + unified Axis + Basic steering envelope + atomic Cell Conflict`)
     process.exit(0)
   } catch (error) {
     lastError = error
