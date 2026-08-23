@@ -4,6 +4,7 @@ import {
   THERMAL_PERIOD_AT,
   advanceThermal,
   createInitialThermalState,
+  interpolateThermalVisual,
   sampleThermalTransition,
 } from './thermal.js'
 
@@ -40,21 +41,29 @@ describe('thermal AT timing', () => {
     expect(full.drift).toBeCloseTo(direct.drift, 10)
   })
 
-  it('does not create repeated left-right pendulum jitter inside one AT', () => {
-    // This state exposed the old ceil(progress * substeps) resampling artifact:
-    // adjacent frames could flip thermal direction many times inside one AT.
+  it('does not create repeated left-right solver jitter inside one AT', () => {
     const start = { temperature: -2.435, drift: -0.897, setPoint: 1 }
     const temperatures = Array.from({ length: 401 }, (_, index) => (
       sampleThermalTransition(start, 'use', index / 400).temperature
     ))
-
-    // An 8 AT oscillator may legitimately cross one turning point during a
-    // particular AT, but it cannot visibly oscillate back and forth repeatedly.
     expect(directionChanges(temperatures)).toBeLessThanOrEqual(1)
+  })
+
+  it('presents one committed AT as a monotonic pendulum segment', () => {
+    const start = { temperature: -2.435, drift: -0.897, setPoint: 1 }
+    const end = advanceThermal(start, 'use', 1)
+    const temperatures = Array.from({ length: 401 }, (_, index) => (
+      interpolateThermalVisual(start, end, index / 400).temperature
+    ))
+
+    expect(directionChanges(temperatures)).toBe(0)
+    expect(temperatures[0]).toBeCloseTo(start.temperature, 10)
+    expect(temperatures.at(-1)).toBeCloseTo(end.temperature, 10)
   })
 
   it('keeps zero-progress playback visually at the committed thermal state', () => {
     const start = { temperature: 1.6, drift: -0.3, setPoint: 1 }
     expect(sampleThermalTransition(start, 'use', 0)).toEqual(start)
+    expect(interpolateThermalVisual(start, advanceThermal(start, 'use', 1), 0)).toEqual(start)
   })
 })
