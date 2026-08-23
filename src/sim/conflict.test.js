@@ -40,8 +40,8 @@ describe('Cell Conflict / knockback prototype', () => {
   })
 
   it('transfers M2 into an aligned three-actor knockback chain', () => {
-    const state = stateAt({ q: 0, r: -1 }, 1.7)
-    const plan = basicPlan(state, { q: 1, r: -1 })
+    const state = stateAt({ q: 0, r: 1 }, 1.7)
+    const plan = basicPlan(state, { q: 1, r: 1 })
     const resolved = resolveCellConflicts({
       plan,
       actors: createConflictActors('chain'),
@@ -50,11 +50,11 @@ describe('Cell Conflict / knockback prototype', () => {
     })
 
     expect(resolved.cellConflict).toMatchObject({ targetActorId: 'dummy-a', impactM: 2, resolved: true })
-    expect(resolved.traversedCells.at(-1)).toEqual({ q: 2, r: -1 })
+    expect(resolved.traversedCells.at(-1)).toEqual({ q: 2, r: 1 })
     expect(Object.fromEntries(resolved.actorStates.map((actor) => [actor.id, actor.hex]))).toEqual({
-      'dummy-a': { q: 4, r: -1 },
-      'dummy-b': { q: 5, r: -1 },
-      'dummy-c': { q: 6, r: -1 },
+      'dummy-a': { q: 4, r: 1 },
+      'dummy-b': { q: 5, r: 1 },
+      'dummy-c': { q: 6, r: 1 },
     })
     expect(resolved.conflictEvents.filter((event) => event.kind === 'cell-conflict')).toHaveLength(3)
     expect(resolved.finalM).toBe(0)
