@@ -13,6 +13,8 @@ const DAMPED_OMEGA = Math.PI * 2 / THERMAL_PERIOD_AT
 const NATURAL_OMEGA_SQUARED = DAMPED_OMEGA * DAMPED_OMEGA + DAMPING_ALPHA * DAMPING_ALPHA
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
+const lerp = (a, b, t) => a + (b - a) * t
+const smoothstep = (t) => t * t * (3 - 2 * t)
 
 export function createInitialThermalState() {
   return { temperature: 1, drift: 0, setPoint: THERMAL_SET_POINT }
@@ -88,6 +90,20 @@ export function sampleThermalTransition(input, behavior, progressAt) {
   const progress = clamp(progressAt, 0, 1)
   if (progress <= 0) return { ...input }
   return analyticThermalAt(applyBehaviorImpulse(input, behavior), progress)
+}
+
+// Runtime state still uses the analytic thermal solver above. During a visible
+// 1 AT action, however, the pendulum should communicate one continuous segment
+// of the 8 AT clock rather than visibly reach a solver turning point and swing
+// back inside the same action playback. Interpolate only the presentation from
+// the committed start state to the already-solved final state.
+export function interpolateThermalVisual(start, end, progressAt) {
+  const progress = smoothstep(clamp(progressAt, 0, 1))
+  return {
+    temperature: lerp(start.temperature, end.temperature, progress),
+    drift: lerp(start.drift, end.drift, progress),
+    setPoint: lerp(start.setPoint, end.setPoint, progress),
+  }
 }
 
 export function thermalZoneClass(value) {

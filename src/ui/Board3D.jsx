@@ -1,17 +1,17 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { AT_VISUAL_MS, momentumLevel, playbackElapsedMs } from '../sim/solver.js'
-import { HEX_RADIUS, axialDistance, axialToWorld, directionVector, worldToAxial } from '../sim/hex.js'
+import { HEX_DIRECTIONS, HEX_RADIUS, axialDistance, axialToWorld, directionVector, worldToAxial } from '../sim/hex.js'
 
 const TILE_HEIGHT = 0.18
-const AXIS_HUD_LENGTH_PX = 42
+const AXIS_HUD_LENGTH_PX = 30
 const AXIS_HUD_STROKE_PX = 2.5
 const PREVIEW_MAX_LENGTH = 1.55
 const PREVIEW_DASH_LENGTH = 0.18
 const PREVIEW_GAP_LENGTH = 0.10
 const PREVIEW_RADIUS = 0.022
 const PREVIEW_STEPS = 32
-const DEFAULT_CAMERA = { yaw: Math.PI * 0.25, pitch: 0.74, zoom: 1 }
+const DEFAULT_CAMERA = { yaw: Math.PI * 0.25, pitch: 0.74, zoom: 1, targetX: 0, targetZ: 0 }
 const TEMP_COLORS = [0x527ee0, 0x66a9df, 0x68c6c8, 0xa9bd95, 0xe3c45a, 0xe5945e, 0xe36c60]
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -104,8 +104,8 @@ function createAxisHud() {
     viewBox: '0 0 10 10',
     refX: '8',
     refY: '5',
-    markerWidth: '5.2',
-    markerHeight: '5.2',
+    markerWidth: '4.8',
+    markerHeight: '4.8',
     orient: 'auto-start-reverse',
   })
   marker.appendChild(svgElement('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: '#f2c85a' }))
@@ -171,6 +171,25 @@ function projectedPoint(point, camera, width, height) {
   }
 }
 
+function nearestHexUnit(vector) {
+  const speed = Math.hypot(vector.x, vector.z)
+  if (speed < 0.001) return null
+  const source = { x: vector.x / speed, z: vector.z / speed }
+  let best = null
+  let bestDot = -Infinity
+  for (const direction of HEX_DIRECTIONS) {
+    const world = axialToWorld({ q: direction.q, r: direction.r })
+    const length = Math.hypot(world.x, world.z) || 1
+    const unit = { x: world.x / length, z: world.z / length, id: direction.id }
+    const dot = unit.x * source.x + unit.z * source.z
+    if (dot > bestDot) {
+      bestDot = dot
+      best = unit
+    }
+  }
+  return best
+}
+
 function axisDisplayFor(override, level) {
   if (override === 'm0') return { kind: 'm0', level: 0 }
   if (override?.startsWith('down-')) {
@@ -179,7 +198,7 @@ function axisDisplayFor(override, level) {
   return level > 0 ? { kind: 'horizontal', level } : { kind: 'm0', level: 0 }
 }
 
-function updateAxisHud(hud, camera, width, height, visualState, display) {
+function updateAxisHud(hud, camera, width, height, visualState, display, spatialMode) {
   hud.horizontal.style.display = display.kind === 'horizontal' ? '' : 'none'
   hud.down.style.display = display.kind === 'down' ? '' : 'none'
   hud.m0.style.display = display.kind === 'm0' ? '' : 'none'
@@ -193,9 +212,11 @@ function updateAxisHud(hud, camera, width, height, visualState, display) {
       hud.horizontal.style.display = 'none'
       hud.m0.style.display = ''
       hud.m0.setAttribute('transform', `translate(${source.x.toFixed(2)} ${source.y.toFixed(2)})`)
-      return 'm0'
+      return { kind: 'm0', directionId: 'none' }
     }
-    const direction = { x: visualState.velocity.x / speed, z: visualState.velocity.z / speed }
+    const continuous = { x: visualState.velocity.x / speed, z: visualState.velocity.z / speed }
+    const snapped = spatialMode === 'discrete' ? nearestHexUnit(visualState.velocity) : null
+    const direction = snapped ?? continuous
     const targetWorld = sourceWorld.clone().add(new THREE.Vector3(direction.x, 0, direction.z))
     const target = projectedPoint(targetWorld, camera, width, height)
     const dx = target.x - source.x
@@ -203,22 +224,22 @@ function updateAxisHud(hud, camera, width, height, visualState, display) {
     const screenLength = Math.max(1, Math.hypot(dx, dy))
     const ux = dx / screenLength
     const uy = dy / screenLength
-    const startOffset = 8
+    const startOffset = 7
     hud.horizontalLine.setAttribute('x1', (source.x + ux * startOffset).toFixed(2))
     hud.horizontalLine.setAttribute('y1', (source.y + uy * startOffset).toFixed(2))
     hud.horizontalLine.setAttribute('x2', (source.x + ux * AXIS_HUD_LENGTH_PX).toFixed(2))
     hud.horizontalLine.setAttribute('y2', (source.y + uy * AXIS_HUD_LENGTH_PX).toFixed(2))
-    return 'horizontal'
+    return { kind: 'horizontal', directionId: snapped?.id ?? 'continuous' }
   }
 
   if (display.kind === 'down') {
     hud.down.setAttribute('transform', `translate(${source.x.toFixed(2)} ${source.y.toFixed(2)})`)
     hud.downText.textContent = `Down · M${display.level}`
-    return 'down'
+    return { kind: 'down', directionId: 'down' }
   }
 
   hud.m0.setAttribute('transform', `translate(${source.x.toFixed(2)} ${source.y.toFixed(2)})`)
-  return 'm0'
+  return { kind: 'm0', directionId: 'none' }
 }
 
 function sampleAt(samples, progress) {
@@ -239,6 +260,21 @@ function sampleAt(samples, progress) {
       x: a.velocity.x + (b.velocity.x - a.velocity.x) * local,
       z: a.velocity.z + (b.velocity.z - a.velocity.z) * local,
     },
+  }
+}
+
+function samplePositionAt(samples, progress) {
+  if (!samples?.length) return null
+  const normalized = clamp(progress, 0, 1)
+  if (normalized >= 1) return samples.at(-1).position
+  const scaled = normalized * (samples.length - 1)
+  const index = Math.min(samples.length - 2, Math.floor(scaled))
+  const local = scaled - index
+  const a = samples[index].position
+  const b = samples[index + 1].position
+  return {
+    x: a.x + (b.x - a.x) * local,
+    z: a.z + (b.z - a.z) * local,
   }
 }
 
@@ -416,8 +452,25 @@ function smoothStep(value) {
   return value * value * (3 - 2 * value)
 }
 
+function discreteGuideSamples(plan) {
+  const unique = []
+  for (const sample of plan?.samples ?? []) {
+    const previous = unique.at(-1)
+    if (!previous || Math.hypot(sample.position.x - previous.position.x, sample.position.z - previous.position.z) > 0.001) {
+      unique.push({ position: { ...sample.position } })
+    }
+  }
+  if (unique.length <= 2) return unique
+  const points = unique.map((sample) => new THREE.Vector3(sample.position.x, 0, sample.position.z))
+  const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal', 0.45)
+  const count = Math.max(PREVIEW_STEPS, (points.length - 1) * 18)
+  return curve.getPoints(count).map((point) => ({ position: { x: point.x, z: point.z } }))
+}
+
 function steeringGuideSamples(state, plan) {
   if (!plan?.samples?.length) return []
+  if (plan.spatialMode === 'discrete') return discreteGuideSamples(plan)
+
   const pathStart = firstPathDirection(plan.samples)
   const pathEnd = lastPathDirection(plan.samples) ?? pathStart
   const stateSpeed = Math.hypot(state.velocity.x, state.velocity.z)
@@ -467,10 +520,10 @@ function pointAtDistance(points, cumulative, distance) {
   return points[index - 1].clone().lerp(points[index], local)
 }
 
-function createDashedPreview(samples, color) {
+function createDashedPreview(samples, color, maxLength = PREVIEW_MAX_LENGTH) {
   const group = new THREE.Group()
   const { points, cumulative, total } = polylineData(samples)
-  const visibleLength = Math.min(total, PREVIEW_MAX_LENGTH)
+  const visibleLength = Math.min(total, maxLength)
   const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.94, depthTest: false, depthWrite: false })
   const yAxis = new THREE.Vector3(0, 1, 0)
 
@@ -491,6 +544,24 @@ function createDashedPreview(samples, color) {
     dash.renderOrder = 44
     group.add(dash)
   }
+
+  if (visibleLength > 0.12) {
+    const tip = pointAtDistance(points, cumulative, visibleLength)
+    const beforeTip = pointAtDistance(points, cumulative, Math.max(0, visibleLength - 0.14))
+    const direction = tip.clone().sub(beforeTip)
+    if (direction.length() > 0.01) {
+      const arrow = new THREE.Mesh(
+        new THREE.ConeGeometry(PREVIEW_RADIUS * 3.6, 0.16, 8),
+        material.clone(),
+      )
+      const unit = direction.normalize()
+      arrow.position.copy(tip).addScaledVector(unit, -0.045)
+      arrow.quaternion.setFromUnitVectors(yAxis, unit)
+      arrow.renderOrder = 45
+      group.add(arrow)
+    }
+  }
+
   group.userData.visibleLength = visibleLength
   return group
 }
@@ -524,6 +595,7 @@ export function Board3D({
   const orbitRef = useRef({ ...DEFAULT_CAMERA })
   const stateRef = useRef(state)
   const playbackRef = useRef(playback)
+  const playbackCurveRef = useRef({ id: null, samples: null })
   const atVisualMsRef = useRef(atVisualMs)
   const axisIndicatorPreviewRef = useRef(axisIndicatorPreview)
   const viewModeRef = useRef(viewMode)
@@ -551,15 +623,17 @@ export function Board3D({
     renderer.outputColorSpace = THREE.SRGBColorSpace
     const axisHud = createAxisHud()
     axisHudRef.current = axisHud
-    host.style.position = 'relative'
     host.replaceChildren(renderer.domElement, axisHud.svg)
     renderer.domElement.style.touchAction = 'none'
     host.dataset.axisStyle = 'legacy-hud'
     host.dataset.axisStrokePx = AXIS_HUD_STROKE_PX.toFixed(1)
+    host.dataset.axisLengthPx = String(AXIS_HUD_LENGTH_PX)
     host.dataset.axisSupportsDown = 'true'
     host.dataset.axisShowsM0 = 'true'
     host.dataset.previewStyle = 'short-dashed-heading-curve'
+    host.dataset.previewAuthority = 'solver-cell-path-v2'
     host.dataset.previewLengthMax = PREVIEW_MAX_LENGTH.toFixed(2)
+    host.dataset.middlePan = 'enabled'
 
     const camera = new THREE.OrthographicCamera(-7, 7, 5, -5, 0.1, 60)
     scene.add(new THREE.HemisphereLight(0xcbe4ef, 0x415064, 1.8))
@@ -582,22 +656,24 @@ export function Board3D({
     const updateCamera = () => {
       const orbit = orbitRef.current
       if (viewModeRef.current === 'top') {
-        camera.position.set(0, 18, 0.01)
-        camera.lookAt(0, 0, 0)
+        camera.position.set(orbit.targetX, 18, orbit.targetZ + 0.01)
+        camera.lookAt(orbit.targetX, 0, orbit.targetZ)
       } else {
         const radius = 17
         const horizontal = Math.cos(orbit.pitch) * radius
         camera.position.set(
-          Math.sin(orbit.yaw) * horizontal,
+          orbit.targetX + Math.sin(orbit.yaw) * horizontal,
           Math.sin(orbit.pitch) * radius,
-          Math.cos(orbit.yaw) * horizontal,
+          orbit.targetZ + Math.cos(orbit.yaw) * horizontal,
         )
-        camera.lookAt(0, 0.2, 0)
+        camera.lookAt(orbit.targetX, 0.2, orbit.targetZ)
       }
       camera.zoom = orbit.zoom
       camera.updateProjectionMatrix()
       camera.updateMatrixWorld()
       host.dataset.cameraZoom = camera.zoom.toFixed(4)
+      host.dataset.cameraTargetX = orbit.targetX.toFixed(4)
+      host.dataset.cameraTargetZ = orbit.targetZ.toFixed(4)
     }
 
     let viewportWidth = 0
@@ -638,23 +714,30 @@ export function Board3D({
     const raycaster = new THREE.Raycaster()
     const pointer = new THREE.Vector2()
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
-    const hit = new THREE.Vector3()
     let hoverKey = ''
-    const pickHex = (event) => {
+    const groundPointAt = (clientX, clientY) => {
       const rect = renderer.domElement.getBoundingClientRect()
-      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      if (rect.width < 1 || rect.height < 1) return null
+      pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
+      pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
       raycaster.setFromCamera(pointer, camera)
-      if (!raycaster.ray.intersectPlane(plane, hit)) return null
-      const hex = worldToAxial({ x: hit.x, z: hit.z })
+      const point = new THREE.Vector3()
+      return raycaster.ray.intersectPlane(plane, point) ? point : null
+    }
+    const pickHex = (event) => {
+      const point = groundPointAt(event.clientX, event.clientY)
+      if (!point) return null
+      const hex = worldToAxial({ x: point.x, z: point.z })
       return axialDistance(hex) <= boardRadius ? hex : null
     }
 
-    const drag = { active: false, moved: false, pointerId: -1, startX: 0, startY: 0, x: 0, y: 0 }
+    const drag = { active: false, moved: false, mode: 'rotate', pointerId: -1, startX: 0, startY: 0, x: 0, y: 0 }
     const pointerDown = (event) => {
-      if (event.button !== 0 || playbackRef.current) return
+      if ((event.button !== 0 && event.button !== 1) || playbackRef.current) return
+      if (event.button === 1) event.preventDefault()
       drag.active = true
       drag.moved = false
+      drag.mode = event.button === 1 ? 'pan' : 'rotate'
       drag.pointerId = event.pointerId
       drag.startX = drag.x = event.clientX
       drag.startY = drag.y = event.clientY
@@ -662,12 +745,23 @@ export function Board3D({
     }
     const pointerMove = (event) => {
       if (drag.active) {
-        const dx = event.clientX - drag.x
-        const dy = event.clientY - drag.y
+        const previousX = drag.x
+        const previousY = drag.y
+        const dx = event.clientX - previousX
+        const dy = event.clientY - previousY
         drag.x = event.clientX
         drag.y = event.clientY
         if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) drag.moved = true
-        if (viewModeRef.current !== 'top' && !playbackRef.current) {
+
+        if (drag.mode === 'pan' && !playbackRef.current) {
+          const previousPoint = groundPointAt(previousX, previousY)
+          const currentPoint = groundPointAt(event.clientX, event.clientY)
+          if (previousPoint && currentPoint) {
+            orbitRef.current.targetX += previousPoint.x - currentPoint.x
+            orbitRef.current.targetZ += previousPoint.z - currentPoint.z
+            updateCamera()
+          }
+        } else if (viewModeRef.current !== 'top' && !playbackRef.current) {
           orbitRef.current.yaw -= dx * 0.008
           orbitRef.current.pitch = clamp(orbitRef.current.pitch + dy * 0.006, 0.38, 1.22)
           updateCamera()
@@ -684,9 +778,10 @@ export function Board3D({
     const pointerUp = (event) => {
       if (!drag.active || drag.pointerId !== event.pointerId) return
       const moved = drag.moved
+      const mode = drag.mode
       drag.active = false
       renderer.domElement.releasePointerCapture(event.pointerId)
-      if (!moved && !playbackRef.current) {
+      if (mode === 'rotate' && !moved && !playbackRef.current) {
         const hex = pickHex(event)
         if (hex) callbacksRef.current.onClickHex?.(hex)
       }
@@ -703,6 +798,9 @@ export function Board3D({
       orbitRef.current.zoom = clamp(orbitRef.current.zoom * Math.exp(-event.deltaY * 0.001), 0.58, 2.15)
       updateCamera()
     }
+    const preventMiddleAuxClick = (event) => {
+      if (event.button === 1) event.preventDefault()
+    }
 
     renderer.domElement.addEventListener('pointerdown', pointerDown)
     renderer.domElement.addEventListener('pointermove', pointerMove)
@@ -710,6 +808,7 @@ export function Board3D({
     renderer.domElement.addEventListener('pointercancel', pointerUp)
     renderer.domElement.addEventListener('pointerleave', pointerLeave)
     renderer.domElement.addEventListener('wheel', wheel, { passive: false })
+    renderer.domElement.addEventListener('auxclick', preventMiddleAuxClick)
 
     let frame = 0
     const render = () => {
@@ -728,11 +827,21 @@ export function Board3D({
         const durationMs = activePlayback.durationMs ?? atVisualMsRef.current ?? AT_VISUAL_MS
         const progress = clamp(playbackElapsedMs(activePlayback, now) / Math.max(1, durationMs), 0, 1)
         const sampled = sampleAt(activePlayback.samples, progress)
-        if (sampled) visualState = { ...stateRef.current, position: sampled.position, velocity: sampled.velocity }
+        if (sampled) {
+          let position = sampled.position
+          if (activePlayback.spatialMode === 'discrete') {
+            if (playbackCurveRef.current.id !== activePlayback.id) {
+              playbackCurveRef.current = { id: activePlayback.id, samples: discreteGuideSamples(activePlayback) }
+            }
+            position = samplePositionAt(playbackCurveRef.current.samples, progress) ?? position
+          }
+          visualState = { ...stateRef.current, position, velocity: sampled.velocity }
+        }
         host.dataset.playbackProgress = progress.toFixed(3)
         host.dataset.playbackId = String(activePlayback.id)
         host.dataset.playbackDurationMs = String(durationMs)
       } else {
+        playbackCurveRef.current = { id: null, samples: null }
         host.dataset.playbackProgress = '0'
         delete host.dataset.playbackId
         delete host.dataset.playbackDurationMs
@@ -752,8 +861,11 @@ export function Board3D({
         updateMomentumDots(actorObject, axisDisplay.level)
       }
 
-      const renderedAxis = updateAxisHud(axisHud, camera, viewportWidth, viewportHeight, visualState, axisDisplay)
-      host.dataset.axisState = renderedAxis
+      const spatialMode = host.closest('.cell-world-prototype')?.dataset.spatialMode === 'hybrid' ? 'hybrid' : 'discrete'
+      const renderedAxis = updateAxisHud(axisHud, camera, viewportWidth, viewportHeight, visualState, axisDisplay, spatialMode)
+      host.dataset.axisState = renderedAxis.kind
+      host.dataset.axisDirection = renderedAxis.directionId
+      host.dataset.axisQuantization = spatialMode === 'discrete' ? 'hex6' : 'continuous'
       host.dataset.axisDisplayLevel = String(axisDisplay.level)
       host.dataset.visualX = visualState.position.x.toFixed(4)
       host.dataset.visualZ = visualState.position.z.toFixed(4)
@@ -774,6 +886,7 @@ export function Board3D({
       renderer.domElement.removeEventListener('pointercancel', pointerUp)
       renderer.domElement.removeEventListener('pointerleave', pointerLeave)
       renderer.domElement.removeEventListener('wheel', wheel)
+      renderer.domElement.removeEventListener('auxclick', preventMiddleAuxClick)
       disposeObject(boardGroup)
       disposeObject(interaction)
       disposeObject(actor)
@@ -932,6 +1045,7 @@ export function Board3D({
     }
     host.dataset.previewVisibleLength = '0'
     host.dataset.previewTurnDeg = '0'
+    host.dataset.previewResultDirection = 'none'
     if (!previewPlan?.valid || previewPlan.samples.length < 2) return
 
     const guideSamples = steeringGuideSamples(state, previewPlan)
@@ -941,6 +1055,12 @@ export function Board3D({
       const startAngle = Math.atan2(first.z, first.x)
       const endAngle = Math.atan2(last.z, last.x)
       host.dataset.previewTurnDeg = (shortestAngleDelta(startAngle, endAngle) * 180 / Math.PI).toFixed(1)
+      if (previewPlan.spatialMode === 'discrete') {
+        const direction = nearestHexUnit(last)
+        host.dataset.previewResultDirection = direction?.id ?? 'none'
+      } else {
+        host.dataset.previewResultDirection = `${(endAngle * 180 / Math.PI + 360) % 360}`
+      }
     }
 
     const color = previewPlan.collisions.length
@@ -948,7 +1068,8 @@ export function Board3D({
       : previewPlan.spatialMode === 'discrete'
         ? 0xf0c84f
         : 0x65cce2
-    const preview = createDashedPreview(guideSamples, color)
+    const maxLength = previewPlan.spatialMode === 'discrete' ? Number.POSITIVE_INFINITY : PREVIEW_MAX_LENGTH
+    const preview = createDashedPreview(guideSamples, color, maxLength)
     scene.add(preview)
     previewRef.current = preview
     host.dataset.previewVisibleLength = Number(preview.userData.visibleLength ?? 0).toFixed(3)
@@ -984,22 +1105,26 @@ export function Board3D({
     orbitRef.current = { ...DEFAULT_CAMERA }
     viewModeRef.current = viewMode
     if (viewMode === 'top') {
-      camera.position.set(0, 18, 0.01)
-      camera.lookAt(0, 0, 0)
+      camera.position.set(DEFAULT_CAMERA.targetX, 18, DEFAULT_CAMERA.targetZ + 0.01)
+      camera.lookAt(DEFAULT_CAMERA.targetX, 0, DEFAULT_CAMERA.targetZ)
     } else {
       const radius = 17
       const horizontal = Math.cos(DEFAULT_CAMERA.pitch) * radius
       camera.position.set(
-        Math.sin(DEFAULT_CAMERA.yaw) * horizontal,
+        DEFAULT_CAMERA.targetX + Math.sin(DEFAULT_CAMERA.yaw) * horizontal,
         Math.sin(DEFAULT_CAMERA.pitch) * radius,
-        Math.cos(DEFAULT_CAMERA.yaw) * horizontal,
+        DEFAULT_CAMERA.targetZ + Math.cos(DEFAULT_CAMERA.yaw) * horizontal,
       )
-      camera.lookAt(0, 0.2, 0)
+      camera.lookAt(DEFAULT_CAMERA.targetX, 0.2, DEFAULT_CAMERA.targetZ)
     }
     camera.zoom = DEFAULT_CAMERA.zoom
     camera.updateProjectionMatrix()
     camera.updateMatrixWorld()
-    if (host) host.dataset.cameraZoom = camera.zoom.toFixed(4)
+    if (host) {
+      host.dataset.cameraZoom = camera.zoom.toFixed(4)
+      host.dataset.cameraTargetX = DEFAULT_CAMERA.targetX.toFixed(4)
+      host.dataset.cameraTargetZ = DEFAULT_CAMERA.targetZ.toFixed(4)
+    }
   }, [viewMode, cameraResetToken])
 
   return <div className="continuous-board-host cell-world-board" ref={hostRef} aria-label="ProjectC Cell World Hex6 board" />

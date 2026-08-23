@@ -6,7 +6,7 @@ import {
   THERMAL_HALF_PERIOD_AT,
   THERMAL_PERIOD_AT,
   formatThermal,
-  sampleThermalTransition,
+  interpolateThermalVisual,
   thermalAngleFor,
   thermalDialAngleFor,
   thermalDriftProjectionFor,
@@ -63,8 +63,8 @@ export function ThermalPendulum({ thermal, elapsedAt, playback }) {
   const progress = playback
     ? clamp01(playbackElapsedMs(playback, frameNow) / Math.max(1, playback.durationMs ?? 800))
     : 0
-  const displayThermal = playback?.startThermal
-    ? sampleThermalTransition(playback.startThermal, playback.thermalBehavior, progress)
+  const displayThermal = playback?.startThermal && playback?.finalThermal
+    ? interpolateThermalVisual(playback.startThermal, playback.finalThermal, progress)
     : thermal
   const displayAt = playback
     ? (playback.startWorldAt ?? elapsedAt) + progress
@@ -93,6 +93,7 @@ export function ThermalPendulum({ thermal, elapsedAt, playback }) {
       data-visual-at={displayAt.toFixed(3)}
       data-visual-temperature={displayThermal.temperature.toFixed(4)}
       data-cycle-at={THERMAL_PERIOD_AT}
+      data-playback-interpolation="single-at-monotonic"
       aria-label={`热力钟摆，当前温度 ${formatThermal(displayThermal.temperature)}，漂移 ${formatThermal(displayThermal.drift)}`}
     >
       <div className="thermal-pendulum-heading">

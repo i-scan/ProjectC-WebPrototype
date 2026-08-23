@@ -92,15 +92,25 @@ const snapshotExpression = `(() => {
     solverSteps: Number(root?.dataset.solverSteps ?? 0),
     axisStyle: board?.dataset.axisStyle ?? '',
     axisState: board?.dataset.axisState ?? '',
+    axisDirection: board?.dataset.axisDirection ?? '',
+    axisQuantization: board?.dataset.axisQuantization ?? '',
+    axisLengthPx: Number(board?.dataset.axisLengthPx ?? 0),
     previewStyle: board?.dataset.previewStyle ?? '',
+    previewAuthority: board?.dataset.previewAuthority ?? '',
+    previewResultDirection: board?.dataset.previewResultDirection ?? '',
+    middlePan: board?.dataset.middlePan ?? '',
     playbackDurationMs: Number(board?.dataset.playbackDurationMs ?? 0),
     cameraZoom: Number(board?.dataset.cameraZoom ?? NaN),
+    cameraTargetX: Number(board?.dataset.cameraTargetX ?? NaN),
+    cameraTargetZ: Number(board?.dataset.cameraTargetZ ?? NaN),
     viewportWidth: Number(board?.dataset.viewportWidth ?? 0),
     viewportHeight: Number(board?.dataset.viewportHeight ?? 0),
     canvasWidth: Number(rect?.width ?? 0),
     canvasHeight: Number(rect?.height ?? 0),
     thermalVisualAt: Number(pendulum?.dataset.visualAt ?? NaN),
+    thermalVisualTemperature: Number(pendulum?.dataset.visualTemperature ?? NaN),
     thermalCycleAt: Number(pendulum?.dataset.cycleAt ?? 0),
+    thermalPlaybackInterpolation: pendulum?.dataset.playbackInterpolation ?? '',
     actionCardCount: root?.querySelectorAll('.action-card').length ?? 0,
     basicMoveCard: Boolean(root?.querySelector('[data-action-id="basic-move"]')),
     hasApply: Boolean(root?.querySelector('[data-testid="impulse-commit"], .impulse-commit-row')),
@@ -211,8 +221,20 @@ try {
   assert(initial.atVisualMs === 800 && initial.solverSteps === 120, 'AT / solver baseline changed', initial)
   assert(initial.basicMoveCard && !initial.hasApply, 'Basic Move or click-to-resolve UI regressed', initial)
   assert(initial.axisStyle === 'legacy-hud' && initial.previewStyle === 'short-dashed-heading-curve', 'Axis / steering HUD regressed', initial)
+  assert(initial.axisQuantization === 'hex6' && initial.axisLengthPx === 30, 'Discrete Axis is not Hex6 / shortened', initial)
+  assert(initial.previewAuthority === 'solver-cell-path-v2', 'Discrete preview is no longer solver Cell-path authoritative', initial)
+  assert(initial.middlePan === 'enabled' && Number.isFinite(initial.cameraTargetX) && Number.isFinite(initial.cameraTargetZ), 'middle-button board pan capability missing', initial)
+  assert(initial.thermalPlaybackInterpolation === 'single-at-monotonic', 'single-AT thermal presentation mode missing', initial)
   assert(initial.viewportHeight >= 300 && initial.canvasHeight >= 300, 'map canvas collapsed or invisible', initial)
   assert(initial.thermalCycleAt === 8, 'thermal timebase regressed', initial)
+
+  // Discrete Axis must display one of the six Hex directions even when the stored test velocity is off-axis.
+  await setVelocity(client, 1, 0.2)
+  const quantizedAxis = await waitFor('quantized Discrete Axis', async () => {
+    const value = await snapshot(client)
+    if (value.axisState !== 'horizontal' || value.axisDirection !== 'E' || value.axisQuantization !== 'hex6') throw new Error(JSON.stringify(value))
+    return value
+  })
 
   // Basic Move accepts only an adjacent Aim Cell.
   await resetUi(client)
@@ -235,6 +257,8 @@ try {
   const m0Mid = await snapshot(client)
   assert(m0Mid.playing && m0Mid.worldAt === 0, 'Basic Move committed logical state early', m0Mid)
   assert(m0Mid.thermalVisualAt > 0.05 && m0Mid.thermalVisualAt < 1, 'thermal pendulum did not advance inside the AT', m0Mid)
+  assert(Number.isFinite(m0Mid.thermalVisualTemperature), 'thermal visual temperature missing during playback', m0Mid)
+  assert(m0Mid.thermalPlaybackInterpolation === 'single-at-monotonic', 'thermal playback interpolation mode changed mid-AT', m0Mid)
   assert(Math.abs(m0Mid.cameraZoom - stableViewport.cameraZoom) < 0.0001, 'camera zoom changed during playback', { stableViewport, m0Mid })
   assert(m0Mid.viewportWidth === stableViewport.viewportWidth && m0Mid.viewportHeight === stableViewport.viewportHeight, 'viewport resized during playback', { stableViewport, m0Mid })
   assert(m0Mid.canvasHeight >= 300, 'map canvas collapsed during playback', m0Mid)
@@ -293,10 +317,10 @@ try {
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'axis-thermal-preview-polish.png'), Buffer.from(screenshot.data, 'base64'))
-  const evidence = { initial, afterRemote, m0Playback, m0Mid, afterM0, m2Trajectory, afterM2, turnTrajectory, afterTurn, hybridState, hybridCurve: { midpoint, endpoint, cross, sampleCount: hybridTrajectory.length } }
+  const evidence = { initial, quantizedAxis, afterRemote, m0Playback, m0Mid, afterM0, m2Trajectory, afterM2, turnTrajectory, afterTurn, hybridState, hybridCurve: { midpoint, endpoint, cross, sampleCount: hybridTrajectory.length } }
   await writeFile(join(artifactDir, 'axis-thermal-preview-polish.json'), `${JSON.stringify(evidence, null, 2)}\n`)
 
-  console.log('Verified visible non-collapsed map canvas, adjacent-only Basic Move, M2 Range+1 -> M1 Cell-path steering, stable AT/thermal playback, and unchanged Hybrid V + ΔV impulses.')
+  console.log('Verified Hex6 Discrete Axis, solver-authoritative path guidance, shortened Axis HUD, middle-pan capability, single-AT thermal presentation, visible map canvas, Basic Move, and unchanged Hybrid impulses.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')
