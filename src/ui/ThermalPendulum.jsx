@@ -3,10 +3,10 @@ import { playbackElapsedMs } from '../sim/solver.js'
 import {
   THERMAL_DISPLAY_MAX,
   THERMAL_DISPLAY_MIN,
-  THERMAL_HALF_PERIOD_AT,
   THERMAL_PERIOD_AT,
   formatThermal,
   interpolateThermalVisual,
+  normalizeThermalPeriodAt,
   thermalAngleFor,
   thermalDialAngleFor,
   thermalDriftProjectionFor,
@@ -45,9 +45,10 @@ function driftArrowHeadPath(angle, direction, radius) {
   return `M ${tip.x.toFixed(2)} ${tip.y.toFixed(2)} L ${left.x.toFixed(2)} ${left.y.toFixed(2)} L ${right.x.toFixed(2)} ${right.y.toFixed(2)} Z`
 }
 
-export function ThermalPendulum({ thermal, elapsedAt, playback }) {
+export function ThermalPendulum({ thermal, elapsedAt, playback, periodAt = THERMAL_PERIOD_AT }) {
   const [debugOpen, setDebugOpen] = useState(false)
   const [frameNow, setFrameNow] = useState(() => performance.now())
+  const cycleAt = normalizeThermalPeriodAt(periodAt)
 
   useEffect(() => {
     if (!playback) return undefined
@@ -92,12 +93,12 @@ export function ThermalPendulum({ thermal, elapsedAt, playback }) {
       className="thermal-pendulum"
       data-visual-at={displayAt.toFixed(3)}
       data-visual-temperature={displayThermal.temperature.toFixed(4)}
-      data-cycle-at={THERMAL_PERIOD_AT}
+      data-cycle-at={cycleAt}
       data-playback-interpolation="single-at-monotonic"
       aria-label={`热力钟摆，当前温度 ${formatThermal(displayThermal.temperature)}，漂移 ${formatThermal(displayThermal.drift)}`}
     >
       <div className="thermal-pendulum-heading">
-        <strong>热力钟摆 · 1 cycle = {THERMAL_PERIOD_AT} AT</strong>
+        <strong>热力钟摆 · 1 cycle = {cycleAt} AT</strong>
         <button type="button" onClick={() => setDebugOpen((value) => !value)}>{debugOpen ? 'Close Debug' : 'Thermal Debug'}</button>
       </div>
       <div className="thermal-pendulum-dial">
@@ -127,8 +128,8 @@ export function ThermalPendulum({ thermal, elapsedAt, playback }) {
       <div className="thermal-pendulum-readout">
         <span>T <b>{formatThermal(displayThermal.temperature)}</b></span>
         <span>Drift <b>{formatThermal(displayThermal.drift)}</b></span>
-        <span>Cycle <b>{THERMAL_PERIOD_AT} AT</b></span>
-        <span>Half swing <b>{THERMAL_HALF_PERIOD_AT} AT</b></span>
+        <span>Cycle <b>{cycleAt} AT</b></span>
+        <span>Half swing <b>{(cycleAt / 2).toFixed(cycleAt % 2 === 0 ? 0 : 1)} AT</b></span>
         <span>World <b>{displayAt.toFixed(2)} AT</b></span>
         <span>Action <b>{playback ? `${Math.round(progress * 100)}%` : 'idle'}</b></span>
       </div>
@@ -137,6 +138,7 @@ export function ThermalPendulum({ thermal, elapsedAt, playback }) {
           <span>Set Point <b>{formatThermal(displayThermal.setPoint)}</b></span>
           <span>Angle <b>{bobAngle.toFixed(1)}°</b></span>
           <span>Drift Dir <b>{drift.direction}</b></span>
+          <span>Cycle <b>{cycleAt} AT</b></span>
         </div>
       )}
     </section>
