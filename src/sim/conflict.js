@@ -34,16 +34,16 @@ export function createConflictActors(kind = 'chain') {
   }
 
   return [
-    { id: 'dummy-a', label: 'A', hex: { q: 2, r: -1 }, velocity: { x: 0, z: 0 } },
-    { id: 'dummy-b', label: 'B', hex: { q: 4, r: -1 }, velocity: { x: 0, z: 0 } },
-    { id: 'dummy-c', label: 'C', hex: { q: 5, r: -1 }, velocity: { x: 0, z: 0 } },
+    { id: 'dummy-a', label: 'A', hex: { q: 2, r: 1 }, velocity: { x: 0, z: 0 } },
+    { id: 'dummy-b', label: 'B', hex: { q: 4, r: 1 }, velocity: { x: 0, z: 0 } },
+    { id: 'dummy-c', label: 'C', hex: { q: 5, r: 1 }, velocity: { x: 0, z: 0 } },
   ]
 }
 
 export function conflictScenario(kind = 'chain') {
   return {
     kind,
-    playerHex: kind === 'wall' ? { q: 0, r: 0 } : { q: 0, r: -1 },
+    playerHex: kind === 'wall' ? { q: 0, r: 0 } : { q: 0, r: 1 },
     directionId: 'E',
     momentum: 2,
     actors: createConflictActors(kind),
