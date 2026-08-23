@@ -175,6 +175,26 @@ async function setAtMs(client, value) {
   })
 }
 
+async function setConflictScenario(client, kind) {
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario(${JSON.stringify(kind)})`) === true, `${kind} conflict setup failed`)
+  const expected = kind === 'chain'
+    ? { x: 0.5, z: 0.866 }
+    : { x: 0, z: 0 }
+  return waitFor(`${kind} conflict scenario`, async () => {
+    const value = await snapshot(client)
+    const ready = !value.playing
+      && value.worldAt === 0
+      && value.spatialMode === 'discrete'
+      && value.actionId === 'basic-move'
+      && value.axisId === 'E'
+      && value.momentum === 2
+      && Math.abs(value.logicalX - expected.x) < 0.01
+      && Math.abs(value.logicalZ - expected.z) < 0.01
+    if (!ready) throw new Error(JSON.stringify(value))
+    return value
+  })
+}
+
 let previewProcess
 let chromeProcess
 let client
@@ -298,23 +318,25 @@ try {
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.reset()`) === true, 'Reset stopped responding after opposite input')
   await waitForIdleAt(client, 0)
 
-  // Reproduce the old one-sample freeze: M0 reaches an occupied Cell and is blocked.
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`) === true, 'Wall conflict setup failed')
-  await setKinematics(client, 'E', 0)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1, 0)`) === true, 'M0 setup move before occupied Cell failed')
-  await waitForIdleAt(client, 1)
+  // Reproduce the old one-sample freeze with the real rule sequence:
+  // Free M0 -> establish E Axis -> M0 attempts the occupied Cell and is blocked.
+  await setConflictScenario(client, 'wall')
+  await setKinematics(client, 'none', 0)
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1, 0)`) === true, 'Free M0 setup move before occupied Cell failed')
+  const m0BeforeConflict = await waitForIdleAt(client, 1)
+  assert(m0BeforeConflict.axisId === 'E' && m0BeforeConflict.momentum === 0, 'Free M0 setup did not establish E Axis', m0BeforeConflict)
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2, 0)`) === true, 'M0 occupied-Cell resolution failed to start')
   const afterBlockedM0 = await waitForIdleAt(client, 2)
   assert(afterBlockedM0.logicalX > 0.94 && afterBlockedM0.logicalX < 1.06 && afterBlockedM0.momentum === 0, 'M0 occupancy block did not finish safely', afterBlockedM0)
 
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('chain')`) === true, 'Chain conflict setup failed')
+  await setConflictScenario(client, 'chain')
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1, 1)`) === true, 'Chain conflict action rejected')
   const afterChain = await waitForIdleAt(client, 1)
   const chainState = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.snapshot()`)
   const chainCells = Object.fromEntries(chainState.actors.map((actor) => [actor.id, actor.hex]))
   assert(JSON.stringify(chainCells) === JSON.stringify({ 'dummy-a': { q: 4, r: 1 }, 'dummy-b': { q: 5, r: 1 }, 'dummy-c': { q: 6, r: 1 } }), 'atomic knockback chain resolved to wrong Cells', { chainCells, afterChain })
 
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`) === true, 'Wall conflict setup failed')
+  await setConflictScenario(client, 'wall')
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1, 0)`) === true, 'Wall conflict action rejected')
   const afterWall = await waitForIdleAt(client, 1)
   const wallState = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.snapshot()`)
@@ -351,6 +373,7 @@ try {
     m3Trajectory,
     afterM3Turn,
     afterOpposite,
+    m0BeforeConflict,
     afterBlockedM0,
     chainState,
     wallState,
