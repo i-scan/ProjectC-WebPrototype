@@ -29,14 +29,14 @@ function uniqueRoute(cells = []) {
 export function createConflictActors(kind = 'chain') {
   if (kind === 'wall') {
     return [
-      { id: 'dummy-a', label: 'A', hex: { q: 2, r: 0 }, velocity: { x: 0, z: 0 } },
+      { id: 'dummy-a', label: 'A', hex: { q: 2, r: 0 }, velocity: { x: 0, z: 0 }, axisId: null },
     ]
   }
 
   return [
-    { id: 'dummy-a', label: 'A', hex: { q: 2, r: 1 }, velocity: { x: 0, z: 0 } },
-    { id: 'dummy-b', label: 'B', hex: { q: 4, r: 1 }, velocity: { x: 0, z: 0 } },
-    { id: 'dummy-c', label: 'C', hex: { q: 5, r: 1 }, velocity: { x: 0, z: 0 } },
+    { id: 'dummy-a', label: 'A', hex: { q: 2, r: 1 }, velocity: { x: 0, z: 0 }, axisId: null },
+    { id: 'dummy-b', label: 'B', hex: { q: 4, r: 1 }, velocity: { x: 0, z: 0 }, axisId: null },
+    { id: 'dummy-c', label: 'C', hex: { q: 5, r: 1 }, velocity: { x: 0, z: 0 }, axisId: null },
   ]
 }
 
@@ -50,9 +50,10 @@ export function conflictScenario(kind = 'chain') {
   }
 }
 
-export function decorateConflictCells(cells, actors = [], projectedActors = []) {
+export function decorateConflictCells(cells, actors = [], projectedActors = [], reachableCells = []) {
   const actualByKey = new Map(actors.map((actor) => [axialKey(actor.hex), actor]))
   const projectedByKey = new Map()
+  const reachableByKey = new Map(reachableCells.map((entry) => [axialKey(entry.hex ?? entry), entry]))
   for (const actor of projectedActors) {
     const current = actors.find((entry) => entry.id === actor.id)
     if (current && !sameHex(current.hex, actor.hex)) projectedByKey.set(axialKey(actor.hex), actor)
@@ -61,35 +62,119 @@ export function decorateConflictCells(cells, actors = [], projectedActors = []) 
   return cells.map((cell) => {
     const actual = actualByKey.get(cell.key)
     const projected = projectedByKey.get(cell.key)
-    if (!actual && !projected) return cell
+    const reachable = reachableByKey.get(cell.key)
+    if (!actual && !projected && !reachable) return cell
 
     const tags = [...cell.tags]
     if (actual && !tags.includes('Shelter')) tags.push('Shelter')
     if (projected && !tags.some((tag) => tag === 'UT3ReflectLeft' || tag === 'UT3ReflectRight')) tags.push('UT3ReflectLeft')
+    if (reachable && !tags.includes('BasicReachable')) tags.push('BasicReachable')
 
+    const showReachable = Boolean(reachable && !actual && !projected)
     return {
       ...cell,
-      groundFill: projected ? 'ice' : cell.groundFill,
-      groundTemp: projected ? Math.min(cell.groundTemp, -1) : cell.groundTemp,
-      moisture: projected ? 0 : cell.moisture,
+      // Display-only decoration. Solver inputs still use the undecorated cell world.
+      groundFill: projected || showReachable ? 'ice' : cell.groundFill,
+      moisture: projected || showReachable ? 0 : cell.moisture,
       tags,
       conflictActor: actual?.id ?? null,
       conflictProjection: projected?.id ?? null,
+      basicReachable: reachable ? (reachable.rule ?? true) : null,
     }
   })
 }
 
-export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardRadius = 7 }) {
-  const actorStates = actors.map(cloneActor)
-  if (!plan?.valid) return { ...plan, actorStates, conflictEvents: [] }
+function attemptAtomicPush({ actors, actorId, direction, power, obstacles, boardRadius }) {
+  const shadowActors = actors.map(cloneActor)
+  const actorById = new Map(shadowActors.map((actor) => [actor.id, actor]))
+  const occupancy = new Map(shadowActors.map((actor) => [axialKey(actor.hex), actor.id]))
+  const obstacleByKey = new Map(obstacles.map((entry) => [axialKey(entry.hex), entry]))
+  const events = []
+  const trajectories = Object.fromEntries(shadowActors.map((actor) => [actor.id, [cloneHex(actor.hex)]]))
 
-  // This first test layer intentionally targets the discrete Cell model. Hybrid
-  // keeps its existing continuous collision experiment until the Cell rules are proven useful.
+  const pushActor = (currentActorId, currentPower, depth = 0) => {
+    const actor = actorById.get(currentActorId)
+    if (!actor || currentPower <= 0 || depth > shadowActors.length + 2) return false
+
+    for (let step = 0; step < currentPower; step += 1) {
+      const next = { q: actor.hex.q + direction.q, r: actor.hex.r + direction.r }
+      const obstacle = obstacleByKey.get(axialKey(next))
+      const boundary = axialDistance(next) > boardRadius
+      if (obstacle || boundary) {
+        events.push({
+          kind: 'wall-crash',
+          actorId: currentActorId,
+          power: currentPower,
+          obstacleId: obstacle?.id ?? null,
+          obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
+          from: cloneHex(actor.hex),
+          cell: cloneHex(next),
+          atomicRejected: true,
+        })
+        return false
+      }
+
+      const occupantId = occupancy.get(axialKey(next))
+      if (occupantId && occupantId !== currentActorId) {
+        const childPower = Math.max(1, currentPower - step - 1)
+        events.push({
+          kind: 'cell-conflict',
+          sourceActorId: currentActorId,
+          targetActorId: occupantId,
+          power: childPower,
+          cell: cloneHex(next),
+          chained: true,
+        })
+        if (!pushActor(occupantId, childPower, depth + 1)) {
+          events.push({
+            kind: 'cell-conflict-blocked',
+            sourceActorId: currentActorId,
+            targetActorId: occupantId,
+            power: childPower,
+            cell: cloneHex(next),
+            chained: true,
+            atomicRejected: true,
+          })
+          return false
+        }
+      }
+
+      occupancy.delete(axialKey(actor.hex))
+      actor.hex = cloneHex(next)
+      occupancy.set(axialKey(actor.hex), actor.id)
+      trajectories[actor.id].push(cloneHex(actor.hex))
+    }
+
+    actor.velocity = velocityFor(direction.id, Math.max(0, Math.min(3, currentPower - 1)))
+    actor.axisId = direction.id
+    return true
+  }
+
+  const valid = pushActor(actorId, power)
+  if (!valid) {
+    return {
+      valid: false,
+      actors: actors.map(cloneActor),
+      events,
+      trajectories: Object.fromEntries(actors.map((actor) => [actor.id, [cloneHex(actor.hex)]])),
+    }
+  }
+
+  return { valid: true, actors: shadowActors.map(cloneActor), events, trajectories }
+}
+
+export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardRadius = 7 }) {
+  let actorStates = actors.map(cloneActor)
+  if (!plan?.valid) return { ...plan, actorStates, conflictEvents: [], pushAtomic: true }
+
+  // This test layer intentionally targets the discrete Cell model. Hybrid keeps
+  // its existing continuous collision experiment until Cell rules are proven useful.
   if (plan.spatialMode !== 'discrete') {
     return {
       ...plan,
       actorStates,
       conflictEvents: [],
+      pushAtomic: true,
       finalState: { ...plan.finalState, actors: actorStates.map(cloneActor) },
     }
   }
@@ -100,81 +185,14 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
       ...plan,
       actorStates,
       conflictEvents: [],
+      pushAtomic: true,
       finalState: { ...plan.finalState, actors: actorStates.map(cloneActor) },
     }
   }
 
-  const obstacleByKey = new Map(obstacles.map((entry) => [axialKey(entry.hex), entry]))
-  const occupancy = new Map(actorStates.map((actor) => [axialKey(actor.hex), actor.id]))
-  const actorById = new Map(actorStates.map((actor) => [actor.id, actor]))
+  let occupancy = new Map(actorStates.map((actor) => [axialKey(actor.hex), actor.id]))
   const conflictEvents = []
-  const actorTrajectories = Object.fromEntries(actorStates.map((actor) => [actor.id, [cloneHex(actor.hex)]]))
-
-  const pushActor = (actorId, direction, power, depth = 0) => {
-    const actor = actorById.get(actorId)
-    if (!actor || power <= 0 || depth > actorStates.length + 2) return { vacated: false, moved: 0, blocked: true }
-
-    const origin = cloneHex(actor.hex)
-    let moved = 0
-    let blocked = false
-
-    for (let step = 0; step < power; step += 1) {
-      const next = { q: actor.hex.q + direction.q, r: actor.hex.r + direction.r }
-      const obstacle = obstacleByKey.get(axialKey(next))
-      const boundary = axialDistance(next) > boardRadius
-
-      if (obstacle || boundary) {
-        blocked = true
-        conflictEvents.push({
-          kind: 'wall-crash',
-          actorId,
-          power,
-          obstacleId: obstacle?.id ?? null,
-          obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
-          from: cloneHex(actor.hex),
-          cell: cloneHex(next),
-        })
-        break
-      }
-
-      const occupantId = occupancy.get(axialKey(next))
-      if (occupantId && occupantId !== actorId) {
-        const childPower = Math.max(1, power - step - 1)
-        conflictEvents.push({
-          kind: 'cell-conflict',
-          sourceActorId: actorId,
-          targetActorId: occupantId,
-          power: childPower,
-          cell: cloneHex(next),
-          chained: true,
-        })
-        const child = pushActor(occupantId, direction, childPower, depth + 1)
-        if (!child.vacated) {
-          blocked = true
-          conflictEvents.push({
-            kind: 'cell-conflict-blocked',
-            sourceActorId: actorId,
-            targetActorId: occupantId,
-            power: childPower,
-            cell: cloneHex(next),
-            chained: true,
-          })
-          break
-        }
-      }
-
-      occupancy.delete(axialKey(actor.hex))
-      actor.hex = cloneHex(next)
-      occupancy.set(axialKey(actor.hex), actor.id)
-      actorTrajectories[actor.id].push(cloneHex(actor.hex))
-      moved += 1
-    }
-
-    const residualM = blocked ? 0 : Math.max(0, Math.min(3, power - 1))
-    actor.velocity = velocityFor(direction.id, residualM)
-    return { vacated: !sameHex(origin, actor.hex), moved, blocked, residualM }
-  }
-
+  let actorTrajectories = Object.fromEntries(actorStates.map((actor) => [actor.id, [cloneHex(actor.hex)]]))
   let playerCell = cloneHex(route[0])
   const playerRoute = [cloneHex(playerCell)]
   let playerConflict = null
@@ -209,18 +227,39 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
       break
     }
 
-    const pushed = pushActor(targetActorId, direction, impactM)
-    if (!pushed.vacated) {
+    // Preflight the entire knockback cascade on a shadow occupancy map. No Actor
+    // is moved in the real result unless every required Cell in the chain is legal.
+    const attempted = attemptAtomicPush({
+      actors: actorStates,
+      actorId: targetActorId,
+      direction,
+      power: impactM,
+      obstacles,
+      boardRadius,
+    })
+    conflictEvents.push(...attempted.events)
+    if (!attempted.valid) {
+      conflictEvents.push({
+        kind: 'cell-conflict-blocked',
+        sourceActorId: 'player',
+        targetActorId,
+        power: impactM,
+        cell: cloneHex(next),
+        chained: false,
+        atomicRejected: true,
+      })
       playerConflict = { targetActorId, impactM, resolved: false, direction }
       break
     }
 
+    actorStates = attempted.actors.map(cloneActor)
+    actorTrajectories = attempted.trajectories
+    occupancy = new Map(actorStates.map((actor) => [axialKey(actor.hex), actor.id]))
     playerCell = cloneHex(next)
     playerRoute.push(cloneHex(playerCell))
     playerConflict = { targetActorId, impactM, resolved: true, direction }
-    // Occupied-Cell contact is the meaningful end of this action segment for the
-    // first prototype. The knockback cascade may continue, but the player does not
-    // pass through the defender in the same card action.
+    // Occupied-Cell contact ends the player's segment. The validated knockback
+    // cascade is committed atomically inside the same action resolution.
     break
   }
 
@@ -230,6 +269,7 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
       actorStates: actorStates.map(cloneActor),
       actorTrajectories,
       conflictEvents,
+      pushAtomic: true,
       finalState: { ...plan.finalState, actors: actorStates.map(cloneActor) },
     }
   }
@@ -237,27 +277,38 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
   const finalPlayerM = playerConflict.resolved ? Math.max(0, (plan.finalM ?? 0) - 1) : 0
   const playerVelocity = velocityFor(playerConflict.direction.id, finalPlayerM)
   const finalPosition = axialToWorld(playerCell)
-  const sampleCount = Math.max(1, playerRoute.length)
-  const samples = playerRoute.map((cell, index) => ({
-    t: sampleCount <= 1 ? 0 : index / (sampleCount - 1),
-    position: axialToWorld(cell),
-    velocity: index === 0 ? cloneVelocity(plan.samples?.[0]?.velocity ?? { x: 0, z: 0 }) : cloneVelocity(playerVelocity),
-  }))
+  let samples
+  if (playerRoute.length <= 1) {
+    // Keep playback sampling safe even for a fully blocked move.
+    const startVelocity = cloneVelocity(plan.samples?.[0]?.velocity ?? { x: 0, z: 0 })
+    samples = [
+      { t: 0, position: finalPosition, velocity: startVelocity },
+      { t: 1, position: finalPosition, velocity: cloneVelocity(playerVelocity) },
+    ]
+  } else {
+    samples = playerRoute.map((cell, index) => ({
+      t: index / (playerRoute.length - 1),
+      position: axialToWorld(cell),
+      velocity: index === 0 ? cloneVelocity(plan.samples?.[0]?.velocity ?? { x: 0, z: 0 }) : cloneVelocity(playerVelocity),
+    }))
+  }
 
   return {
     ...plan,
     samples,
     traversedCells: playerRoute,
-    // Cell Conflict is deliberately kept separate from the existing physical-surface
-    // collision channel so this experiment does not implicitly alter Thermal behavior.
+    // Cell Conflict remains separate from physical-surface collisions so the
+    // knockback experiment cannot silently alter Thermal behavior.
     collisions: [...(plan.collisions ?? [])],
     actorStates: actorStates.map(cloneActor),
     actorTrajectories,
     conflictEvents,
+    pushAtomic: true,
     finalState: {
       ...plan.finalState,
       position: finalPosition,
       velocity: playerVelocity,
+      axisId: playerConflict.direction.id,
       actors: actorStates.map(cloneActor),
     },
     finalSpeed: Math.hypot(playerVelocity.x, playerVelocity.z),
@@ -267,6 +318,7 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
       impactM: playerConflict.impactM,
       resolved: playerConflict.resolved,
       playerCell: cloneHex(playerCell),
+      atomic: true,
     },
   }
 }
