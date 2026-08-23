@@ -10,10 +10,17 @@ import {
   actionById,
   createInitialState,
   momentumLevel,
+  momentumSpeed,
   planSummary,
   playbackElapsedMs,
   simulateSpatial,
 } from '../sim/solver.js'
+import {
+  conflictScenario,
+  createConflictActors,
+  decorateConflictCells,
+  resolveCellConflicts,
+} from '../sim/conflict.js'
 import {
   THERMAL_PERIOD_AT,
   advanceThermal,
@@ -50,9 +57,26 @@ function terrainLabel(cell) {
   const names = { grass: 'Grass', water: 'Water', ice: 'Ice', fire: 'Fire', stone: 'Open Ground' }
   return names[cell.groundFill] ?? cell.groundFill
 }
+function initialPrototypeState() {
+  return { ...createInitialState(), actors: createConflictActors('chain') }
+}
+function stateForConflictScenario(kind) {
+  const scenario = conflictScenario(kind)
+  const direction = directionVector(scenario.directionId)
+  const speed = momentumSpeed(scenario.momentum)
+  return {
+    position: axialToWorld(scenario.playerHex),
+    velocity: { x: direction.x * speed, z: direction.z * speed },
+    worldAt: 0,
+    actors: scenario.actors,
+  }
+}
+function actorCellList(actors = []) {
+  return actors.map((actor) => `${actor.label ?? actor.id}:${actor.hex.q},${actor.hex.r}`).join(' · ')
+}
 
 export function App() {
-  const [state, setState] = useState(() => createInitialState())
+  const [state, setState] = useState(() => initialPrototypeState())
   const [thermal, setThermal] = useState(() => createInitialThermalState())
   const [history, setHistory] = useState([])
   const [actionId, setActionId] = useState('drive')
@@ -76,6 +100,7 @@ export function App() {
   const momentum = momentumLevel(speed)
   const heading = headingOf(state.velocity)
   const currentHex = worldToAxial(state.position)
+  const actors = state.actors ?? []
   const cells = useMemo(() => createCellWorld(boardRadius), [boardRadius])
   const currentCell = cellAt(cells, currentHex)
   const aimedCell = cellAt(cells, hoverHex ?? selectedAimHex)
@@ -85,10 +110,16 @@ export function App() {
   const previewPlan = useMemo(() => {
     if (playback) return null
     if (actionId !== 'coast' && !hoverHex) return null
-    return simulateSpatial({ spatialMode, state, actionId, aimPoint, config, obstacles })
-  }, [spatialMode, state, actionId, hoverHex, aimPoint, config, obstacles, playback])
+    const basePlan = simulateSpatial({ spatialMode, state, actionId, aimPoint, config, obstacles })
+    return resolveCellConflicts({ plan: basePlan, actors, obstacles, boardRadius })
+  }, [spatialMode, state, actionId, hoverHex, aimPoint, config, obstacles, playback, actors, boardRadius])
 
   const predictedHex = previewPlan?.valid ? worldToAxial(previewPlan.finalState.position) : null
+  const projectedActors = previewPlan?.actorStates ?? playback?.finalState?.actors ?? actors
+  const displayCells = useMemo(
+    () => decorateConflictCells(cells, actors, projectedActors),
+    [cells, actors, projectedActors],
+  )
   const isPlaying = Boolean(playback)
   const thermalDomain = thermalDomainFor(thermal.temperature)
   const actionDescriptor = action.kind === 'basic'
@@ -137,7 +168,8 @@ export function App() {
     if (isPlaying) return false
     if (actionId === 'basic-move' && axialDistance(currentHex, hex) !== 1) return false
     const point = axialToWorld(hex)
-    const plan = simulateSpatial({ spatialMode, state, actionId, aimPoint: actionId === 'coast' ? null : point, config, obstacles })
+    const basePlan = simulateSpatial({ spatialMode, state, actionId, aimPoint: actionId === 'coast' ? null : point, config, obstacles })
+    const plan = resolveCellConflicts({ plan: basePlan, actors, obstacles, boardRadius })
     if (!plan.valid) return false
     if (actionId === 'coast' && !plan.traversedCells.some((entry) => sameHex(entry, hex))) return false
 
@@ -169,6 +201,7 @@ export function App() {
       thermalBehavior,
       summary: planSummary(plan),
       spatialMode,
+      conflictEvents: plan.conflictEvents ?? [],
     })
     return true
   }
@@ -200,6 +233,18 @@ export function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [])
 
+  const runConflictScenario = (kind) => {
+    if (isPlaying) return false
+    setState(stateForConflictScenario(kind))
+    setThermal(createInitialThermalState())
+    setHistory([])
+    setSpatialMode('discrete')
+    setActionId('basic-move')
+    setHoverHex(null)
+    setSelectedAimHex(null)
+    return true
+  }
+
   useEffect(() => {
     window.__PROJECTC_PROTOTYPE__ = {
       fireAt(q, r) { return resolveClick({ q, r }) },
@@ -218,8 +263,12 @@ export function App() {
       },
       setAtMs(value) { return changeAtVisualMs(Number(value)) },
       setAxisIndicator(value) { return changeAxisIndicatorPreview(String(value)) },
+      setConflictScenario(kind) { return runConflictScenario(String(kind)) },
       trajectory() {
         return structuredClone(playback?.samples ?? previewPlan?.samples ?? [])
+      },
+      conflicts() {
+        return structuredClone(playback?.conflictEvents ?? previewPlan?.conflictEvents ?? [])
       },
       snapshot() {
         return {
@@ -229,6 +278,7 @@ export function App() {
           actionId,
           atVisualMs,
           axisIndicatorPreview,
+          actors: structuredClone(actors),
         }
       },
     }
@@ -249,7 +299,7 @@ export function App() {
 
   const reset = () => {
     if (isPlaying) return
-    setState(createInitialState())
+    setState(initialPrototypeState())
     setThermal(createInitialThermalState())
     setHistory([])
     setHoverHex(null)
@@ -267,7 +317,7 @@ export function App() {
   const changeRadius = (radius) => {
     if (isPlaying) return
     setBoardRadius(radius)
-    setState(createInitialState())
+    setState(initialPrototypeState())
     setThermal(createInitialThermalState())
     setHistory([])
     setHoverHex(null)
@@ -300,6 +350,8 @@ export function App() {
       data-at-visual-ms={atVisualMs}
       data-solver-steps={config.steps}
       data-axis-indicator-preview={axisIndicatorPreview}
+      data-conflict-actors={actors.length}
+      data-cell-conflict={previewPlan?.cellConflict ? 'preview' : playback?.conflictEvents?.length ? 'playback' : 'idle'}
     >
       <header className="prototype-header">
         <div className="brand">
@@ -348,6 +400,8 @@ export function App() {
                 <div><dt>Final Cell</dt><dd>{predictedHex.q},{predictedHex.r}</dd></div>
                 <div><dt>Cells touched</dt><dd>{previewPlan.traversedCells.length}</dd></div>
                 <div><dt>Collisions</dt><dd>{previewPlan.collisions.length}</dd></div>
+                <div><dt>Cell Conflict</dt><dd>{previewPlan.cellConflict ? `${previewPlan.cellConflict.targetActorId} · M${previewPlan.cellConflict.impactM} · ${previewPlan.cellConflict.resolved ? 'push' : 'blocked'}` : '—'}</dd></div>
+                <div><dt>Target Cells</dt><dd>{actorCellList(previewPlan.actorStates ?? actors) || '—'}</dd></div>
               </dl>
             )}
           </section>
@@ -374,7 +428,7 @@ export function App() {
           </div>
           <div className={`board-frame ${isPlaying ? 'playing' : ''}`}>
             <Board3D
-              cells={cells}
+              cells={displayCells}
               obstacles={obstacles}
               state={state}
               previewPlan={previewPlan}
@@ -393,7 +447,7 @@ export function App() {
             />
             <div className="board-legend">
               <span><i className={spatialMode === 'discrete' ? 'trajectory discrete' : 'trajectory'} />Rule-constrained steering preview</span>
-              <span><i className="terrain" />Cell terrain / weather</span>
+              <span><i className="terrain" />Beacon = occupied Actor · cyan marker = projected landing</span>
               <span><i className="momentum-axis" />Legacy Axis HUD · dots = M</span>
             </div>
             {isPlaying && <div className="playback-badge">{playback?.spatialMode === 'discrete' ? 'Discrete' : 'Hybrid'} · 1 AT · {(playback?.durationMs / 1000).toFixed(2)} s · {playback?.thermalBehavior}</div>}
@@ -430,10 +484,10 @@ export function App() {
           <section className="panel-card spatial-ab-card">
             <div className="section-heading"><h3>Spatial Model A/B</h3><span>same board</span></div>
             <div className="ab-explain">
-              <button type="button" data-spatial-panel-select="discrete" className={spatialMode === 'discrete' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('discrete')}><b>Discrete</b><span>Cell-center presentation of the shared action input</span></button>
-              <button type="button" data-spatial-panel-select="hybrid" className={spatialMode === 'hybrid' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('hybrid')}><b>Hybrid</b><span>Continuous impulse P/V; Basic Move keeps the same logical Cell path</span></button>
+              <button type="button" data-spatial-panel-select="discrete" className={spatialMode === 'discrete' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('discrete')}><b>Discrete</b><span>Cell-center presentation + Cell Conflict / knockback test</span></button>
+              <button type="button" data-spatial-panel-select="hybrid" className={spatialMode === 'hybrid' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('hybrid')}><b>Hybrid</b><span>Continuous impulse P/V; actor Cell Conflict is intentionally not applied yet</span></button>
             </div>
-            <small>Basic Move 在两种模式下共享同一 Cell path；Impulse 才比较离散与连续运动表现。AT 播放速度可在右侧 Timebase 调整。</small>
+            <small>本轮 Cell Conflict 只验证 Discrete：先证明“占格冲突 + 动量传播”是否值得继续，再决定是否把同一语义映射进 Hybrid。</small>
           </section>
 
           <section className="panel-card cell-inspector">
@@ -500,7 +554,16 @@ export function App() {
           </section>
 
           <section className="panel-card">
-            <div className="section-heading"><h3>Collision / Board</h3><span>deterministic</span></div>
+            <div className="section-heading"><h3>Cell Conflict / Board</h3><span>prototype</span></div>
+            <div className="quick-grid">
+              <button type="button" data-conflict-scenario="chain" disabled={isPlaying} onClick={() => runConflictScenario('chain')}>Chain Setup</button>
+              <button type="button" data-conflict-scenario="wall" disabled={isPlaying} onClick={() => runConflictScenario('wall')}>Wall Setup</button>
+            </div>
+            <p className="actor-sub">Discrete test rule: M0 is blocked by occupancy; M1–M3 becomes Impact Power. Knockback transfers through occupied Cells; a wall on the first push step prevents the defender from vacating.</p>
+            <dl className="state-list compact">
+              <div><dt>Actors</dt><dd>{actorCellList(actors) || '—'}</dd></div>
+              <div><dt>Preview</dt><dd>{previewPlan?.cellConflict ? `${previewPlan.cellConflict.resolved ? 'PUSH' : 'BLOCK'} · M${previewPlan.cellConflict.impactM}` : '—'}</dd></div>
+            </dl>
             <label className="range-row"><span>Restitution</span><input type="range" min="0" max="0.9" step="0.05" value={restitution} disabled={isPlaying} onChange={(event) => setRestitution(Number(event.target.value))} /><output>{restitution.toFixed(2)}</output></label>
             <button type="button" className={obstaclesEnabled ? 'active wide-button' : 'wide-button'} disabled={isPlaying} onClick={() => setObstaclesEnabled((value) => !value)}>Collision Surfaces {obstaclesEnabled ? 'ON' : 'OFF'}</button>
             <label className="range-row"><span>Board Radius</span><input type="range" min="4" max="10" step="1" value={boardRadius} disabled={isPlaying} onChange={(event) => changeRadius(Number(event.target.value))} /><output>{boardRadius}</output></label>
