@@ -248,7 +248,9 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
     ...plan,
     samples,
     traversedCells: playerRoute,
-    collisions: [...(plan.collisions ?? []), ...conflictEvents],
+    // Cell Conflict is deliberately kept separate from the existing physical-surface
+    // collision channel so this experiment does not implicitly alter Thermal behavior.
+    collisions: [...(plan.collisions ?? [])],
     actorStates: actorStates.map(cloneActor),
     actorTrajectories,
     conflictEvents,
