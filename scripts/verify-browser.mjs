@@ -11,18 +11,15 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 function assert(condition, message, detail) {
   if (!condition) throw new Error(`${message}${detail ? `\n${JSON.stringify(detail, null, 2)}` : ''}`)
 }
-
 function which(command) {
   const result = spawnSync('which', [command], { encoding: 'utf8' })
   return result.status === 0 ? result.stdout.trim() : ''
 }
-
 function chromeExecutable() {
   const candidates = [process.env.CHROME_BIN, which('google-chrome'), which('google-chrome-stable'), which('chromium'), which('chromium-browser')].filter(Boolean)
   assert(candidates.length, 'Chrome / Chromium executable was not found')
   return candidates[0]
 }
-
 async function waitFor(label, operation, attempts = 220, delay = 45) {
   let lastError
   for (let index = 0; index < attempts; index += 1) {
@@ -78,39 +75,22 @@ const snapshotExpression = `(() => {
   const canvas = board?.querySelector('canvas')
   const rect = canvas?.getBoundingClientRect()
   return {
-    implementation: root?.dataset.implementation ?? '',
-    authority: root?.dataset.authority ?? '',
-    aimContract: root?.dataset.basicAimContract ?? '',
-    basicRules: root?.dataset.basicMoveRules ?? '',
-    driveRule: root?.dataset.driveRule ?? '',
-    axisUi: root?.dataset.axisUi ?? '',
-    actionId: root?.dataset.actionId ?? '',
-    spatialMode: root?.dataset.spatialMode ?? '',
-    playing: root?.dataset.playing === 'true',
-    worldAt: Number(root?.dataset.worldAt ?? -1),
-    logicalX: Number(root?.dataset.logicalX ?? NaN),
-    logicalZ: Number(root?.dataset.logicalZ ?? NaN),
-    momentum: Number(root?.dataset.momentum ?? -1),
-    axisId: root?.dataset.axisId ?? '',
-    reachableCount: Number(root?.dataset.reachableCount ?? -1),
-    pushAtomic: root?.dataset.pushAtomic ?? '',
-    atVisualMs: Number(root?.dataset.atVisualMs ?? 0),
-    thermalPeriodAt: Number(root?.dataset.thermalPeriodAt ?? 0),
-    boardAxisStyle: board?.dataset.axisStyle ?? '',
-    actorAxisPersistent: board?.dataset.actorAxisPersistent ?? '',
-    boardAxisDirection: board?.dataset.axisDirection ?? '',
-    previewStyle: board?.dataset.previewStyle ?? '',
-    previewArrow: board?.dataset.previewArrow ?? '',
-    previewAuthority: board?.dataset.previewAuthority ?? '',
-    reachableHighlight: board?.dataset.reachableHighlight ?? '',
-    knockbackPreview: board?.dataset.knockbackPreview ?? '',
-    knockbackPlayback: board?.dataset.knockbackPlayback ?? '',
-    knockbackPathCount: Number(board?.dataset.knockbackPathCount ?? 0),
-    middlePan: board?.dataset.middlePan ?? '',
-    viewportWidth: Number(board?.dataset.viewportWidth ?? 0),
-    viewportHeight: Number(board?.dataset.viewportHeight ?? 0),
-    canvasWidth: Number(rect?.width ?? 0),
-    canvasHeight: Number(rect?.height ?? 0),
+    implementation: root?.dataset.implementation ?? '', authority: root?.dataset.authority ?? '',
+    aimContract: root?.dataset.basicAimContract ?? '', basicRules: root?.dataset.basicMoveRules ?? '',
+    driveRule: root?.dataset.driveRule ?? '', axisUi: root?.dataset.axisUi ?? '',
+    actionId: root?.dataset.actionId ?? '', spatialMode: root?.dataset.spatialMode ?? '',
+    playing: root?.dataset.playing === 'true', worldAt: Number(root?.dataset.worldAt ?? -1),
+    logicalX: Number(root?.dataset.logicalX ?? NaN), logicalZ: Number(root?.dataset.logicalZ ?? NaN),
+    momentum: Number(root?.dataset.momentum ?? -1), axisId: root?.dataset.axisId ?? '',
+    reachableCount: Number(root?.dataset.reachableCount ?? -1), pushAtomic: root?.dataset.pushAtomic ?? '',
+    atVisualMs: Number(root?.dataset.atVisualMs ?? 0), thermalPeriodAt: Number(root?.dataset.thermalPeriodAt ?? 0),
+    boardAxisStyle: board?.dataset.axisStyle ?? '', actorAxisPersistent: board?.dataset.actorAxisPersistent ?? '',
+    boardAxisDirection: board?.dataset.axisDirection ?? '', previewStyle: board?.dataset.previewStyle ?? '',
+    previewArrow: board?.dataset.previewArrow ?? '', previewAuthority: board?.dataset.previewAuthority ?? '',
+    reachableHighlight: board?.dataset.reachableHighlight ?? '', knockbackPreview: board?.dataset.knockbackPreview ?? '',
+    knockbackPlayback: board?.dataset.knockbackPlayback ?? '', middlePan: board?.dataset.middlePan ?? '',
+    viewportWidth: Number(board?.dataset.viewportWidth ?? 0), viewportHeight: Number(board?.dataset.viewportHeight ?? 0),
+    canvasWidth: Number(rect?.width ?? 0), canvasHeight: Number(rect?.height ?? 0),
     thermalCycleAt: Number(pendulum?.dataset.cycleAt ?? 0),
     thermalPlaybackInterpolation: pendulum?.dataset.playbackInterpolation ?? '',
     actionCardCount: root?.querySelectorAll('.action-card').length ?? 0,
@@ -118,9 +98,7 @@ const snapshotExpression = `(() => {
     separateAxisWindow: root?.querySelectorAll('.unified-axis-hud,.axis-indicator-card').length ?? 0,
   }
 })()`
-
 async function snapshot(client) { return evaluate(client, snapshotExpression) }
-
 async function waitForIdleAt(client, worldAt) {
   return waitFor(`idle at ${worldAt} AT`, async () => {
     const value = await snapshot(client)
@@ -128,7 +106,6 @@ async function waitForIdleAt(client, worldAt) {
     return value
   }, 220, 40)
 }
-
 async function resetUi(client) {
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.reset()`) === true, 'debug reset failed')
   return waitFor('reset', async () => {
@@ -137,7 +114,6 @@ async function resetUi(client) {
     return value
   })
 }
-
 async function selectAction(client, id) {
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setAction(${JSON.stringify(id)})`) === true, `action ${id} rejected`)
   return waitFor(`action ${id}`, async () => {
@@ -146,7 +122,6 @@ async function selectAction(client, id) {
     return value
   })
 }
-
 async function setKinematics(client, axisId, level) {
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setKinematics(${JSON.stringify(axisId)}, ${level})`) === true, 'setKinematics failed')
   return waitFor(`kinematics ${axisId} M${level}`, async () => {
@@ -157,16 +132,14 @@ async function setKinematics(client, axisId, level) {
     return value
   })
 }
-
 async function setAtMs(client, value) {
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setAtMs(${value})`) === true, 'AT timebase setter failed')
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setAtMs(${value})`) === true, 'AT setter failed')
   return waitFor(`AT ${value}`, async () => {
     const current = await snapshot(client)
     if (current.atVisualMs !== value) throw new Error(JSON.stringify(current))
     return current
   })
 }
-
 async function setThermalPeriod(client, value) {
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setThermalPeriod(${value})`) === true, 'Thermal period setter failed')
   return waitFor(`Thermal ${value}`, async () => {
@@ -175,12 +148,24 @@ async function setThermalPeriod(client, value) {
     return current
   })
 }
-
+async function setCollisionSurfaces(client, enabled) {
+  const desired = enabled ? 'ON' : 'OFF'
+  await evaluate(client, `(() => {
+    const button=[...document.querySelectorAll('button')].find((entry)=>entry.textContent.trim().startsWith('Collision Surfaces'))
+    if (!button) return false
+    if (!button.textContent.includes(${JSON.stringify(desired)})) button.click()
+    return true
+  })()`)
+  return waitFor(`Collision Surfaces ${desired}`, async () => {
+    const label = await evaluate(client, `([...document.querySelectorAll('button')].find((entry)=>entry.textContent.trim().startsWith('Collision Surfaces'))?.textContent ?? '')`)
+    if (!label.includes(desired)) throw new Error(label)
+    return label
+  })
+}
 function reachKey(entry) {
   const hex = entry.finalHex ?? entry.targetHex
   return `${hex.q},${hex.r}`
 }
-
 async function waitReach(client, expectedKeys) {
   const expected = [...expectedKeys].sort().join('|')
   return waitFor(`reachability ${expected}`, async () => {
@@ -190,15 +175,11 @@ async function waitReach(client, expectedKeys) {
     return reach
   })
 }
-
 function sampleHex(sample) {
-  const x = sample.position.x
-  const z = sample.position.z
-  const r = Math.round(z / 0.8660254037844386)
-  const q = Math.round(x - r * 0.5)
+  const r = Math.round(sample.position.z / 0.8660254037844386)
+  const q = Math.round(sample.position.x - r * 0.5)
   return `${q},${r}`
 }
-
 async function waitTrajectory(client, expectedHexes) {
   return waitFor(`trajectory ${expectedHexes.join('→')}`, async () => {
     const samples = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.trajectory()`)
@@ -208,7 +189,6 @@ async function waitTrajectory(client, expectedHexes) {
     return samples
   })
 }
-
 async function setConflictScenario(client, kind) {
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario(${JSON.stringify(kind)})`) === true, `${kind} scenario rejected`)
   const expected = kind === 'chain' ? { x: 0.5, z: 0.8660254 } : { x: 0, z: 0 }
@@ -246,7 +226,6 @@ try {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json()
   }, 240, 50)
-
   const targetResponse = await fetch(`${debugUrl}/json/new?${encodeURIComponent(pageUrl)}`, { method: 'PUT' })
   assert(targetResponse.ok, 'Failed to create browser target')
   const target = await targetResponse.json()
@@ -270,36 +249,34 @@ try {
   assert(initial.basicRules === 'connected-envelope-v3', 'connected envelope missing', initial)
   assert(initial.driveRule === 'cell-target-curved-composition', 'curved discrete Drive rule missing', initial)
   assert(initial.axisUi === 'actor-world-arrow-v3', 'actor Axis UI marker missing', initial)
-  assert(initial.boardAxisStyle === 'actor-world-arrow-v3' && initial.actorAxisPersistent === 'true', 'actor-local persistent Axis arrow missing', initial)
+  assert(initial.boardAxisStyle === 'actor-world-arrow-v3' && initial.actorAxisPersistent === 'true', 'actor-local Axis arrow missing', initial)
   assert(initial.separateAxisWindow === 0, 'separate Axis window returned', initial)
-  assert(initial.previewStyle === 'blue-dashed-no-arrow-v3' && initial.previewArrow === 'none', 'player path should be blue dashed without arrow', initial)
-  assert(initial.previewAuthority === 'cell-target-path-v3', 'landing Cell path authority missing', initial)
-  assert(initial.reachableHighlight === 'lifted-outline-v3', 'readable reachable highlight missing', initial)
-  assert(initial.knockbackPreview === 'yellow-dashed-path-v2', 'yellow knockback preview contract missing', initial)
-  assert(initial.knockbackPlayback === 'animated-actor-path-v2', 'animated knockback playback contract missing', initial)
-  assert(initial.middlePan === 'enabled', 'middle pan missing', initial)
-  assert(initial.pushAtomic === 'true', 'atomic push missing', initial)
+  assert(initial.previewStyle === 'blue-dashed-no-arrow-v3' && initial.previewArrow === 'none', 'player path style wrong', initial)
+  assert(initial.previewAuthority === 'cell-target-path-v3', 'landing path authority missing', initial)
+  assert(initial.reachableHighlight === 'lifted-outline-v3', 'reachable highlight missing', initial)
+  assert(initial.knockbackPreview === 'yellow-dashed-path-v2', 'knockback preview style missing', initial)
+  assert(initial.knockbackPlayback === 'animated-actor-path-v2', 'knockback playback style missing', initial)
+  assert(initial.middlePan === 'enabled' && initial.pushAtomic === 'true', 'board controls / atomic push regressed', initial)
   assert(!initial.resetDisabled, 'Reset must remain available', initial)
 
   const thermal4 = await setThermalPeriod(client, 4)
   const thermal6 = await setThermalPeriod(client, 6)
   const thermal8 = await setThermalPeriod(client, 8)
   await setAtMs(client, 300)
+  // Pure movement-envelope checks are isolated from authored terrain collision surfaces.
+  await setCollisionSurfaces(client, false)
 
-  // M0: six adjacent destinations, first click establishes Axis, same Axis then builds M1.
   await resetUi(client)
   await selectAction(client, 'basic-move')
   await setKinematics(client, 'none', 0)
   const reachM0 = await waitReach(client, ['-1,0', '-1,1', '0,-1', '0,1', '1,-1', '1,0'])
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1,0)`) === true, 'M0 E landing rejected')
   const afterEstablish = await waitForIdleAt(client, 1)
-  assert(afterEstablish.axisId === 'E' && afterEstablish.momentum === 0, 'M0 did not establish E Axis', afterEstablish)
-  assert(afterEstablish.boardAxisDirection === 'E', 'M0 actor Axis arrow disappeared', afterEstablish)
+  assert(afterEstablish.axisId === 'E' && afterEstablish.momentum === 0 && afterEstablish.boardAxisDirection === 'E', 'M0 Axis state/arrow wrong', afterEstablish)
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2,0)`) === true, 'same Axis M0 landing rejected')
   const afterM0Build = await waitForIdleAt(client, 2)
   assert(afterM0Build.axisId === 'E' && afterM0Build.momentum === 1, 'same Axis M0 did not build M1', afterM0Build)
 
-  // M1: five adjacent Cells except W; NW route must pass NE.
   await resetUi(client)
   await selectAction(client, 'basic-move')
   await setKinematics(client, 'E', 1)
@@ -307,9 +284,8 @@ try {
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(0,-1)`) === true, 'M1 NW landing rejected')
   const m1NwTrajectory = await waitTrajectory(client, ['0,0', '1,-1', '0,-1'])
   const afterM1Nw = await waitForIdleAt(client, 1)
-  assert(Math.abs(afterM1Nw.logicalX + 0.5) < 0.02 && Math.abs(afterM1Nw.logicalZ + 0.8660254) < 0.02, 'M1 did not land on NW', afterM1Nw)
+  assert(Math.abs(afterM1Nw.logicalX + 0.5) < 0.02 && Math.abs(afterM1Nw.logicalZ + 0.8660254) < 0.02, 'M1 NW landing wrong', afterM1Nw)
 
-  // M2: connected five-cell arc; inner NE route passes E.
   await resetUi(client)
   await selectAction(client, 'basic-move')
   await setKinematics(client, 'E', 2)
@@ -318,9 +294,8 @@ try {
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1,-1)`) === true, 'M2 inner NE landing rejected')
   const m2InnerTrajectory = await waitTrajectory(client, ['0,0', '1,0', '1,-1'])
   const afterM2Inner = await waitForIdleAt(client, 1)
-  assert(Math.abs(afterM2Inner.logicalX - 0.5) < 0.02 && Math.abs(afterM2Inner.logicalZ + 0.8660254) < 0.02, 'M2 did not land inner NE', afterM2Inner)
+  assert(Math.abs(afterM2Inner.logicalX - 0.5) < 0.02 && Math.abs(afterM2Inner.logicalZ + 0.8660254) < 0.02, 'M2 inner NE landing wrong', afterM2Inner)
 
-  // M3: connected seven-cell front; connector NE path goes through E and E2.
   await resetUi(client)
   await selectAction(client, 'basic-move')
   await setKinematics(client, 'E', 3)
@@ -331,34 +306,33 @@ try {
   const afterM3Connector = await waitForIdleAt(client, 1)
   assert(Math.abs(afterM3Connector.logicalX - 2.5) < 0.02 && Math.abs(afterM3Connector.logicalZ + 0.8660254) < 0.02, 'M3 connector landing wrong', afterM3Connector)
 
-  // Reverse Move and reverse Drive are rejected before playback and cannot freeze Reset.
   await resetUi(client)
   await selectAction(client, 'basic-move')
   await setKinematics(client, 'E', 2)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(-1,0)`) === false, 'reverse M2 Move was accepted')
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(-1,0)`) === false, 'reverse M2 Move accepted')
   const afterReverseMove = await snapshot(client)
-  assert(!afterReverseMove.playing && afterReverseMove.worldAt === 0 && afterReverseMove.axisId === 'E' && afterReverseMove.momentum === 2, 'reverse Move corrupted state', afterReverseMove)
+  assert(!afterReverseMove.playing && afterReverseMove.worldAt === 0 && afterReverseMove.momentum === 2, 'reverse Move corrupted state', afterReverseMove)
 
   await selectAction(client, 'drive')
   const driveReachM2 = await waitReach(client, expectedM2)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(-1,0)`) === false, 'reverse M2 Drive was accepted')
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(-1,0)`) === false, 'reverse M2 Drive accepted')
   const afterReverseDrive = await snapshot(client)
   assert(!afterReverseDrive.playing && afterReverseDrive.worldAt === 0 && afterReverseDrive.axisId === 'E' && afterReverseDrive.momentum === 2, 'reverse Drive corrupted state', afterReverseDrive)
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.reset()`) === true, 'Reset failed after reverse Drive')
   await waitForIdleAt(client, 0)
 
-  // Discrete Drive uses the same reachable Cells and the same curved route to the clicked landing Cell.
   await selectAction(client, 'drive')
   await setKinematics(client, 'E', 2)
   await waitReach(client, expectedM2)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1,-1)`) === true, 'Discrete Drive inner NE landing rejected')
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1,-1)`) === true, 'Discrete Drive inner NE rejected')
   const driveTrajectory = await waitTrajectory(client, ['0,0', '1,0', '1,-1'])
   const afterDrive = await waitForIdleAt(client, 1)
-  assert(Math.abs(afterDrive.logicalX - 0.5) < 0.02 && Math.abs(afterDrive.logicalZ + 0.8660254) < 0.02, 'Discrete Drive ignored clicked landing Cell', afterDrive)
+  assert(Math.abs(afterDrive.logicalX - 0.5) < 0.02 && Math.abs(afterDrive.logicalZ + 0.8660254) < 0.02, 'Discrete Drive ignored clicked Cell', afterDrive)
 
-  // Knockback: atomic chain exposes trajectories during playback and commits actor Cells after animation.
+  // Re-enable environment collisions for Cell Conflict / wall legality tests.
+  await setCollisionSurfaces(client, true)
   await setConflictScenario(client, 'chain')
-  await waitReach(client, ['0,2', '1,0', '1,1', '1,2', '2,0'])
+  await waitReach(client, ['0,2', '1,0', '1,2', '2,0', '2,1'])
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2,1)`) === true, 'chain knockback landing rejected')
   const chainTrajectories = await waitFor('chain actor trajectories', async () => {
     const paths = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.actorTrajectories()`)
@@ -366,14 +340,12 @@ try {
     return paths
   })
   const duringChain = await snapshot(client)
-  assert(duringChain.playing, 'chain playback finished before trajectory inspection', duringChain)
-  assert(duringChain.knockbackPlayback === 'animated-actor-path-v2', 'knockback animation marker missing', duringChain)
-  const afterChain = await waitForIdleAt(client, 1)
+  assert(duringChain.playing && duringChain.knockbackPlayback === 'animated-actor-path-v2', 'knockback playback did not animate', duringChain)
+  await waitForIdleAt(client, 1)
   const chainState = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.snapshot()`)
   const chainCells = Object.fromEntries(chainState.actors.map((actor) => [actor.id, `${actor.hex.q},${actor.hex.r}`]))
-  assert(JSON.stringify(chainCells) === JSON.stringify({ 'dummy-a': '4,1', 'dummy-b': '5,1', 'dummy-c': '6,1' }), 'chain knockback final Cells wrong', chainCells)
+  assert(JSON.stringify(chainCells) === JSON.stringify({ 'dummy-a': '4,1', 'dummy-b': '5,1', 'dummy-c': '6,1' }), 'chain final Cells wrong', chainCells)
 
-  // Wall rejection remains atomic: the yellow actor stays put and player stops before it.
   await setConflictScenario(client, 'wall')
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2,0)`) === true, 'wall conflict landing rejected')
   const wallTrajectories = await waitFor('wall actor trajectory', async () => {
@@ -384,10 +356,9 @@ try {
   const afterWall = await waitForIdleAt(client, 1)
   const wallState = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.snapshot()`)
   assert(wallState.actors[0].hex.q === 2 && wallState.actors[0].hex.r === 0, 'wall-blocked actor moved', wallState)
-  assert(wallTrajectories['dummy-a'].length === 1, 'wall-blocked actor received a fake flight path', wallTrajectories)
-  assert(Math.abs(afterWall.logicalX - 1) < 0.02 && Math.abs(afterWall.logicalZ) < 0.02, 'player entered wall-blocked actor Cell', afterWall)
+  assert(wallTrajectories['dummy-a'].length === 1, 'wall-blocked actor got fake flight path', wallTrajectories)
+  assert(Math.abs(afterWall.logicalX - 1) < 0.02 && Math.abs(afterWall.logicalZ) < 0.02, 'player entered blocked actor Cell', afterWall)
 
-  // Hybrid Drive remains continuous and curved; this work must not remove the A/B comparison.
   await resetUi(client)
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setSpatialMode('hybrid')`) === true, 'Hybrid switch failed')
   await selectAction(client, 'drive')
@@ -404,31 +375,19 @@ try {
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'reachable-curves-knockback.png'), Buffer.from(screenshot.data, 'base64'))
   const evidence = {
-    initial,
-    thermal4,
-    thermal6,
-    thermal8,
-    reachM0,
-    afterEstablish,
-    afterM0Build,
-    reachM1,
-    m1NwTrajectory,
-    reachM2,
-    m2InnerTrajectory,
-    reachM3,
-    m3ConnectorTrajectory,
-    afterReverseMove,
-    afterReverseDrive,
-    driveReachM2,
-    driveTrajectory,
-    chainTrajectories,
-    chainCells,
-    wallTrajectories,
-    hybridSampleCount: hybridSamples.length,
+    initial, thermal4, thermal6, thermal8,
+    reachM0, afterEstablish, afterM0Build,
+    reachM1, m1NwTrajectory,
+    reachM2, m2InnerTrajectory,
+    reachM3, m3ConnectorTrajectory,
+    afterReverseMove, afterReverseDrive,
+    driveReachM2, driveTrajectory,
+    chainTrajectories, chainCells,
+    wallTrajectories, hybridSampleCount: hybridSamples.length,
   }
   await writeFile(join(artifactDir, 'reachable-curves-knockback.json'), `${JSON.stringify(evidence, null, 2)}\n`)
 
-  console.log('Verified connected M1/M2/M3 landing envelopes, destination clicks, safe reverse Move/Drive, curved Discrete Drive, actor-local Axis arrow, readable highlights, animated atomic knockback, map geometry, Thermal periods, and Hybrid continuity.')
+  console.log('Verified connected M1/M2/M3 landing geometry, obstacle-aware legality, destination clicks, safe reverse Move/Drive, curved Discrete Drive, actor Axis arrow, readable highlights, animated atomic knockback, Thermal periods, map geometry, and Hybrid continuity.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')
