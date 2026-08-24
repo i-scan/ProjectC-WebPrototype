@@ -15,11 +15,11 @@ function stateAt(hex, level = 0, axisId = level > 0 ? 'E' : null) {
   }
 }
 
-function basicPlan(state, aimHex, obstacles = []) {
+function basicPlan(state, landingHex, obstacles = []) {
   return simulateBasicMoveRule({
     spatialMode: 'discrete',
     state,
-    aimPoint: axialToWorld(aimHex),
+    aimPoint: axialToWorld(landingHex),
     obstacles,
   })
 }
@@ -42,9 +42,9 @@ describe('Cell Conflict / knockback prototype', () => {
     expect(resolved.samples).toHaveLength(2)
   })
 
-  it('transfers M2 into an aligned three-actor knockback chain atomically', () => {
+  it('transfers M2 into an aligned three-actor knockback chain atomically and exposes animation paths', () => {
     const state = stateAt({ q: 0, r: 1 }, 2, 'E')
-    const plan = basicPlan(state, { q: 1, r: 1 })
+    const plan = basicPlan(state, { q: 2, r: 1 })
     const resolved = resolveCellConflicts({
       plan,
       actors: createConflictActors('chain'),
@@ -60,6 +60,13 @@ describe('Cell Conflict / knockback prototype', () => {
       'dummy-b': { q: 5, r: 1 },
       'dummy-c': { q: 6, r: 1 },
     })
+    expect(resolved.actorTrajectories['dummy-a']).toEqual([
+      { q: 2, r: 1 },
+      { q: 3, r: 1 },
+      { q: 4, r: 1 },
+    ])
+    expect(resolved.actorTrajectories['dummy-b'].length).toBeGreaterThan(1)
+    expect(resolved.actorTrajectories['dummy-c'].length).toBeGreaterThan(1)
     expect(resolved.conflictEvents.filter((event) => event.kind === 'cell-conflict')).toHaveLength(3)
     expect(resolved.finalM).toBe(2)
   })
@@ -67,7 +74,7 @@ describe('Cell Conflict / knockback prototype', () => {
   it('keeps the defender in place when a hard wall prevents the first knockback step', () => {
     const state = stateAt({ q: 0, r: 0 }, 2, 'E')
     const obstacles = [{ id: 'wall', hex: { q: 3, r: 0 }, radius: 0.34, kind: 'hard' }]
-    const plan = basicPlan(state, { q: 1, r: 0 }, obstacles)
+    const plan = basicPlan(state, { q: 2, r: 0 }, obstacles)
     const resolved = resolveCellConflicts({
       plan,
       actors: createConflictActors('wall'),
@@ -78,6 +85,7 @@ describe('Cell Conflict / knockback prototype', () => {
     expect(resolved.cellConflict).toMatchObject({ targetActorId: 'dummy-a', impactM: 2, resolved: false, atomic: true })
     expect(resolved.traversedCells.at(-1)).toEqual({ q: 1, r: 0 })
     expect(resolved.actorStates[0].hex).toEqual({ q: 2, r: 0 })
+    expect(resolved.actorTrajectories['dummy-a']).toEqual([{ q: 2, r: 0 }])
     expect(resolved.conflictEvents.some((event) => event.kind === 'wall-crash' && event.actorId === 'dummy-a')).toBe(true)
     expect(resolved.finalM).toBe(0)
   })
@@ -85,12 +93,13 @@ describe('Cell Conflict / knockback prototype', () => {
   it('rejects the whole push when a later knockback Cell hits a wall', () => {
     const state = stateAt({ q: 0, r: 0 }, 2, 'E')
     const obstacles = [{ id: 'late-wall', hex: { q: 4, r: 0 }, radius: 0.34, kind: 'hard' }]
-    const plan = basicPlan(state, { q: 1, r: 0 })
+    const plan = basicPlan(state, { q: 2, r: 0 })
     const actors = [{ id: 'dummy', label: 'A', hex: { q: 2, r: 0 }, velocity: { x: 0, z: 0 }, axisId: null }]
     const resolved = resolveCellConflicts({ plan, actors, obstacles, boardRadius: 7 })
 
     expect(resolved.cellConflict).toMatchObject({ impactM: 2, resolved: false, atomic: true })
     expect(resolved.actorStates[0].hex).toEqual({ q: 2, r: 0 })
+    expect(resolved.actorTrajectories.dummy).toEqual([{ q: 2, r: 0 }])
     expect(resolved.traversedCells.at(-1)).toEqual({ q: 1, r: 0 })
     expect(resolved.conflictEvents.some((event) => event.kind === 'wall-crash' && event.atomicRejected)).toBe(true)
   })

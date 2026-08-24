@@ -21,33 +21,40 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const info = JSON.parse(infoText)
     if (info.commit !== expectedCommit) throw new Error(`published commit is ${info.commit}`)
     if (info.implementation !== 'cell-world-spatial-ab-v3') throw new Error(`published implementation is ${info.implementation}`)
+
     const html = await fresh(baseUrl, attempt)
     const match = html.match(/<script[^>]+src="([^"]+\.js)"/)
     if (!match) throw new Error('published bundle missing')
     const bundleUrl = new URL(match[1], baseUrl.origin)
     const bundle = await fresh(bundleUrl, attempt)
     if (!bundle.includes(expectedCommit)) throw new Error('published bundle commit mismatch')
+
     for (const marker of [
       'cell-world-spatial-ab-v3',
       'Basic Move',
       'Basic Command + Momentum Cards',
-      'Current Velocity + ΔV',
       'Spatial Model A/B',
       'Cell Inspector',
-      'Axis Indicator',
-      'unified-v2',
-      'axis-build-turn-radius-v2',
-      'Basic Steering Envelope',
+      'reachable-cell-target-v3',
+      'connected-envelope-v3',
+      'cell-target-curved-composition',
+      'actor-world-arrow-v3',
+      'blue-dashed-no-arrow-v3',
+      'cell-target-path-v3',
+      'lifted-outline-v3',
+      'yellow-dashed-path-v2',
+      'animated-actor-path-v2',
+      'Landing Cell Input',
       'data-thermal-period',
       'setThermalPeriod',
-      'atomic prototype',
       'ProjectC Web Prototype',
       'Thermal Clock Lab',
       '热力钟摆',
     ]) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · adjustable Thermal + unified Axis + Basic steering envelope + atomic Cell Conflict`)
+
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · destination Cell envelopes + actor Axis arrow + curved Drive + animated knockback`)
     process.exit(0)
   } catch (error) {
     lastError = error

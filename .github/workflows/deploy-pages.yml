@@ -44,14 +44,14 @@ jobs:
         env:
           EXPECTED_COMMIT: ${{ github.sha }}
         run: pnpm verify:dist
-      - name: Verify foundation rules in Chrome
+      - name: Verify reachable curves and knockback in Chrome
         run: pnpm verify:browser
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: foundation-rules-cell-conflict-evidence-${{ github.sha }}
-          path: artifacts/foundation-rules-cell-conflict.*
+          name: reachable-curves-knockback-evidence-${{ github.sha }}
+          path: artifacts/reachable-curves-knockback.*
           if-no-files-found: warn
           retention-days: 30
       - uses: actions/configure-pages@v5
@@ -99,6 +99,6 @@ jobs:
               context: 'pages/verified-deployment',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               description: ok
-                ? 'Foundation Axis / Thermal / steering / Cell Conflict verified online'
+                ? 'Reachable Cell curves / actor Axis / Drive / knockback verified online'
                 : `Pages verification failed: build=${buildResult}, deploy=${deployResult}`
             })
