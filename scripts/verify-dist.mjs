@@ -20,19 +20,24 @@ assert(scriptMatch, 'built JavaScript entry missing')
 const scriptPath = scriptMatch[1].replace(/^\/ProjectC-WebPrototype\//, '')
 await stat(resolve(distDir, scriptPath))
 const script = await readFile(resolve(distDir, scriptPath), 'utf8')
+
 for (const marker of [
   'cell-world-spatial-ab-v3',
   'Inertia Driving Playground',
   'Basic Move',
   'Basic Command + Momentum Cards',
-  'Current Velocity + ΔV',
   'Spatial Model A/B',
   'Cell Inspector',
-  'Axis Indicator',
-  'unified-v2',
-  'axis-build-turn-radius-v2',
-  'Basic Steering Envelope',
-  'atomic prototype',
+  'reachable-cell-target-v3',
+  'connected-envelope-v3',
+  'cell-target-curved-composition',
+  'actor-world-arrow-v3',
+  'blue-dashed-no-arrow-v3',
+  'cell-target-path-v3',
+  'lifted-outline-v3',
+  'yellow-dashed-path-v2',
+  'animated-actor-path-v2',
+  'Landing Cell Input',
   'data-thermal-period',
   'setThermalPeriod',
   '热力钟摆',
@@ -43,9 +48,10 @@ assert(script.includes(expectedCommit), 'bundle commit marker missing')
 
 for (const obsolete of [
   'InertiaFieldBoard',
-  'Reachable Field',
   'Actor Loop UT6',
   'Apply Impulse',
+  'unified-v2',
+  'axis-build-turn-radius-v2',
 ]) assert(!script.includes(obsolete), `obsolete runtime marker still bundled: ${obsolete}`)
 
 const styleMatch = html.match(/<link[^>]+href="([^"]+\.css)"/)
@@ -59,8 +65,7 @@ for (const marker of [
   '.thermal-pendulum',
   '.app-switcher',
   '.build-revision',
-  '.axis-preview-grid',
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified foundation Axis / Thermal / Cell Conflict dist for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified destination-driven curves, actor Axis arrow, readable reachability, and animated knockback dist for ${info.branch}@${info.shortCommit}.`)
