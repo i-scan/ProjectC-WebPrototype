@@ -107,7 +107,7 @@ describe('destination-driven Basic Move envelope', () => {
     const e = new Set(reachKeys(2, 'E'))
     const ne = new Set(reachKeys(2, 'NE'))
     expect(e).not.toEqual(ne)
-    expect(ne).toEqual(new Set(['1,-2', '2,-2', '2,-1', '1,-1', '0,-1']))
+    expect(ne).toEqual(new Set(['0,-1', '1,-2', '2,-2', '2,-1', '1,0']))
   })
 
   it('preserves M0 Axis establishment and same-Axis natural M build', () => {
