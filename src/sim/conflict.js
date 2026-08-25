@@ -1,5 +1,6 @@
 import { HEX_DIRECTIONS, axialDistance, axialKey, axialToWorld, directionVector } from './hex.js'
 import { momentumLevel, momentumSpeed } from './solver.js'
+import { normalize, reflect } from './vector.js'
 
 export const ACTOR_COLLISION_RESTITUTION = 0.75
 
@@ -7,6 +8,7 @@ const cloneHex = (hex) => ({ q: hex.q, r: hex.r })
 const cloneVelocity = (velocity = { x: 0, z: 0 }) => ({ x: velocity.x, z: velocity.z })
 const cloneActor = (actor) => ({ ...actor, hex: cloneHex(actor.hex), velocity: cloneVelocity(actor.velocity) })
 const sameHex = (a, b) => Boolean(a && b && a.q === b.q && a.r === b.r)
+const clampM = (value) => Math.max(0, Math.min(3, Math.round(Number(value) || 0)))
 
 function directionFromStep(from, to) {
   const delta = { q: to.q - from.q, r: to.r - from.r }
@@ -41,9 +43,8 @@ export function exchangeActorMomentum({
   restitution = ACTOR_COLLISION_RESTITUTION,
 }) {
   const e = Math.max(0, Math.min(1, Number(restitution) || 0))
-  const sourceBeforeSpeed = momentumSpeed(Math.max(0, Math.min(3, sourceM)))
+  const sourceBeforeSpeed = momentumSpeed(clampM(sourceM))
   const targetBeforeSpeed = scalarAlong(targetVelocity, directionId)
-  // Equal-mass 1D collision along the contact axis.
   const sourceAfterSpeed = ((1 - e) * sourceBeforeSpeed + (1 + e) * targetBeforeSpeed) * 0.5
   const targetAfterSpeed = ((1 + e) * sourceBeforeSpeed + (1 - e) * targetBeforeSpeed) * 0.5
   const sourceAfterM = momentumLevel(Math.abs(sourceAfterSpeed))
@@ -51,7 +52,7 @@ export function exchangeActorMomentum({
   const targetAfterM = momentumLevel(Math.abs(targetAfterSpeed))
   return {
     restitution: e,
-    sourceBeforeM: Math.max(0, Math.min(3, sourceM)),
+    sourceBeforeM: clampM(sourceM),
     targetBeforeM,
     sourceAfterM,
     targetAfterM,
@@ -65,8 +66,10 @@ export function exchangeActorMomentum({
 
 export function createConflictActors(kind = 'chain') {
   if (kind === 'wall') {
+    // With the fixture wall at q3, M2 knockback from q1 has exactly one free
+    // Cell (q2) before the second step collides. This is the partial-travel case.
     return [
-      { id: 'dummy-a', label: 'A', hex: { q: 2, r: 0 }, velocity: { x: 0, z: 0 }, axisId: null },
+      { id: 'dummy-a', label: 'A', hex: { q: 1, r: 0 }, velocity: { x: 0, z: 0 }, axisId: null },
     ]
   }
 
@@ -80,7 +83,7 @@ export function createConflictActors(kind = 'chain') {
 export function conflictScenario(kind = 'chain') {
   return {
     kind,
-    playerHex: kind === 'wall' ? { q: 0, r: 0 } : { q: 0, r: 1 },
+    playerHex: kind === 'wall' ? { q: -1, r: 0 } : { q: 0, r: 1 },
     directionId: 'E',
     momentum: 2,
     actors: createConflictActors(kind),
@@ -120,39 +123,187 @@ export function decorateConflictCells(cells, actors = [], projectedActors = [], 
   })
 }
 
-function attemptAtomicPush({ actors, actorId, direction, power, obstacles, boardRadius }) {
+function obstacleAt(obstacles, hex) {
+  return obstacles.find((entry) => sameHex(entry.hex, hex)) ?? null
+}
+
+function reflectionVector(from, attempted, direction, obstacle, boundary) {
+  const incoming = directionVector(direction.id)
+  let normal
+  if (boundary) {
+    const attemptedWorld = axialToWorld(attempted)
+    normal = normalize({ x: -attemptedWorld.x, z: -attemptedWorld.z })
+  } else {
+    const fromWorld = axialToWorld(from)
+    const surfaceWorld = axialToWorld(obstacle.hex)
+    normal = normalize({ x: fromWorld.x - surfaceWorld.x, z: fromWorld.z - surfaceWorld.z })
+  }
+  return { reflected: reflect(incoming, normal, 1), normal }
+}
+
+function reflectedHexDirection(from, attempted, direction, obstacle, boundary) {
+  const { reflected, normal } = reflectionVector(from, attempted, direction, obstacle, boundary)
+  const unit = normalize(reflected)
+  let best = null
+  let bestDot = -Infinity
+  for (const entry of HEX_DIRECTIONS) {
+    const axis = directionVector(entry.id)
+    const dot = axis.x * unit.x + axis.z * unit.z
+    if (dot > bestDot) {
+      bestDot = dot
+      best = entry
+    }
+  }
+  return { direction: best, normal }
+}
+
+function surfaceBounceM(power, obstacle, boundary, surfaceRestitution, boundaryRestitution) {
+  const restitution = obstacle?.kind === 'reflector'
+    ? Math.min(0.92, surfaceRestitution + 0.22)
+    : boundary
+      ? boundaryRestitution
+      : surfaceRestitution
+  return {
+    restitution,
+    momentum: momentumLevel(momentumSpeed(clampM(power)) * restitution),
+  }
+}
+
+function stepCell(cell, direction) {
+  return { q: cell.q + direction.q, r: cell.r + direction.r }
+}
+
+function buildActorPlaybackWindows(orderByActor, trajectories) {
+  const ordered = [...orderByActor.entries()]
+    .filter(([id]) => (trajectories[id]?.length ?? 0) > 1)
+    .sort((a, b) => a[1] - b[1])
+  const windows = {}
+  ordered.forEach(([id], index) => {
+    const pathSteps = Math.max(1, (trajectories[id]?.length ?? 2) - 1)
+    const start = Math.min(0.72, 0.48 + index * 0.09)
+    const duration = Math.min(0.34, 0.20 + pathSteps * 0.055)
+    windows[id] = { start, end: Math.min(0.92, start + duration) }
+  })
+  return windows
+}
+
+function resolveStepwiseKnockback({
+  actors,
+  actorId,
+  direction,
+  power,
+  obstacles,
+  boardRadius,
+  reservedCells = [],
+  surfaceRestitution = 0.58,
+  boundaryRestitution = 0.42,
+}) {
   const shadowActors = actors.map(cloneActor)
   const actorById = new Map(shadowActors.map((actor) => [actor.id, actor]))
   const occupancy = new Map(shadowActors.map((actor) => [axialKey(actor.hex), actor.id]))
-  const obstacleByKey = new Map(obstacles.map((entry) => [axialKey(entry.hex), entry]))
+  const reserved = new Set(reservedCells.map(axialKey))
   const events = []
   const trajectories = Object.fromEntries(shadowActors.map((actor) => [actor.id, [cloneHex(actor.hex)]]))
+  const motionOrder = new Map()
+  let nextMotionOrder = 0
 
-  const pushActor = (currentActorId, currentPower, depth = 0) => {
+  const markMotionIntent = (id) => {
+    if (!motionOrder.has(id)) motionOrder.set(id, nextMotionOrder++)
+  }
+
+  const legalReflectionCell = (cell, currentActorId) => {
+    if (axialDistance(cell) > boardRadius) return false
+    if (obstacleAt(obstacles, cell)) return false
+    if (reserved.has(axialKey(cell))) return false
+    const occupantId = occupancy.get(axialKey(cell))
+    return !occupantId || occupantId === currentActorId
+  }
+
+  const moveActor = (currentActorId, initialDirection, initialPower, depth = 0) => {
     const actor = actorById.get(currentActorId)
-    if (!actor || currentPower <= 0 || depth > shadowActors.length + 2) return false
+    let activeM = clampM(initialPower)
+    let activeDirection = initialDirection
+    let movedSteps = 0
+    if (!actor || activeM <= 0 || depth > shadowActors.length + 3) {
+      return { vacated: false, activeM: 0, direction: activeDirection }
+    }
 
-    for (let step = 0; step < currentPower; step += 1) {
-      const next = { q: actor.hex.q + direction.q, r: actor.hex.r + direction.r }
-      const obstacle = obstacleByKey.get(axialKey(next))
+    markMotionIntent(currentActorId)
+    const movementBudget = activeM
+    for (let step = 0; step < movementBudget && activeM > 0; step += 1) {
+      const next = stepCell(actor.hex, activeDirection)
+      const obstacle = obstacleAt(obstacles, next)
       const boundary = axialDistance(next) > boardRadius
+
       if (obstacle || boundary) {
+        const beforeM = activeM
+        const axisBefore = activeDirection.id
+        const bounce = surfaceBounceM(activeM, obstacle, boundary, surfaceRestitution, boundaryRestitution)
         events.push({
           kind: 'wall-crash',
           actorId: currentActorId,
-          power: currentPower,
+          power: activeM,
           obstacleId: obstacle?.id ?? null,
           obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
           from: cloneHex(actor.hex),
           cell: cloneHex(next),
-          atomicRejected: true,
+          partial: movedSteps > 0,
         })
-        return false
+
+        const reflected = reflectedHexDirection(actor.hex, next, activeDirection, obstacle, boundary)
+        const reflectedDirection = bounce.momentum > 0 ? reflected.direction : null
+        const reflectedCell = reflectedDirection ? stepCell(actor.hex, reflectedDirection) : null
+        const reflectionLegal = Boolean(reflectedCell && legalReflectionCell(reflectedCell, currentActorId))
+
+        if (!reflectedDirection || !reflectionLegal) {
+          activeM = 0
+          actor.velocity = { x: 0, z: 0 }
+          actor.axisId = activeDirection.id
+          events.push({
+            kind: 'surface-stop',
+            actorId: currentActorId,
+            obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
+            cell: cloneHex(actor.hex),
+            attemptedCell: cloneHex(next),
+            reflectedAxis: reflectedDirection?.id ?? null,
+            reflectedCell: reflectedCell ? cloneHex(reflectedCell) : null,
+            beforeM,
+            afterM: 0,
+          })
+          break
+        }
+
+        activeDirection = reflectedDirection
+        activeM = bounce.momentum
+        occupancy.delete(axialKey(actor.hex))
+        actor.hex = cloneHex(reflectedCell)
+        occupancy.set(axialKey(actor.hex), actor.id)
+        trajectories[actor.id].push(cloneHex(actor.hex))
+        movedSteps += 1
+        actor.velocity = velocityFor(activeDirection.id, activeM)
+        actor.axisId = activeDirection.id
+        events.push({
+          kind: 'surface-reflection',
+          actorId: currentActorId,
+          obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
+          obstacleId: obstacle?.id ?? null,
+          from: cloneHex(trajectories[actor.id].at(-2)),
+          attemptedCell: cloneHex(next),
+          to: cloneHex(actor.hex),
+          axisBefore,
+          axisAfter: activeDirection.id,
+          beforeM,
+          afterM: activeM,
+          restitution: bounce.restitution,
+          normal: reflected.normal,
+        })
+        continue
       }
 
       const occupantId = occupancy.get(axialKey(next))
       if (occupantId && occupantId !== currentActorId) {
-        const childPower = Math.max(1, currentPower - step - 1)
+        const childPower = Math.max(1, activeM - 1)
+        const targetActor = actorById.get(occupantId)
         events.push({
           kind: 'cell-conflict',
           sourceActorId: currentActorId,
@@ -165,14 +316,18 @@ function attemptAtomicPush({ actors, actorId, direction, power, obstacles, board
           kind: 'momentum-transfer',
           sourceActorId: currentActorId,
           targetActorId: occupantId,
-          sourceBeforeM: currentPower,
-          sourceAfterM: Math.max(0, currentPower - childPower),
-          targetBeforeM: momentumLevel(Math.hypot(actorById.get(occupantId)?.velocity?.x ?? 0, actorById.get(occupantId)?.velocity?.z ?? 0)),
+          sourceBeforeM: activeM,
+          sourceAfterM: Math.max(0, activeM - childPower),
+          targetBeforeM: momentumLevel(Math.hypot(targetActor?.velocity?.x ?? 0, targetActor?.velocity?.z ?? 0)),
           targetAfterM: childPower,
           chained: true,
           model: 'chain-decay-prototype',
         })
-        if (!pushActor(occupantId, childPower, depth + 1)) {
+        const child = moveActor(occupantId, activeDirection, childPower, depth + 1)
+        if (!child.vacated || occupancy.get(axialKey(next)) === occupantId) {
+          activeM = Math.max(0, activeM - 1)
+          actor.velocity = velocityFor(activeDirection.id, activeM)
+          actor.axisId = activeDirection.id
           events.push({
             kind: 'cell-conflict-blocked',
             sourceActorId: currentActorId,
@@ -180,9 +335,9 @@ function attemptAtomicPush({ actors, actorId, direction, power, obstacles, board
             power: childPower,
             cell: cloneHex(next),
             chained: true,
-            atomicRejected: true,
+            partial: movedSteps > 0,
           })
-          return false
+          break
         }
       }
 
@@ -190,36 +345,41 @@ function attemptAtomicPush({ actors, actorId, direction, power, obstacles, board
       actor.hex = cloneHex(next)
       occupancy.set(axialKey(actor.hex), actor.id)
       trajectories[actor.id].push(cloneHex(actor.hex))
+      movedSteps += 1
     }
 
-    actor.velocity = velocityFor(direction.id, Math.max(0, Math.min(3, currentPower)))
-    actor.axisId = direction.id
-    return true
+    actor.velocity = activeM > 0 ? velocityFor(activeDirection.id, activeM) : { x: 0, z: 0 }
+    actor.axisId = activeDirection.id
+    return { vacated: movedSteps > 0, activeM, direction: activeDirection }
   }
 
-  const valid = pushActor(actorId, power)
-  if (!valid) {
-    return {
-      valid: false,
-      actors: actors.map(cloneActor),
-      events,
-      trajectories: Object.fromEntries(actors.map((actor) => [actor.id, [cloneHex(actor.hex)]])),
-    }
+  const result = moveActor(actorId, direction, power)
+  return {
+    moved: result.vacated,
+    actors: shadowActors.map(cloneActor),
+    events,
+    trajectories,
+    actorPlaybackWindows: buildActorPlaybackWindows(motionOrder, trajectories),
   }
-
-  return { valid: true, actors: shadowActors.map(cloneActor), events, trajectories }
 }
 
-export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardRadius = 7 }) {
+export function resolveCellConflicts({
+  plan,
+  actors = [],
+  obstacles = [],
+  boardRadius = 7,
+  surfaceRestitution = 0.58,
+  boundaryRestitution = 0.42,
+}) {
   let actorStates = actors.map(cloneActor)
-  if (!plan?.valid) return { ...plan, actorStates, conflictEvents: [], pushAtomic: true }
+  if (!plan?.valid) return { ...plan, actorStates, conflictEvents: [], pushAtomic: false }
 
   if (plan.spatialMode !== 'discrete') {
     return {
       ...plan,
       actorStates,
       conflictEvents: [],
-      pushAtomic: true,
+      pushAtomic: false,
       finalState: { ...plan.finalState, actors: actorStates.map(cloneActor) },
     }
   }
@@ -230,7 +390,7 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
       ...plan,
       actorStates,
       conflictEvents: [],
-      pushAtomic: true,
+      pushAtomic: false,
       finalState: { ...plan.finalState, actors: actorStates.map(cloneActor) },
     }
   }
@@ -238,6 +398,7 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
   let occupancy = new Map(actorStates.map((actor) => [axialKey(actor.hex), actor.id]))
   const conflictEvents = []
   let actorTrajectories = Object.fromEntries(actorStates.map((actor) => [actor.id, [cloneHex(actor.hex)]]))
+  let actorPlaybackWindows = {}
   let playerCell = cloneHex(route[0])
   const playerRoute = [cloneHex(playerCell)]
   let playerConflict = null
@@ -255,8 +416,8 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
     }
 
     const impactM = plan.actionKind === 'basic'
-      ? Math.max(0, Math.min(3, plan.beforeM ?? 0))
-      : Math.max(0, Math.min(3, momentumLevel(plan.afterImpulseSpeed ?? plan.finalSpeed ?? 0)))
+      ? clampM(plan.beforeM ?? 0)
+      : clampM(momentumLevel(plan.afterImpulseSpeed ?? plan.finalSpeed ?? 0))
     const targetActor = actorStates.find((actor) => actor.id === targetActorId)
     const momentumExchange = exchangeActorMomentum({
       sourceM: impactM,
@@ -287,16 +448,28 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
       break
     }
 
-    const attempted = attemptAtomicPush({
+    const attempted = resolveStepwiseKnockback({
       actors: actorStates,
       actorId: targetActorId,
       direction,
       power: momentumExchange.targetAfterM,
       obstacles,
       boardRadius,
+      reservedCells: [next],
+      surfaceRestitution,
+      boundaryRestitution,
     })
+    actorStates = attempted.actors.map(cloneActor)
+    actorTrajectories = attempted.trajectories
+    actorPlaybackWindows = attempted.actorPlaybackWindows
     conflictEvents.push(...attempted.events)
-    if (!attempted.valid) {
+    occupancy = new Map(actorStates.map((actor) => [axialKey(actor.hex), actor.id]))
+
+    if (attempted.moved && !occupancy.has(axialKey(next))) {
+      playerCell = cloneHex(next)
+      playerRoute.push(cloneHex(playerCell))
+      playerConflict = { targetActorId, impactM, resolved: true, direction, momentumExchange }
+    } else {
       conflictEvents.push({
         kind: 'cell-conflict-blocked',
         sourceActorId: 'player',
@@ -305,18 +478,10 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
         impactM,
         cell: cloneHex(next),
         chained: false,
-        atomicRejected: true,
+        partial: attempted.moved,
       })
       playerConflict = { targetActorId, impactM, resolved: false, direction, momentumExchange }
-      break
     }
-
-    actorStates = attempted.actors.map(cloneActor)
-    actorTrajectories = attempted.trajectories
-    occupancy = new Map(actorStates.map((actor) => [axialKey(actor.hex), actor.id]))
-    playerCell = cloneHex(next)
-    playerRoute.push(cloneHex(playerCell))
-    playerConflict = { targetActorId, impactM, resolved: true, direction, momentumExchange }
     break
   }
 
@@ -325,8 +490,9 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
       ...plan,
       actorStates: actorStates.map(cloneActor),
       actorTrajectories,
+      actorPlaybackWindows,
       conflictEvents,
-      pushAtomic: true,
+      pushAtomic: false,
       finalState: { ...plan.finalState, actors: actorStates.map(cloneActor) },
     }
   }
@@ -340,14 +506,15 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
   if (playerRoute.length <= 1) {
     const startVelocity = cloneVelocity(plan.samples?.[0]?.velocity ?? { x: 0, z: 0 })
     samples = [
-      { t: 0, position: finalPosition, velocity: startVelocity },
-      { t: 1, position: finalPosition, velocity: cloneVelocity(playerVelocity) },
+      { t: 0, position: finalPosition, velocity: startVelocity, axisId: plan.axisBefore ?? null },
+      { t: 1, position: finalPosition, velocity: cloneVelocity(playerVelocity), axisId: playerConflict.direction.id },
     ]
   } else {
     samples = playerRoute.map((cell, index) => ({
       t: index / (playerRoute.length - 1),
       position: axialToWorld(cell),
       velocity: index === 0 ? cloneVelocity(plan.samples?.[0]?.velocity ?? { x: 0, z: 0 }) : cloneVelocity(playerVelocity),
+      axisId: index === 0 ? (plan.axisBefore ?? null) : playerConflict.direction.id,
     }))
   }
 
@@ -358,8 +525,10 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
     collisions: [...(plan.collisions ?? [])],
     actorStates: actorStates.map(cloneActor),
     actorTrajectories,
+    actorPlaybackWindows,
+    playerPlaybackEnd: playerConflict.resolved ? 0.44 : 1,
     conflictEvents,
-    pushAtomic: true,
+    pushAtomic: false,
     finalState: {
       ...plan.finalState,
       position: finalPosition,
@@ -374,7 +543,8 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
       impactM: playerConflict.impactM,
       resolved: playerConflict.resolved,
       playerCell: cloneHex(playerCell),
-      atomic: true,
+      atomic: false,
+      resolution: 'stepwise-reflect-v1',
       momentumExchange: playerConflict.momentumExchange ?? null,
     },
   }

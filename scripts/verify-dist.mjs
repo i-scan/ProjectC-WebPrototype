@@ -25,26 +25,33 @@ for (const marker of [
   'cell-world-spatial-ab-v3',
   'Inertia Driving Playground',
   'Basic Move',
+  'Hold',
+  '原地等待 · M-1',
   'Basic Command + Momentum Cards',
   'Spatial Model A/B',
   'Cell Inspector',
   'reachable-cell-target-v4',
   'connected-envelope-m-spend-v4',
   'cell-target-curved-composition',
-  'actor-screen-arrow-v4',
+  'actor-body-screen-arrow-v5',
   'actor-axis-hud',
+  'unified-arrow-v1',
   'blue-dashed-no-arrow-v3',
   'cell-target-path-v3',
   'lifted-outline-v3',
   'yellow-dashed-path-v2',
-  'animated-actor-path-v2',
+  'contact-staggered-fast-v3',
+  'stepwise-reflect-v1',
+  'surface-reflection',
+  'surface-stop',
   'Landing Cell Input',
   'forward-range-spend',
   'equal-mass-1d',
   'M Exchange',
   'setAxisDisplay',
   'data-down-axis-controls',
-  '30px / 2.5px',
+  'actorPlaybackWindows',
+  'playerPlaybackEnd',
   'data-thermal-period',
   'setThermalPeriod',
   '热力钟摆',
@@ -60,7 +67,10 @@ for (const obsolete of [
   'unified-v2',
   'axis-build-turn-radius-v2',
   'actor-world-arrow-v3',
+  'actor-screen-arrow-v4',
+  'animated-actor-path-v2',
   'connected-envelope-v3',
+  'exchange → preflight → animate → commit',
 ]) assert(!script.includes(obsolete), `obsolete runtime marker still bundled: ${obsolete}`)
 
 const styleMatch = html.match(/<link[^>]+href="([^"]+\.css)"/)
@@ -77,4 +87,4 @@ for (const marker of [
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified tuned actor Axis / Down indicator, narrowed M3, long-Move spend, and Actor momentum exchange dist for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified actor-body Axis, Hold, 4 AT / 0.5s defaults, stepwise knockback, and directional reflection dist for ${info.branch}@${info.shortCommit}.`)

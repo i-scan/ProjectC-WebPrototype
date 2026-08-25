@@ -32,25 +32,32 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
     for (const marker of [
       'cell-world-spatial-ab-v3',
       'Basic Move',
+      'Hold',
+      '原地等待 · M-1',
       'Basic Command + Momentum Cards',
       'Spatial Model A/B',
       'Cell Inspector',
       'reachable-cell-target-v4',
       'connected-envelope-m-spend-v4',
       'cell-target-curved-composition',
-      'actor-screen-arrow-v4',
+      'actor-body-screen-arrow-v5',
       'actor-axis-hud',
+      'unified-arrow-v1',
       'blue-dashed-no-arrow-v3',
       'cell-target-path-v3',
       'lifted-outline-v3',
       'yellow-dashed-path-v2',
-      'animated-actor-path-v2',
+      'contact-staggered-fast-v3',
+      'stepwise-reflect-v1',
+      'surface-reflection',
+      'surface-stop',
       'forward-range-spend',
       'equal-mass-1d',
       'M Exchange',
       'setAxisDisplay',
       'data-down-axis-controls',
-      '30px / 2.5px',
+      'actorPlaybackWindows',
+      'playerPlaybackEnd',
       'Landing Cell Input',
       'data-thermal-period',
       'setThermalPeriod',
@@ -61,7 +68,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · tuned actor Axis + Down + narrowed M3 + M spend + Actor momentum exchange`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · actor-body Axis + Hold + 4 AT / 0.5s + stepwise reflection`)
     process.exit(0)
   } catch (error) {
     lastError = error

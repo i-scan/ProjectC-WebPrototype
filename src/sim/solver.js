@@ -1,7 +1,7 @@
 import { HEX_DIRECTIONS, axialDistance, axialKey, axialToWorld, isInsideBoard, worldToAxial } from './hex.js'
 import { add, angleDeg, clampLength, length, normalize, reflect, scale, sub } from './vector.js'
 
-export const AT_VISUAL_MS = 800
+export const AT_VISUAL_MS = 500
 export const SOLVER_STEPS = 120
 export const MAX_SPEED = 3.2
 export const ACTOR_RADIUS = 0.16
@@ -56,6 +56,15 @@ export const ACTIONS = [
     force: 0.75,
     aimWindow: null,
     description: '较小的自由方向冲量，用于比 Drive 更细地修正合成后的 Velocity。',
+  },
+  {
+    id: 'hold',
+    kind: 'hold',
+    label: 'Hold',
+    short: '原地等待 · M-1',
+    force: 0,
+    aimWindow: 0,
+    description: '原地等待 1 AT；Horizontal Momentum 自然消散 1M，保留当前 Horizontal Axis，不建立 Down。Thermal 按 Passive Dissipation / Balancing 处理。',
   },
   {
     id: 'coast',
@@ -126,6 +135,10 @@ function invalidPlan(state, action, reason, beforeSpeed, spatialMode) {
 
 function aimPolicy(state, action, aimPoint) {
   const speed = length(state.velocity)
+
+  if (action.kind === 'hold') {
+    return { valid: true, reason: '', direction: speed > 0.001 ? normalize(state.velocity) : { x: 0, z: 0 }, angle: 0 }
+  }
 
   if (action.kind === 'coast') {
     return speed < 0.18
@@ -290,6 +303,18 @@ function simulateBasicMove({ state, aimPoint, spatialMode, config, obstacles }) 
 }
 
 function actionVectors(state, action, policy, config) {
+  if (action.kind === 'hold') {
+    const beforeM = momentumLevel(length(state.velocity))
+    const nextM = Math.max(0, beforeM - 1)
+    const direction = length(state.velocity) > 0.001 ? normalize(state.velocity) : { x: 0, z: 0 }
+    return {
+      impulse: { x: 0, z: 0 },
+      momentumVelocity: scale(direction, momentumSpeed(nextM)),
+      travelVector: { x: 0, z: 0 },
+      control: { x: 0, z: 0 },
+    }
+  }
+
   if (action.kind === 'coast') {
     return {
       impulse: { x: 0, z: 0 },
@@ -358,7 +383,7 @@ function hybridNominalPath(state, action, vectors) {
   const start = { ...state.position }
   const end = add(start, vectors.travelVector)
 
-  if (action.kind === 'coast') {
+  if (action.kind === 'hold' || action.kind === 'coast') {
     return {
       curveUsed: false,
       pointAt: (t) => add(start, scale(vectors.travelVector, t)),
@@ -603,6 +628,9 @@ export function planSummary(plan) {
   const space = plan.spatialMode === 'discrete' ? 'Discrete' : 'Hybrid'
   if (plan.actionKind === 'basic') {
     return `${space} · Basic Move · Range ${plan.range ?? 1} · M${plan.beforeM} → M${plan.finalM} · ${Math.max(0, plan.traversedCells.length - 1)} Cell-step${collision}`
+  }
+  if (plan.actionKind === 'hold') {
+    return `${space} · Hold · M${plan.beforeM} → M${plan.finalM} · 1 AT in place · Passive Dissipation`
   }
   return `${space} · ${plan.action.label} · M${plan.beforeM} → M${plan.finalM} · speed ${plan.beforeSpeed.toFixed(2)} → ${plan.finalSpeed.toFixed(2)} · ${plan.traversedCells.length} cells touched${plan.curveUsed ? ' · curved blend' : ''}${collision}`
 }

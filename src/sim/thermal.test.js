@@ -24,9 +24,9 @@ function directionChanges(values, epsilon = 1e-7) {
 }
 
 describe('thermal AT timing', () => {
-  it('keeps 8 AT as the default while exposing adjustable period presets', () => {
-    expect(THERMAL_PERIOD_AT).toBe(8)
-    expect(THERMAL_HALF_PERIOD_AT).toBe(4)
+  it('uses 4 AT as the default while retaining adjustable period presets', () => {
+    expect(THERMAL_PERIOD_AT).toBe(4)
+    expect(THERMAL_HALF_PERIOD_AT).toBe(2)
     expect(THERMAL_PERIOD_OPTIONS).toEqual([4, 6, 8, 10, 12])
   })
 

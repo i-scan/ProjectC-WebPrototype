@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { axialToWorld, worldToAxial } from './hex.js'
 import {
+  AT_VISUAL_MS,
   combineImpulseVelocity,
   createInitialState,
   DEFAULT_SOLVER_CONFIG,
   MAX_SPEED,
+  momentumLevel,
   simulateDiscreteImpulse,
   simulateImpulse,
   simulateSpatial,
@@ -33,6 +35,10 @@ function runDiscrete(state, actionId, hex) {
 }
 
 describe('Basic Move adjacent steering contract', () => {
+  it('uses 0.5 seconds as the default visible AT', () => {
+    expect(AT_VISUAL_MS).toBe(500)
+  })
+
   it('rejects remote Aim Cells in both spatial modes', () => {
     const initial = createInitialState()
     expect(runDiscrete(initial, 'basic-move', { q: 2, r: 0 }).valid).toBe(false)
@@ -93,6 +99,30 @@ describe('Basic Move adjacent steering contract', () => {
     expect(discrete.finalState).toEqual(hybrid.finalState)
     expect(discrete.samples.length).toBe(3)
     expect(hybrid.samples.length).toBe(3)
+  })
+})
+
+describe('Hold / Passive Dissipation', () => {
+  it('waits in the same Cell for 1 AT and dissipates exactly one Horizontal M', () => {
+    const state = { position: axialToWorld({ q: 1, r: -1 }), velocity: { x: 1.7, z: 0 }, axisId: 'E', worldAt: 3 }
+    for (const plan of [runDiscrete(state, 'hold'), runHybrid(state, 'hold')]) {
+      expect(plan.valid).toBe(true)
+      expect(plan.actionKind).toBe('hold')
+      expect(worldToAxial(plan.finalState.position)).toEqual({ q: 1, r: -1 })
+      expect(plan.beforeM).toBe(2)
+      expect(plan.finalM).toBe(1)
+      expect(momentumLevel(Math.hypot(plan.finalState.velocity.x, plan.finalState.velocity.z))).toBe(1)
+      expect(plan.finalState.worldAt).toBe(4)
+      expect(plan.traversedCells).toEqual([{ q: 1, r: -1 }])
+    }
+  })
+
+  it('allows M1 -> M0 without moving', () => {
+    const state = { position: { x: 0, z: 0 }, velocity: { x: 0.85, z: 0 }, axisId: 'E', worldAt: 0 }
+    const plan = runDiscrete(state, 'hold')
+    expect(plan.valid).toBe(true)
+    expect(plan.finalM).toBe(0)
+    expect(plan.finalState.position).toEqual(state.position)
   })
 })
 
