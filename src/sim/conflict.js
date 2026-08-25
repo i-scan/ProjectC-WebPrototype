@@ -259,6 +259,10 @@ function resolveStepwiseKnockback({
             afterM: 0,
             surfaceGeometry: SURFACE_GEOMETRY_RULE,
           })
+          // The physical contact point is useful for preview, but an illegal
+          // reflection ends at the authoritative current Cell. Returning to its
+          // center in the trajectory prevents a visual snap on AT commit.
+          trajectories[actor.id].push(cloneHex(actor.hex))
           break
         }
 
