@@ -1,11 +1,12 @@
 import { HEX_DIRECTIONS, axialDistance, axialKey, axialToWorld, directionVector } from './hex.js'
 import { momentumLevel, momentumSpeed } from './solver.js'
 import {
+  REFLECTION_CONTINUATION_RULE,
   SURFACE_GEOMETRY_RULE,
   firstSurfaceImpact,
   fractionalHexForWorldPoint,
-  mirrorHexDirection,
-  nudgeFromSurface,
+  mirrorStepOptions,
+  nudgeFromSurfaceVector,
 } from './surface-geometry.js'
 
 export const ACTOR_COLLISION_RESTITUTION = 0.75
@@ -161,6 +162,16 @@ function buildActorPlaybackWindows(orderByActor, trajectories) {
   return windows
 }
 
+function bestMirrorOptions(incomingAxisId, impact, current) {
+  const options = mirrorStepOptions(incomingAxisId, impact, current)
+  const seenFaces = new Set()
+  return options.filter((option) => {
+    if (seenFaces.has(option.faceIndex)) return false
+    seenFaces.add(option.faceIndex)
+    return true
+  })
+}
+
 function resolveStepwiseKnockback({
   actors,
   actorId,
@@ -193,19 +204,35 @@ function resolveStepwiseKnockback({
     return !occupantId || occupantId === currentActorId
   }
 
+  const chooseActorMirrorStep = (actor, impact, incomingDirection, previousCell) => {
+    const options = bestMirrorOptions(incomingDirection.id, impact, actor.hex)
+      .map((option) => ({ ...option, cell: stepCell(actor.hex, option.direction) }))
+      .filter((option) => legalReflectionCell(option.cell, actor.id))
+
+    if (!options.length) return null
+    if (impact.surface === 'obstacle' && impact.candidateNormals?.length > 1 && previousCell) {
+      const nonRetrace = options.find((option) => !sameHex(option.cell, previousCell))
+      if (nonRetrace) return nonRetrace
+    }
+    return options[0]
+  }
+
   const moveActor = (currentActorId, initialDirection, initialPower, depth = 0) => {
     const actor = actorById.get(currentActorId)
     let activeM = clampM(initialPower)
     let activeDirection = initialDirection
     let movedSteps = 0
     let segmentStart = actor ? axialToWorld(actor.hex) : { x: 0, z: 0 }
+    let previousCell = null
+    let guard = 0
     if (!actor || activeM <= 0 || depth > shadowActors.length + 3) {
       return { vacated: false, activeM: 0, direction: activeDirection }
     }
 
     markMotionIntent(currentActorId)
     const movementBudget = activeM
-    for (let step = 0; step < movementBudget && activeM > 0; step += 1) {
+    while (movedSteps < movementBudget && activeM > 0 && guard < movementBudget * 5 + 12) {
+      guard += 1
       const next = stepCell(actor.hex, activeDirection)
       const nextWorld = axialToWorld(next)
       const obstacle = obstacleAt(obstacles, next)
@@ -233,16 +260,13 @@ function resolveStepwiseKnockback({
           contactPoint: { ...impact.point },
           faceIds: [...(impact.faceIds ?? [])],
           surfaceGeometry: SURFACE_GEOMETRY_RULE,
+          reflectionContinuation: REFLECTION_CONTINUATION_RULE,
           partial: movedSteps > 0,
         })
         trajectories[actor.id].push(fractionalHexForWorldPoint(impact.point))
 
-        const mirror = mirrorHexDirection(activeDirection.id, impact.normal)
-        const reflectedDirection = bounce.momentum > 0 ? mirror.direction : null
-        const reflectedCell = reflectedDirection ? stepCell(actor.hex, reflectedDirection) : null
-        const reflectionLegal = Boolean(reflectedCell && legalReflectionCell(reflectedCell, currentActorId))
-
-        if (!reflectedDirection || !reflectionLegal) {
+        const mirror = bounce.momentum > 0 ? chooseActorMirrorStep(actor, impact, activeDirection, previousCell) : null
+        if (!mirror) {
           activeM = 0
           actor.velocity = { x: 0, z: 0 }
           actor.axisId = activeDirection.id
@@ -253,26 +277,26 @@ function resolveStepwiseKnockback({
             geometryKind: impact.kind,
             cell: cloneHex(actor.hex),
             attemptedCell: cloneHex(next),
-            reflectedAxis: reflectedDirection?.id ?? null,
-            reflectedCell: reflectedCell ? cloneHex(reflectedCell) : null,
+            reflectedAxis: null,
+            reflectedCell: null,
             beforeM,
             afterM: 0,
             surfaceGeometry: SURFACE_GEOMETRY_RULE,
+            reflectionContinuation: REFLECTION_CONTINUATION_RULE,
           })
-          // The physical contact point is useful for preview, but an illegal
-          // reflection ends at the authoritative current Cell. Returning to its
-          // center in the trajectory prevents a visual snap on AT commit.
           trajectories[actor.id].push(cloneHex(actor.hex))
           break
         }
 
-        activeDirection = reflectedDirection
+        const fromCell = cloneHex(actor.hex)
+        activeDirection = mirror.direction
         activeM = bounce.momentum
-        trajectories[actor.id].push(fractionalHexForWorldPoint(nudgeFromSurface(impact.point, activeDirection.id)))
+        trajectories[actor.id].push(fractionalHexForWorldPoint(nudgeFromSurfaceVector(impact.point, mirror.reflected)))
         occupancy.delete(axialKey(actor.hex))
-        actor.hex = cloneHex(reflectedCell)
+        actor.hex = cloneHex(mirror.cell)
         occupancy.set(axialKey(actor.hex), actor.id)
         trajectories[actor.id].push(cloneHex(actor.hex))
+        previousCell = fromCell
         movedSteps += 1
         segmentStart = axialToWorld(actor.hex)
         actor.velocity = velocityFor(activeDirection.id, activeM)
@@ -283,7 +307,7 @@ function resolveStepwiseKnockback({
           obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
           geometryKind: impact.kind,
           obstacleId: obstacle?.id ?? null,
-          from: cloneHex(trajectories[actor.id].at(-4) ?? actor.hex),
+          from: fromCell,
           contactPoint: { ...impact.point },
           attemptedCell: cloneHex(next),
           to: cloneHex(actor.hex),
@@ -292,17 +316,20 @@ function resolveStepwiseKnockback({
           beforeM,
           afterM: activeM,
           restitution: bounce.restitution,
-          normal: { ...impact.normal },
+          normal: { ...mirror.normal },
+          reflectedVector: { ...mirror.reflected },
           faceIds: [...(impact.faceIds ?? [])],
           surfaceGeometry: SURFACE_GEOMETRY_RULE,
+          reflectionContinuation: REFLECTION_CONTINUATION_RULE,
+          ambiguousVertexBranch: Boolean(mirror.ambiguousVertex),
         })
         continue
       }
 
       // The player's contact Cell remains physically occupied for the entire
-      // knockback sequence. Previously this guard only applied to the first
-      // reflected Cell, allowing later reflected steps to pass through the
-      // player and appear behind them.
+      // knockback sequence. This is a safety constraint only; the mirror solver
+      // should already choose the correct outgoing ray rather than relying on
+      // the reserved Cell to repair a wrong 180-degree rebound.
       if (reserved.has(axialKey(next))) {
         activeM = 0
         actor.velocity = { x: 0, z: 0 }
@@ -359,10 +386,12 @@ function resolveStepwiseKnockback({
         }
       }
 
+      const fromCell = cloneHex(actor.hex)
       occupancy.delete(axialKey(actor.hex))
       actor.hex = cloneHex(next)
       occupancy.set(axialKey(actor.hex), actor.id)
       trajectories[actor.id].push(cloneHex(actor.hex))
+      previousCell = fromCell
       movedSteps += 1
       segmentStart = axialToWorld(actor.hex)
     }
@@ -379,6 +408,7 @@ function resolveStepwiseKnockback({
     events,
     trajectories,
     actorPlaybackWindows: buildActorPlaybackWindows(motionOrder, trajectories),
+    reflectionContinuation: REFLECTION_CONTINUATION_RULE,
   }
 }
 
@@ -565,6 +595,7 @@ export function resolveCellConflicts({
       atomic: false,
       resolution: 'stepwise-clipped-mirror-v2',
       surfaceGeometry: SURFACE_GEOMETRY_RULE,
+      reflectionContinuation: REFLECTION_CONTINUATION_RULE,
       momentumExchange: playerConflict.momentumExchange ?? null,
     },
   }
