@@ -1,6 +1,8 @@
 import { HEX_DIRECTIONS, axialDistance, axialKey, axialToWorld, directionVector } from './hex.js'
 import { momentumLevel, momentumSpeed } from './solver.js'
 
+export const ACTOR_COLLISION_RESTITUTION = 0.75
+
 const cloneHex = (hex) => ({ q: hex.q, r: hex.r })
 const cloneVelocity = (velocity = { x: 0, z: 0 }) => ({ x: velocity.x, z: velocity.z })
 const cloneActor = (actor) => ({ ...actor, hex: cloneHex(actor.hex), velocity: cloneVelocity(actor.velocity) })
@@ -24,6 +26,41 @@ function uniqueRoute(cells = []) {
     if (!result.length || !sameHex(result.at(-1), cell)) result.push(cloneHex(cell))
   }
   return result
+}
+
+function scalarAlong(velocity, directionId) {
+  if (!directionId) return 0
+  const axis = directionVector(directionId)
+  return (velocity?.x ?? 0) * axis.x + (velocity?.z ?? 0) * axis.z
+}
+
+export function exchangeActorMomentum({
+  sourceM,
+  targetVelocity = { x: 0, z: 0 },
+  directionId,
+  restitution = ACTOR_COLLISION_RESTITUTION,
+}) {
+  const e = Math.max(0, Math.min(1, Number(restitution) || 0))
+  const sourceBeforeSpeed = momentumSpeed(Math.max(0, Math.min(3, sourceM)))
+  const targetBeforeSpeed = scalarAlong(targetVelocity, directionId)
+  // Equal-mass 1D collision along the contact axis.
+  const sourceAfterSpeed = ((1 - e) * sourceBeforeSpeed + (1 + e) * targetBeforeSpeed) * 0.5
+  const targetAfterSpeed = ((1 + e) * sourceBeforeSpeed + (1 - e) * targetBeforeSpeed) * 0.5
+  const sourceAfterM = momentumLevel(Math.abs(sourceAfterSpeed))
+  const targetBeforeM = momentumLevel(Math.abs(targetBeforeSpeed))
+  const targetAfterM = momentumLevel(Math.abs(targetAfterSpeed))
+  return {
+    restitution: e,
+    sourceBeforeM: Math.max(0, Math.min(3, sourceM)),
+    targetBeforeM,
+    sourceAfterM,
+    targetAfterM,
+    sourceBeforeSpeed,
+    targetBeforeSpeed,
+    sourceAfterSpeed,
+    targetAfterSpeed,
+    directionId,
+  }
 }
 
 export function createConflictActors(kind = 'chain') {
@@ -73,7 +110,6 @@ export function decorateConflictCells(cells, actors = [], projectedActors = [], 
     const showReachable = Boolean(reachable && !actual && !projected)
     return {
       ...cell,
-      // Display-only decoration. Solver inputs still use the undecorated cell world.
       groundFill: projected || showReachable ? 'ice' : cell.groundFill,
       moisture: projected || showReachable ? 0 : cell.moisture,
       tags,
@@ -125,6 +161,17 @@ function attemptAtomicPush({ actors, actorId, direction, power, obstacles, board
           cell: cloneHex(next),
           chained: true,
         })
+        events.push({
+          kind: 'momentum-transfer',
+          sourceActorId: currentActorId,
+          targetActorId: occupantId,
+          sourceBeforeM: currentPower,
+          sourceAfterM: Math.max(0, currentPower - childPower),
+          targetBeforeM: momentumLevel(Math.hypot(actorById.get(occupantId)?.velocity?.x ?? 0, actorById.get(occupantId)?.velocity?.z ?? 0)),
+          targetAfterM: childPower,
+          chained: true,
+          model: 'chain-decay-prototype',
+        })
         if (!pushActor(occupantId, childPower, depth + 1)) {
           events.push({
             kind: 'cell-conflict-blocked',
@@ -145,7 +192,7 @@ function attemptAtomicPush({ actors, actorId, direction, power, obstacles, board
       trajectories[actor.id].push(cloneHex(actor.hex))
     }
 
-    actor.velocity = velocityFor(direction.id, Math.max(0, Math.min(3, currentPower - 1)))
+    actor.velocity = velocityFor(direction.id, Math.max(0, Math.min(3, currentPower)))
     actor.axisId = direction.id
     return true
   }
@@ -167,8 +214,6 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
   let actorStates = actors.map(cloneActor)
   if (!plan?.valid) return { ...plan, actorStates, conflictEvents: [], pushAtomic: true }
 
-  // This test layer intentionally targets the discrete Cell model. Hybrid keeps
-  // its existing continuous collision experiment until Cell rules are proven useful.
   if (plan.spatialMode !== 'discrete') {
     return {
       ...plan,
@@ -212,28 +257,41 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
     const impactM = plan.actionKind === 'basic'
       ? Math.max(0, Math.min(3, plan.beforeM ?? 0))
       : Math.max(0, Math.min(3, momentumLevel(plan.afterImpulseSpeed ?? plan.finalSpeed ?? 0)))
+    const targetActor = actorStates.find((actor) => actor.id === targetActorId)
+    const momentumExchange = exchangeActorMomentum({
+      sourceM: impactM,
+      targetVelocity: targetActor?.velocity,
+      directionId: direction.id,
+    })
 
     conflictEvents.push({
       kind: impactM > 0 ? 'cell-conflict' : 'cell-conflict-blocked',
       sourceActorId: 'player',
       targetActorId,
-      power: impactM,
+      power: momentumExchange.targetAfterM,
+      impactM,
       cell: cloneHex(next),
       chained: false,
     })
+    conflictEvents.push({
+      kind: 'momentum-transfer',
+      sourceActorId: 'player',
+      targetActorId,
+      ...momentumExchange,
+      chained: false,
+      model: 'equal-mass-1d',
+    })
 
-    if (impactM <= 0) {
-      playerConflict = { targetActorId, impactM, resolved: false, direction }
+    if (impactM <= 0 || momentumExchange.targetAfterM <= 0) {
+      playerConflict = { targetActorId, impactM, resolved: false, direction, momentumExchange }
       break
     }
 
-    // Preflight the entire knockback cascade on a shadow occupancy map. No Actor
-    // is moved in the real result unless every required Cell in the chain is legal.
     const attempted = attemptAtomicPush({
       actors: actorStates,
       actorId: targetActorId,
       direction,
-      power: impactM,
+      power: momentumExchange.targetAfterM,
       obstacles,
       boardRadius,
     })
@@ -243,12 +301,13 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
         kind: 'cell-conflict-blocked',
         sourceActorId: 'player',
         targetActorId,
-        power: impactM,
+        power: momentumExchange.targetAfterM,
+        impactM,
         cell: cloneHex(next),
         chained: false,
         atomicRejected: true,
       })
-      playerConflict = { targetActorId, impactM, resolved: false, direction }
+      playerConflict = { targetActorId, impactM, resolved: false, direction, momentumExchange }
       break
     }
 
@@ -257,9 +316,7 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
     occupancy = new Map(actorStates.map((actor) => [axialKey(actor.hex), actor.id]))
     playerCell = cloneHex(next)
     playerRoute.push(cloneHex(playerCell))
-    playerConflict = { targetActorId, impactM, resolved: true, direction }
-    // Occupied-Cell contact ends the player's segment. The validated knockback
-    // cascade is committed atomically inside the same action resolution.
+    playerConflict = { targetActorId, impactM, resolved: true, direction, momentumExchange }
     break
   }
 
@@ -274,12 +331,13 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
     }
   }
 
-  const finalPlayerM = playerConflict.resolved ? Math.max(0, (plan.finalM ?? 0) - 1) : 0
+  const finalPlayerM = playerConflict.resolved
+    ? Math.min(Math.max(0, plan.finalM ?? 0), playerConflict.momentumExchange?.sourceAfterM ?? 0)
+    : 0
   const playerVelocity = velocityFor(playerConflict.direction.id, finalPlayerM)
   const finalPosition = axialToWorld(playerCell)
   let samples
   if (playerRoute.length <= 1) {
-    // Keep playback sampling safe even for a fully blocked move.
     const startVelocity = cloneVelocity(plan.samples?.[0]?.velocity ?? { x: 0, z: 0 })
     samples = [
       { t: 0, position: finalPosition, velocity: startVelocity },
@@ -297,8 +355,6 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
     ...plan,
     samples,
     traversedCells: playerRoute,
-    // Cell Conflict remains separate from physical-surface collisions so the
-    // knockback experiment cannot silently alter Thermal behavior.
     collisions: [...(plan.collisions ?? [])],
     actorStates: actorStates.map(cloneActor),
     actorTrajectories,
@@ -319,6 +375,7 @@ export function resolveCellConflicts({ plan, actors = [], obstacles = [], boardR
       resolved: playerConflict.resolved,
       playerCell: cloneHex(playerCell),
       atomic: true,
+      momentumExchange: playerConflict.momentumExchange ?? null,
     },
   }
 }

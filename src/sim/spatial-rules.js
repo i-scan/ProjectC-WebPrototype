@@ -21,8 +21,8 @@ const CURVED_DISCRETE_ACTIONS = new Set(['drive', 'heavy-drive', 'hard-turn'])
 // M1: five adjacent Cells except the reverse Cell. The two 120° landings pass
 // through NE / SE respectively.
 // M2: five connected landing Cells. The two inner side landings first pass E.
-// M3: seven connected landing Cells; the two connector Cells remove the three
-// disjoint front segments from the previous prototype.
+// M3: five connected front Cells. The previous far-left / far-right fringe Cells
+// are removed so the envelope is one Cell narrower on each side.
 const ENVELOPE_BY_M = Object.freeze({
   0: Object.freeze([
     { id: 'e', target: { q: 1, r: 0 }, path: [{ q: 1, r: 0 }], terminal: 0, forward: true },
@@ -47,13 +47,11 @@ const ENVELOPE_BY_M = Object.freeze({
     { id: 'inner-se', target: { q: 0, r: 1 }, path: [{ q: 1, r: 0 }, { q: 0, r: 1 }], terminal: 4 },
   ]),
   3: Object.freeze([
-    { id: 'far-nw', target: { q: 2, r: -2 }, path: [{ q: 1, r: 0 }, { q: 2, r: -1 }, { q: 2, r: -2 }], terminal: 2 },
     { id: 'far-ne', target: { q: 3, r: -2 }, path: [{ q: 1, r: 0 }, { q: 2, r: -1 }, { q: 3, r: -2 }], terminal: 1 },
     { id: 'connector-ne', target: { q: 3, r: -1 }, path: [{ q: 1, r: 0 }, { q: 2, r: 0 }, { q: 3, r: -1 }], terminal: 1 },
     { id: 'e', target: { q: 3, r: 0 }, path: [{ q: 1, r: 0 }, { q: 2, r: 0 }, { q: 3, r: 0 }], terminal: 0, forward: true },
     { id: 'connector-se', target: { q: 2, r: 1 }, path: [{ q: 1, r: 0 }, { q: 2, r: 0 }, { q: 2, r: 1 }], terminal: 5 },
     { id: 'far-se', target: { q: 1, r: 2 }, path: [{ q: 1, r: 0 }, { q: 1, r: 1 }, { q: 1, r: 2 }], terminal: 5 },
-    { id: 'far-sw', target: { q: 0, r: 2 }, path: [{ q: 1, r: 0 }, { q: 1, r: 1 }, { q: 0, r: 2 }], terminal: 4 },
   ]),
 })
 
@@ -239,9 +237,12 @@ export function simulateBasicMoveRule({
     finalAxisId = targetDirection ?? route.axisAfter
     basicRule = sameAxis ? 'same-axis-build' : 'establish-axis'
   } else if (route.forward) {
-    finalM = Math.min(3, beforeM + 1)
+    // M1 is still the natural build step because it does not buy extra range.
+    // M2 / M3 already receive extra travel distance, so the action pays one M
+    // at AT end even when no steering occurs.
+    finalM = beforeM === 1 ? 2 : Math.max(0, beforeM - 1)
     finalAxisId = storedAxisId ?? route.axisAfter
-    basicRule = 'same-axis-build'
+    basicRule = beforeM === 1 ? 'same-axis-build' : 'forward-range-spend'
   } else {
     finalM = Math.max(0, beforeM - 1)
     basicRule = 'steer-spend'

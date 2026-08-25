@@ -44,7 +44,7 @@ jobs:
         env:
           EXPECTED_COMMIT: ${{ github.sha }}
         run: pnpm verify:dist
-      - name: Verify reachable curves and knockback in Chrome
+      - name: Verify Axis, Momentum, and Cell Conflict in Chrome
         run: pnpm verify:browser
       - name: Upload browser evidence
         if: always()
@@ -99,6 +99,6 @@ jobs:
               context: 'pages/verified-deployment',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               description: ok
-                ? 'Reachable Cell curves / actor Axis / Drive / knockback verified online'
+                ? 'Tuned Axis / Down / M spend / Actor M exchange verified online'
                 : `Pages verification failed: build=${buildResult}, deploy=${deployResult}`
             })

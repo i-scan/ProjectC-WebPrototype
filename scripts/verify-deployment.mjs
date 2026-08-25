@@ -35,15 +35,22 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'Basic Command + Momentum Cards',
       'Spatial Model A/B',
       'Cell Inspector',
-      'reachable-cell-target-v3',
-      'connected-envelope-v3',
+      'reachable-cell-target-v4',
+      'connected-envelope-m-spend-v4',
       'cell-target-curved-composition',
-      'actor-world-arrow-v3',
+      'actor-screen-arrow-v4',
+      'actor-axis-hud',
       'blue-dashed-no-arrow-v3',
       'cell-target-path-v3',
       'lifted-outline-v3',
       'yellow-dashed-path-v2',
       'animated-actor-path-v2',
+      'forward-range-spend',
+      'equal-mass-1d',
+      'M Exchange',
+      'setAxisDisplay',
+      'data-down-axis-controls',
+      '30px / 2.5px',
       'Landing Cell Input',
       'data-thermal-period',
       'setThermalPeriod',
@@ -54,7 +61,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · destination Cell envelopes + actor Axis arrow + curved Drive + animated knockback`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · tuned actor Axis + Down + narrowed M3 + M spend + Actor momentum exchange`)
     process.exit(0)
   } catch (error) {
     lastError = error
