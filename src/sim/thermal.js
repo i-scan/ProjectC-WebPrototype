@@ -1,4 +1,4 @@
-export const THERMAL_PERIOD_AT = 8
+export const THERMAL_PERIOD_AT = 4
 export const THERMAL_HALF_PERIOD_AT = THERMAL_PERIOD_AT / 2
 export const THERMAL_PERIOD_OPTIONS = Object.freeze([4, 6, 8, 10, 12])
 export const THERMAL_DISPLAY_MIN = -4
@@ -42,6 +42,7 @@ export function thermalDomainFor(temperature) {
 
 export function thermalBehaviorFor({ actionId, beforeSpeed, collisions = 0 }) {
   if (collisions > 0) return 'resist'
+  if (actionId === 'hold') return 'passive-dissipation'
   if (actionId === 'coast') return beforeSpeed > 0.18 ? 'use' : 'passive-dissipation'
   if (actionId === 'hard-turn' || actionId === 'counter') return 'resist'
   if (beforeSpeed <= 0.18) return 'generate'
