@@ -23,44 +23,86 @@ function reachMap(state, actionId = 'basic-move', boardRadius = 3, obstacles = [
   const entries = actionId === 'basic-move'
     ? basicMoveReachability({ state, spatialMode: 'discrete', config, obstacles })
     : discreteActionReachability({ state, actionId, spatialMode: 'discrete', config, obstacles })
-  return new Map(entries.map((entry) => [axialKey(entry.finalHex), entry]))
+  return new Map(entries.map((entry) => [axialKey(entry.targetHex), entry]))
 }
 
-describe('player physical boundary reflection', () => {
-  it('keeps reachable Cells at the outer edge instead of deleting every route that touches the boundary', () => {
-    const state = stateAt({ q: 3, r: 0 }, 'E', 3)
+describe('player clipped mirror boundary reflection', () => {
+  it('highlights the collision Cell while keeping the reflected physical landing separate', () => {
+    const state = stateAt({ q: 3, r: -1 }, 'E', 3)
     const reach = reachMap(state, 'basic-move', 3)
 
     expect(reach.size).toBeGreaterThan(0)
-    expect([...reach.values()].some((entry) => entry.reflectionCount > 0)).toBe(true)
-    expect([...reach.keys()].some((key) => key === '1,0' || key === '2,0')).toBe(true)
+    const bounce = reach.get('3,-1')
+    expect(bounce).toBeTruthy()
+    expect(bounce.reflectionCount).toBeGreaterThan(0)
+    expect(bounce.finalHex).toEqual({ q: 3, r: -1 })
+    expect(bounce.resolvedFinalHex).not.toEqual(bounce.finalHex)
   })
 
-  it('reflects the forward M3 route physically and spends M for both long travel and the reflection', () => {
-    const state = stateAt({ q: 3, r: 0 }, 'E', 3)
+  it('reflects from the fixed side face instead of a radial/center normal', () => {
+    const state = stateAt({ q: 3, r: -1 }, 'E', 3)
     const plan = simulateBasicMoveRule({
       state,
-      aimPoint: axialToWorld({ q: 1, r: 0 }),
+      // The player clicks the collision Cell; the preview continues past it.
+      aimPoint: axialToWorld({ q: 3, r: -1 }),
       spatialMode: 'discrete',
       config: configFor(3),
       obstacles: [],
     })
 
     expect(plan.valid).toBe(true)
-    expect(plan.playerReflectionRule).toBe('physical-multi-bounce-v1')
+    expect(plan.playerReflectionRule).toBe('clipped-mirror-multi-bounce-v2')
+    expect(plan.surfaceGeometry).toBe('clipped-cell-mirror-v2')
     expect(plan.reflectionCount).toBe(1)
-    expect(plan.collisions[0]).toMatchObject({ kind: 'boundary', reflection: true, axisBefore: 'E', axisAfter: 'W' })
+    expect(plan.collisions[0]).toMatchObject({
+      kind: 'boundary',
+      geometryKind: 'boundary',
+      reflection: true,
+      axisBefore: 'E',
+      axisAfter: 'SW',
+      contactCell: { q: 3, r: -1 },
+      faceIds: ['+q'],
+    })
     expect(plan.traversedCells).toEqual([
-      { q: 3, r: 0 },
+      { q: 3, r: -1 },
       { q: 2, r: 0 },
-      { q: 1, r: 0 },
+      { q: 1, r: 1 },
     ])
-    expect(worldToAxial(plan.finalState.position)).toEqual({ q: 1, r: 0 })
-    expect(plan.axisAfter).toBe('W')
+    expect(worldToAxial(plan.finalState.position)).toEqual({ q: 1, r: 1 })
+    expect(plan.axisAfter).toBe('SW')
     expect(plan.finalM).toBe(1)
+    expect(plan.samples.some((sample) => sample.collision)).toBe(true)
+    expect(plan.samples.some((sample) => sample.reflectionGuide)).toBe(true)
   })
 
-  it('does not impose a one-reflection-per-AT cap in the corner experiment', () => {
+  it('uses the symmetric corner chamfer so edge travel exits along the neighboring edge', () => {
+    const state = stateAt({ q: 3, r: -1 }, 'SE', 3)
+    const plan = simulateBasicMoveRule({
+      state,
+      aimPoint: axialToWorld({ q: 3, r: 0 }),
+      spatialMode: 'discrete',
+      config: configFor(3),
+      obstacles: [],
+    })
+
+    expect(plan.valid).toBe(true)
+    expect(plan.reflectionCount).toBe(1)
+    expect(plan.collisions[0]).toMatchObject({
+      geometryKind: 'boundary-corner-chamfer',
+      axisBefore: 'SE',
+      axisAfter: 'SW',
+      contactCell: { q: 3, r: 0 },
+    })
+    expect(plan.traversedCells).toEqual([
+      { q: 3, r: -1 },
+      { q: 3, r: 0 },
+      { q: 2, r: 1 },
+    ])
+    expect(plan.axisAfter).toBe('SW')
+    expect(worldToAxial(plan.finalState.position)).toEqual({ q: 2, r: 1 })
+  })
+
+  it('does not impose a one-reflection-per-AT cap in the raw physics experiment', () => {
     const state = stateAt({ q: 1, r: 0 }, 'E', 3)
     const obstacles = [
       { id: 'wall-a', hex: { q: 2, r: 0 }, kind: 'hard' },
@@ -74,24 +116,24 @@ describe('player physical boundary reflection', () => {
     expect(multi.finalM).toBe(0)
   })
 
-  it('lets Discrete Drive use the same reflected landing contract at the edge', () => {
-    const state = stateAt({ q: 3, r: 0 }, 'E', 3)
+  it('lets Discrete Drive use the same collision-Cell input and mirror path', () => {
+    const state = stateAt({ q: 3, r: -1 }, 'E', 3)
     const reach = reachMap(state, 'drive', 3)
-    expect(reach.size).toBeGreaterThan(0)
-    expect([...reach.values()].some((entry) => entry.reflectionCount > 0)).toBe(true)
-
-    const reflected = [...reach.values()].find((entry) => entry.reflectionCount > 0 && entry.finalHex.q < 3)
+    const reflected = reach.get('3,-1')
     expect(reflected).toBeTruthy()
+    expect(reflected.reflectionCount).toBeGreaterThan(0)
+
     const plan = simulatePrototypeSpatial({
       state,
       actionId: 'drive',
       spatialMode: 'discrete',
-      aimPoint: axialToWorld(reflected.finalHex),
+      aimPoint: axialToWorld(reflected.targetHex),
       config: configFor(3),
       obstacles: [],
     })
     expect(plan.valid).toBe(true)
     expect(plan.reflectionCount).toBeGreaterThan(0)
-    expect(plan.axisAfter).not.toBe('E')
+    expect(plan.axisAfter).toBe('SW')
+    expect(worldToAxial(plan.finalState.position)).toEqual(reflected.resolvedFinalHex)
   })
 })
