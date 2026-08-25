@@ -141,17 +141,20 @@ function reflectionVector(from, attempted, direction, obstacle, boundary) {
   return { reflected: reflect(incoming, normal, 1), normal }
 }
 
-function reflectedDirectionCandidates(from, attempted, direction, obstacle, boundary) {
+function reflectedHexDirection(from, attempted, direction, obstacle, boundary) {
   const { reflected, normal } = reflectionVector(from, attempted, direction, obstacle, boundary)
   const unit = normalize(reflected)
-  const candidates = HEX_DIRECTIONS
-    .map((entry) => {
-      const axis = directionVector(entry.id)
-      return { entry, dot: axis.x * unit.x + axis.z * unit.z }
-    })
-    .sort((a, b) => b.dot - a.dot)
-    .map((item) => item.entry)
-  return { candidates, normal }
+  let best = null
+  let bestDot = -Infinity
+  for (const entry of HEX_DIRECTIONS) {
+    const axis = directionVector(entry.id)
+    const dot = axis.x * unit.x + axis.z * unit.z
+    if (dot > bestDot) {
+      bestDot = dot
+      best = entry
+    }
+  }
+  return { direction: best, normal }
 }
 
 function surfaceBounceM(power, obstacle, boundary, surfaceRestitution, boundaryRestitution) {
@@ -234,6 +237,7 @@ function resolveStepwiseKnockback({
 
       if (obstacle || boundary) {
         const beforeM = activeM
+        const axisBefore = activeDirection.id
         const bounce = surfaceBounceM(activeM, obstacle, boundary, surfaceRestitution, boundaryRestitution)
         events.push({
           kind: 'wall-crash',
@@ -246,20 +250,12 @@ function resolveStepwiseKnockback({
           partial: movedSteps > 0,
         })
 
-        const { candidates, normal } = reflectedDirectionCandidates(actor.hex, next, activeDirection, obstacle, boundary)
-        let reflectedDirection = null
-        let reflectedCell = null
-        if (bounce.momentum > 0) {
-          for (const candidate of candidates) {
-            const candidateCell = stepCell(actor.hex, candidate)
-            if (!legalReflectionCell(candidateCell, currentActorId)) continue
-            reflectedDirection = candidate
-            reflectedCell = candidateCell
-            break
-          }
-        }
+        const reflected = reflectedHexDirection(actor.hex, next, activeDirection, obstacle, boundary)
+        const reflectedDirection = bounce.momentum > 0 ? reflected.direction : null
+        const reflectedCell = reflectedDirection ? stepCell(actor.hex, reflectedDirection) : null
+        const reflectionLegal = Boolean(reflectedCell && legalReflectionCell(reflectedCell, currentActorId))
 
-        if (!reflectedDirection || !reflectedCell) {
+        if (!reflectedDirection || !reflectionLegal) {
           activeM = 0
           actor.velocity = { x: 0, z: 0 }
           actor.axisId = activeDirection.id
@@ -269,6 +265,8 @@ function resolveStepwiseKnockback({
             obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
             cell: cloneHex(actor.hex),
             attemptedCell: cloneHex(next),
+            reflectedAxis: reflectedDirection?.id ?? null,
+            reflectedCell: reflectedCell ? cloneHex(reflectedCell) : null,
             beforeM,
             afterM: 0,
           })
@@ -292,12 +290,12 @@ function resolveStepwiseKnockback({
           from: cloneHex(trajectories[actor.id].at(-2)),
           attemptedCell: cloneHex(next),
           to: cloneHex(actor.hex),
-          axisBefore: direction.id,
+          axisBefore,
           axisAfter: activeDirection.id,
           beforeM,
           afterM: activeM,
           restitution: bounce.restitution,
-          normal,
+          normal: reflected.normal,
         })
         continue
       }
