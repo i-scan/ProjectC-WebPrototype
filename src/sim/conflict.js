@@ -1,6 +1,12 @@
 import { HEX_DIRECTIONS, axialDistance, axialKey, axialToWorld, directionVector } from './hex.js'
 import { momentumLevel, momentumSpeed } from './solver.js'
-import { normalize, reflect } from './vector.js'
+import {
+  SURFACE_GEOMETRY_RULE,
+  firstSurfaceImpact,
+  fractionalHexForWorldPoint,
+  mirrorHexDirection,
+  nudgeFromSurface,
+} from './surface-geometry.js'
 
 export const ACTOR_COLLISION_RESTITUTION = 0.75
 
@@ -66,8 +72,6 @@ export function exchangeActorMomentum({
 
 export function createConflictActors(kind = 'chain') {
   if (kind === 'wall') {
-    // With the fixture wall at q3, M2 knockback from q1 has exactly one free
-    // Cell (q2) before the second step collides. This is the partial-travel case.
     return [
       { id: 'dummy-a', label: 'A', hex: { q: 1, r: 0 }, velocity: { x: 0, z: 0 }, axisId: null },
     ]
@@ -127,36 +131,6 @@ function obstacleAt(obstacles, hex) {
   return obstacles.find((entry) => sameHex(entry.hex, hex)) ?? null
 }
 
-function reflectionVector(from, attempted, direction, obstacle, boundary) {
-  const incoming = directionVector(direction.id)
-  let normal
-  if (boundary) {
-    const attemptedWorld = axialToWorld(attempted)
-    normal = normalize({ x: -attemptedWorld.x, z: -attemptedWorld.z })
-  } else {
-    const fromWorld = axialToWorld(from)
-    const surfaceWorld = axialToWorld(obstacle.hex)
-    normal = normalize({ x: fromWorld.x - surfaceWorld.x, z: fromWorld.z - surfaceWorld.z })
-  }
-  return { reflected: reflect(incoming, normal, 1), normal }
-}
-
-function reflectedHexDirection(from, attempted, direction, obstacle, boundary) {
-  const { reflected, normal } = reflectionVector(from, attempted, direction, obstacle, boundary)
-  const unit = normalize(reflected)
-  let best = null
-  let bestDot = -Infinity
-  for (const entry of HEX_DIRECTIONS) {
-    const axis = directionVector(entry.id)
-    const dot = axis.x * unit.x + axis.z * unit.z
-    if (dot > bestDot) {
-      bestDot = dot
-      best = entry
-    }
-  }
-  return { direction: best, normal }
-}
-
 function surfaceBounceM(power, obstacle, boundary, surfaceRestitution, boundaryRestitution) {
   const restitution = obstacle?.kind === 'reflector'
     ? Math.min(0.92, surfaceRestitution + 0.22)
@@ -179,10 +153,10 @@ function buildActorPlaybackWindows(orderByActor, trajectories) {
     .sort((a, b) => a[1] - b[1])
   const windows = {}
   ordered.forEach(([id], index) => {
-    const pathSteps = Math.max(1, (trajectories[id]?.length ?? 2) - 1)
+    const pathSteps = Math.max(1, Math.ceil(((trajectories[id]?.length ?? 2) - 1) / 2))
     const start = Math.min(0.72, 0.48 + index * 0.09)
-    const duration = Math.min(0.34, 0.20 + pathSteps * 0.055)
-    windows[id] = { start, end: Math.min(0.92, start + duration) }
+    const duration = Math.min(0.32, 0.18 + pathSteps * 0.05)
+    windows[id] = { start, end: Math.min(0.90, start + duration) }
   })
   return windows
 }
@@ -224,6 +198,7 @@ function resolveStepwiseKnockback({
     let activeM = clampM(initialPower)
     let activeDirection = initialDirection
     let movedSteps = 0
+    let segmentStart = actor ? axialToWorld(actor.hex) : { x: 0, z: 0 }
     if (!actor || activeM <= 0 || depth > shadowActors.length + 3) {
       return { vacated: false, activeM: 0, direction: activeDirection }
     }
@@ -232,10 +207,17 @@ function resolveStepwiseKnockback({
     const movementBudget = activeM
     for (let step = 0; step < movementBudget && activeM > 0; step += 1) {
       const next = stepCell(actor.hex, activeDirection)
+      const nextWorld = axialToWorld(next)
       const obstacle = obstacleAt(obstacles, next)
-      const boundary = axialDistance(next) > boardRadius
+      const impact = firstSurfaceImpact({
+        fromWorld: segmentStart,
+        toWorld: nextWorld,
+        boardRadius,
+        obstacle,
+      })
 
-      if (obstacle || boundary) {
+      if (impact) {
+        const boundary = impact.surface === 'boundary'
         const beforeM = activeM
         const axisBefore = activeDirection.id
         const bounce = surfaceBounceM(activeM, obstacle, boundary, surfaceRestitution, boundaryRestitution)
@@ -245,13 +227,18 @@ function resolveStepwiseKnockback({
           power: activeM,
           obstacleId: obstacle?.id ?? null,
           obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
+          geometryKind: impact.kind,
           from: cloneHex(actor.hex),
           cell: cloneHex(next),
+          contactPoint: { ...impact.point },
+          faceIds: [...(impact.faceIds ?? [])],
+          surfaceGeometry: SURFACE_GEOMETRY_RULE,
           partial: movedSteps > 0,
         })
+        trajectories[actor.id].push(fractionalHexForWorldPoint(impact.point))
 
-        const reflected = reflectedHexDirection(actor.hex, next, activeDirection, obstacle, boundary)
-        const reflectedDirection = bounce.momentum > 0 ? reflected.direction : null
+        const mirror = mirrorHexDirection(activeDirection.id, impact.normal)
+        const reflectedDirection = bounce.momentum > 0 ? mirror.direction : null
         const reflectedCell = reflectedDirection ? stepCell(actor.hex, reflectedDirection) : null
         const reflectionLegal = Boolean(reflectedCell && legalReflectionCell(reflectedCell, currentActorId))
 
@@ -263,31 +250,41 @@ function resolveStepwiseKnockback({
             kind: 'surface-stop',
             actorId: currentActorId,
             obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
+            geometryKind: impact.kind,
             cell: cloneHex(actor.hex),
             attemptedCell: cloneHex(next),
             reflectedAxis: reflectedDirection?.id ?? null,
             reflectedCell: reflectedCell ? cloneHex(reflectedCell) : null,
             beforeM,
             afterM: 0,
+            surfaceGeometry: SURFACE_GEOMETRY_RULE,
           })
+          // The physical contact point is useful for preview, but an illegal
+          // reflection ends at the authoritative current Cell. Returning to its
+          // center in the trajectory prevents a visual snap on AT commit.
+          trajectories[actor.id].push(cloneHex(actor.hex))
           break
         }
 
         activeDirection = reflectedDirection
         activeM = bounce.momentum
+        trajectories[actor.id].push(fractionalHexForWorldPoint(nudgeFromSurface(impact.point, activeDirection.id)))
         occupancy.delete(axialKey(actor.hex))
         actor.hex = cloneHex(reflectedCell)
         occupancy.set(axialKey(actor.hex), actor.id)
         trajectories[actor.id].push(cloneHex(actor.hex))
         movedSteps += 1
+        segmentStart = axialToWorld(actor.hex)
         actor.velocity = velocityFor(activeDirection.id, activeM)
         actor.axisId = activeDirection.id
         events.push({
           kind: 'surface-reflection',
           actorId: currentActorId,
           obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
+          geometryKind: impact.kind,
           obstacleId: obstacle?.id ?? null,
-          from: cloneHex(trajectories[actor.id].at(-2)),
+          from: cloneHex(trajectories[actor.id].at(-4) ?? actor.hex),
+          contactPoint: { ...impact.point },
           attemptedCell: cloneHex(next),
           to: cloneHex(actor.hex),
           axisBefore,
@@ -295,9 +292,30 @@ function resolveStepwiseKnockback({
           beforeM,
           afterM: activeM,
           restitution: bounce.restitution,
-          normal: reflected.normal,
+          normal: { ...impact.normal },
+          faceIds: [...(impact.faceIds ?? [])],
+          surfaceGeometry: SURFACE_GEOMETRY_RULE,
         })
         continue
+      }
+
+      // The player's contact Cell remains physically occupied for the entire
+      // knockback sequence. Previously this guard only applied to the first
+      // reflected Cell, allowing later reflected steps to pass through the
+      // player and appear behind them.
+      if (reserved.has(axialKey(next))) {
+        activeM = 0
+        actor.velocity = { x: 0, z: 0 }
+        actor.axisId = activeDirection.id
+        events.push({
+          kind: 'reserved-cell-stop',
+          actorId: currentActorId,
+          cell: cloneHex(actor.hex),
+          attemptedCell: cloneHex(next),
+          beforeM: clampM(initialPower),
+          afterM: 0,
+        })
+        break
       }
 
       const occupantId = occupancy.get(axialKey(next))
@@ -346,6 +364,7 @@ function resolveStepwiseKnockback({
       occupancy.set(axialKey(actor.hex), actor.id)
       trajectories[actor.id].push(cloneHex(actor.hex))
       movedSteps += 1
+      segmentStart = axialToWorld(actor.hex)
     }
 
     actor.velocity = activeM > 0 ? velocityFor(activeDirection.id, activeM) : { x: 0, z: 0 }
@@ -544,7 +563,8 @@ export function resolveCellConflicts({
       resolved: playerConflict.resolved,
       playerCell: cloneHex(playerCell),
       atomic: false,
-      resolution: 'stepwise-reflect-v1',
+      resolution: 'stepwise-clipped-mirror-v2',
+      surfaceGeometry: SURFACE_GEOMETRY_RULE,
       momentumExchange: playerConflict.momentumExchange ?? null,
     },
   }

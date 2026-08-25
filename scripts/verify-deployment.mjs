@@ -40,7 +40,11 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'reachable-cell-target-v4',
       'connected-envelope-m-spend-v4',
       'cell-target-curved-composition',
-      'physical-multi-bounce-v1',
+      'clipped-mirror-multi-bounce-v2',
+      'clipped-cell-mirror-v2',
+      'boundary-corner-chamfer',
+      'stepwise-clipped-mirror-v2',
+      'reserved-cell-stop',
       'actor-body-screen-arrow-v5',
       'actor-axis-hud',
       'unified-arrow-v1',
@@ -49,7 +53,6 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'lifted-outline-v3',
       'yellow-dashed-path-v2',
       'contact-staggered-fast-v3',
-      'stepwise-reflect-v1',
       'surface-reflection',
       'surface-stop',
       'forward-range-spend',
@@ -69,7 +72,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · player physical multi-bounce reflection + existing staged knockback`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · clipped mirror boundary/knockback reflection + collision-cell targeting`)
     process.exit(0)
   } catch (error) {
     lastError = error

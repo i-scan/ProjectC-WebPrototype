@@ -1,4 +1,4 @@
-import { HEX_DIRECTIONS, axialDistance, axialKey, axialToWorld, directionVector, worldToAxial } from './hex.js'
+import { HEX_DIRECTIONS, axialKey, axialToWorld, worldToAxial } from './hex.js'
 import {
   DEFAULT_SOLVER_CONFIG,
   actionById,
@@ -7,17 +7,25 @@ import {
   momentumSpeed,
   simulateSpatial,
 } from './solver.js'
-import { length, normalize, reflect, scale } from './vector.js'
+import { length, normalize, scale } from './vector.js'
+import {
+  SURFACE_GEOMETRY_RULE,
+  firstSurfaceImpact,
+  mirrorHexDirection,
+  nudgeFromSurface,
+} from './surface-geometry.js'
 
 const sameHex = (a, b) => Boolean(a && b && a.q === b.q && a.r === b.r)
 const cloneHex = (hex) => ({ q: hex.q, r: hex.r })
+const clonePoint = (point) => ({ x: point.x, z: point.z })
 const VALID_AXIS = new Set(HEX_DIRECTIONS.map((entry) => entry.id))
 const CURVED_DISCRETE_ACTIONS = new Set(['drive', 'heavy-drive', 'hard-turn'])
 
 // These templates are authored relative to an E Axis and rotated into the
 // actor's current Horizontal Axis. `path` is the nominal trajectory before any
-// physical surface reflection; `target` is only the authored intent endpoint.
-// Reachability exposes the resolved final Cell after collisions/reflections.
+// physical surface reflection. Near a wall, the Cell the player clicks becomes
+// the first collision/contact Cell while the dashed preview continues through
+// the reflected physical result.
 const ENVELOPE_BY_M = Object.freeze({
   0: Object.freeze([
     { id: 'e', target: { q: 1, r: 0 }, path: [{ q: 1, r: 0 }], terminal: 0, forward: true },
@@ -107,40 +115,20 @@ function stepCell(cell, directionId) {
   return direction ? { q: cell.q + direction.q, r: cell.r + direction.r } : cloneHex(cell)
 }
 
-function nearestHexDirection(vector) {
-  const index = directionIndexFromVector(vector)
-  return index >= 0 ? HEX_DIRECTIONS[index] : null
-}
-
-function reflectedHexDirection(current, attempted, incomingAxisId, obstacle, boundary) {
-  const incoming = directionVector(incomingAxisId)
-  let normal
-  if (boundary) {
-    const attemptedWorld = axialToWorld(attempted)
-    normal = normalize({ x: -attemptedWorld.x, z: -attemptedWorld.z })
-  } else {
-    const currentWorld = axialToWorld(current)
-    const obstacleWorld = axialToWorld(obstacle.hex)
-    normal = normalize({ x: currentWorld.x - obstacleWorld.x, z: currentWorld.z - obstacleWorld.z })
-  }
-  const reflected = reflect(incoming, normal, 1)
-  return { direction: nearestHexDirection(reflected), normal, reflected }
-}
-
-// Resolve the authored route one Cell-step at a time. Once a wall/boundary is
-// touched, the authored steering path yields to physical reflection for the
-// remaining Cell-step budget in this AT. Every reflection costs one M. There is
-// deliberately NO per-AT bounce cap in this experiment: corner cases may bounce
-// repeatedly so we can evaluate the raw physical result before adding a limiter.
+// Resolve authored Cell steps against explicit clipped surface geometry. The
+// logical actor remains in its current Cell on the collision step, but the
+// preview timeline records the exact contact point so the reflected dashed path
+// visibly leaves from the mirror surface instead of from the Cell center.
 function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
   const actualPath = []
-  const timelineCells = [cloneHex(route.startHex)]
   const collisions = []
   let current = cloneHex(route.startHex)
+  let segmentStart = axialToWorld(current)
   let reflectedMode = false
   let activeAxisId = route.axisBefore ?? directionIdFromCells(route.startHex, route.pathCells[0]) ?? route.axisAfter
   let remainingMotionM = Math.max(0, Math.min(3, Math.round(motionM) || 0))
   let reflectionCount = 0
+  const timeline = [{ position: clonePoint(segmentStart), axisId: activeAxisId }]
 
   for (let step = 0; step < route.pathCells.length; step += 1) {
     const authoredCell = route.pathCells[step]
@@ -149,46 +137,67 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
     if (!stepAxisId) break
 
     const attempted = stepCell(current, stepAxisId)
+    const attemptedWorld = axialToWorld(attempted)
     const obstacle = obstacleAt(obstacles, attempted)
-    const boundary = axialDistance(attempted) > config.boardRadius
+    const impact = firstSurfaceImpact({
+      fromWorld: segmentStart,
+      toWorld: attemptedWorld,
+      boardRadius: config.boardRadius,
+      obstacle,
+    })
 
-    if (obstacle || boundary) {
+    if (impact) {
       const beforeM = remainingMotionM
-      const reflection = reflectedHexDirection(current, attempted, stepAxisId, obstacle, boundary)
-      const reflectedDirection = reflection.direction
+      const mirror = mirrorHexDirection(stepAxisId, impact.normal)
+      const reflectedDirection = mirror.direction
       reflectionCount += 1
       remainingMotionM = Math.max(0, remainingMotionM - 1)
       reflectedMode = true
       if (reflectedDirection) activeAxisId = reflectedDirection.id
-      collisions.push({
-        t: (step + 1) / Math.max(1, route.pathCells.length),
-        kind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
+
+      const collision = {
+        t: (step + Math.max(0, Math.min(1, impact.t))) / Math.max(1, route.pathCells.length),
+        kind: impact.surface === 'boundary' ? 'boundary' : obstacle?.kind ?? 'hard',
+        geometryKind: impact.kind,
         obstacleId: obstacle?.id ?? null,
-        position: axialToWorld(current),
-        cell: cloneHex(attempted),
+        position: clonePoint(impact.point),
+        contactCell: cloneHex(current),
+        cell: cloneHex(current),
         attemptedCell: cloneHex(attempted),
         axisBefore: stepAxisId,
         axisAfter: activeAxisId,
         beforeM,
         afterM: remainingMotionM,
         reflection: true,
-        normal: reflection.normal,
-      })
-      timelineCells.push(cloneHex(current))
+        normal: clonePoint(impact.normal),
+        faceIds: [...(impact.faceIds ?? [])],
+        surfaceGeometry: SURFACE_GEOMETRY_RULE,
+      }
+      collisions.push(collision)
+      timeline.push({ position: clonePoint(impact.point), axisId: activeAxisId, collision: true })
+      segmentStart = clonePoint(impact.point)
+
       if (remainingMotionM <= 0 || !reflectedDirection) break
+      // A tiny outgoing guide point constrains Catmull-Rom preview smoothing so
+      // the visible line leaves the exact mirror point instead of cutting across
+      // the wall/corner. It is visual only and does not consume a Cell step.
+      timeline.push({ position: nudgeFromSurface(impact.point, activeAxisId), axisId: activeAxisId, reflectionGuide: true })
       continue
     }
 
     current = cloneHex(attempted)
+    segmentStart = clonePoint(attemptedWorld)
     actualPath.push(cloneHex(current))
-    timelineCells.push(cloneHex(current))
+    timeline.push({ position: clonePoint(attemptedWorld), axisId: stepAxisId })
     activeAxisId = stepAxisId
   }
 
+  const firstCollisionCell = collisions[0]?.contactCell ? cloneHex(collisions[0].contactCell) : null
   return {
     finalHex: cloneHex(current),
+    inputHex: firstCollisionCell ?? cloneHex(route.targetHex),
     actualPath,
-    timelineCells,
+    timeline,
     collisions,
     reflectionCount,
     reflected: reflectionCount > 0,
@@ -263,24 +272,21 @@ function invalidPlan(state, action, spatialMode, reason) {
 }
 
 function samplesForResolvedRoute(state, resolved, finalAxisId, finalVelocity) {
-  const cells = resolved.timelineCells
-  if (cells.length <= 1) {
+  const timeline = resolved.timeline
+  if (timeline.length <= 1) {
     return [
       { t: 0, position: { ...state.position }, velocity: { ...state.velocity }, axisId: axisIdFromState(state) },
       { t: 1, position: { ...state.position }, velocity: { ...finalVelocity }, axisId: finalAxisId },
     ]
   }
-  return cells.map((cell, index) => {
-    const previous = index > 0 ? cells[index - 1] : null
-    const stepAxis = previous && !sameHex(previous, cell) ? directionIdFromCells(previous, cell) : null
-    const t = index / (cells.length - 1)
-    return {
-      t,
-      position: axialToWorld(cell),
-      velocity: index === 0 ? { ...state.velocity } : { ...finalVelocity },
-      axisId: index === cells.length - 1 ? finalAxisId : (stepAxis ?? axisIdFromState(state)),
-    }
-  })
+  return timeline.map((record, index) => ({
+    t: index / (timeline.length - 1),
+    position: clonePoint(record.position),
+    velocity: index === 0 ? { ...state.velocity } : { ...finalVelocity },
+    axisId: index === timeline.length - 1 ? finalAxisId : (record.axisId ?? axisIdFromState(state)),
+    collision: Boolean(record.collision),
+    reflectionGuide: Boolean(record.reflectionGuide),
+  }))
 }
 
 function basicOutcomeForRoute(state, route) {
@@ -349,22 +355,25 @@ function simulateBasicRoute({ state, route, action, spatialMode, config, obstacl
     destinationDriven: true,
     landingId: route.id,
     nominalTargetHex: cloneHex(route.targetHex),
+    inputTargetHex: cloneHex(resolved.inputHex),
     reflectionCount: resolved.reflectionCount,
-    playerReflectionRule: 'physical-multi-bounce-v1',
+    forwardIntent: Boolean(route.forward),
+    playerReflectionRule: 'clipped-mirror-multi-bounce-v2',
+    surfaceGeometry: SURFACE_GEOMETRY_RULE,
   }
+}
+
+function chooseCandidateForAim(plans, aimCell) {
+  const matches = plans.filter((plan) => sameHex(plan.inputTargetHex, aimCell))
+  if (!matches.length) return null
+  return matches.find((plan) => plan.forwardIntent) ?? matches[0]
 }
 
 function basicCandidateForAim({ state, aimPoint, action, spatialMode, config, obstacles }) {
   if (!aimPoint) return null
   const aimCell = worldToAxial(aimPoint)
-  const routes = envelopeForState(state)
-  const direct = routes.filter((route) => sameHex(route.targetHex, aimCell))
-  const rest = routes.filter((route) => !sameHex(route.targetHex, aimCell))
-  for (const route of [...direct, ...rest]) {
-    const plan = simulateBasicRoute({ state, route, action, spatialMode, config, obstacles })
-    if (sameHex(worldToAxial(plan.finalState.position), aimCell)) return plan
-  }
-  return null
+  const plans = envelopeForState(state).map((route) => simulateBasicRoute({ state, route, action, spatialMode, config, obstacles }))
+  return chooseCandidateForAim(plans, aimCell)
 }
 
 export function simulateBasicMoveRule({
@@ -425,22 +434,19 @@ function simulateDriveRoute({ state, route, action, config, obstacles }) {
     destinationDriven: true,
     landingId: route.id,
     nominalTargetHex: cloneHex(route.targetHex),
+    inputTargetHex: cloneHex(resolved.inputHex),
     reflectionCount: resolved.reflectionCount,
-    playerReflectionRule: 'physical-multi-bounce-v1',
+    forwardIntent: Boolean(route.forward),
+    playerReflectionRule: 'clipped-mirror-multi-bounce-v2',
+    surfaceGeometry: SURFACE_GEOMETRY_RULE,
   }
 }
 
 function driveCandidateForAim({ state, action, aimPoint, config, obstacles }) {
   if (!aimPoint) return null
   const aimCell = worldToAxial(aimPoint)
-  const routes = envelopeForState(state)
-  const direct = routes.filter((route) => sameHex(route.targetHex, aimCell))
-  const rest = routes.filter((route) => !sameHex(route.targetHex, aimCell))
-  for (const route of [...direct, ...rest]) {
-    const plan = simulateDriveRoute({ state, route, action, config, obstacles })
-    if (sameHex(worldToAxial(plan.finalState.position), aimCell)) return plan
-  }
-  return null
+  const plans = envelopeForState(state).map((route) => simulateDriveRoute({ state, route, action, config, obstacles }))
+  return chooseCandidateForAim(plans, aimCell)
 }
 
 function simulateDiscreteCurvedDrive({
@@ -492,14 +498,24 @@ export function discreteActionReachability({
       ? simulateBasicRoute({ state, route, action, spatialMode, config, obstacles })
       : simulateDriveRoute({ state, route, action, config, obstacles })
     if (!plan.valid) continue
-    const finalHex = worldToAxial(plan.finalState.position)
+    const inputHex = cloneHex(plan.inputTargetHex ?? route.targetHex)
+    const resolvedFinalHex = worldToAxial(plan.finalState.position)
     results.push({
       id: route.id,
-      targetHex: cloneHex(finalHex),
+      // `finalHex` intentionally mirrors the clickable/highlighted input Cell so
+      // existing UI plumbing highlights the collision Cell. The physical final
+      // landing remains available separately for debug/prediction.
+      targetHex: cloneHex(inputHex),
+      finalHex: cloneHex(inputHex),
+      resolvedFinalHex: cloneHex(resolvedFinalHex),
       nominalTargetHex: cloneHex(route.targetHex),
-      finalHex: cloneHex(finalHex),
       pathCells: plan.traversedCells.slice(1).map(cloneHex),
-      collisions: plan.collisions.map((entry) => ({ ...entry, cell: entry.cell ? cloneHex(entry.cell) : undefined })),
+      collisions: plan.collisions.map((entry) => ({
+        ...entry,
+        cell: entry.cell ? cloneHex(entry.cell) : undefined,
+        contactCell: entry.contactCell ? cloneHex(entry.contactCell) : undefined,
+        attemptedCell: entry.attemptedCell ? cloneHex(entry.attemptedCell) : undefined,
+      })),
       reflectionCount: plan.reflectionCount ?? 0,
       range: plan.range,
       finalM: plan.finalM,
@@ -516,5 +532,5 @@ export function basicMoveReachability(input) {
 }
 
 export function reachableKeySet(reachability) {
-  return new Set(reachability.map((entry) => axialKey(entry.finalHex ?? entry.targetHex)))
+  return new Set(reachability.map((entry) => axialKey(entry.targetHex ?? entry.finalHex)))
 }

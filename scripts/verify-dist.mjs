@@ -33,7 +33,11 @@ for (const marker of [
   'reachable-cell-target-v4',
   'connected-envelope-m-spend-v4',
   'cell-target-curved-composition',
-  'physical-multi-bounce-v1',
+  'clipped-mirror-multi-bounce-v2',
+  'clipped-cell-mirror-v2',
+  'boundary-corner-chamfer',
+  'stepwise-clipped-mirror-v2',
+  'reserved-cell-stop',
   'actor-body-screen-arrow-v5',
   'actor-axis-hud',
   'unified-arrow-v1',
@@ -42,7 +46,6 @@ for (const marker of [
   'lifted-outline-v3',
   'yellow-dashed-path-v2',
   'contact-staggered-fast-v3',
-  'stepwise-reflect-v1',
   'surface-reflection',
   'surface-stop',
   'Landing Cell Input',
@@ -71,6 +74,7 @@ for (const obsolete of [
   'actor-screen-arrow-v4',
   'animated-actor-path-v2',
   'connected-envelope-v3',
+  'physical-multi-bounce-v1',
   'exchange → preflight → animate → commit',
 ]) assert(!script.includes(obsolete), `obsolete runtime marker still bundled: ${obsolete}`)
 
@@ -88,4 +92,4 @@ for (const marker of [
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified player physical multi-bounce reflection plus existing Axis/Hold/knockback runtime for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified clipped mirror player/knockback reflection plus existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)
