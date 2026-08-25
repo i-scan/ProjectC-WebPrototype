@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { axialKey, axialToWorld, directionVector, worldToAxial } from './hex.js'
-import { momentumSpeed } from './solver.js'
+import { DEFAULT_SOLVER_CONFIG, momentumSpeed } from './solver.js'
 import { basicMoveReachability, discreteActionReachability, simulateBasicMoveRule, simulatePrototypeSpatial } from './spatial-rules.js'
 
 function stateAt(hex, axisId = 'E', level = 3) {
@@ -14,10 +14,15 @@ function stateAt(hex, axisId = 'E', level = 3) {
   }
 }
 
+function configFor(boardRadius) {
+  return { ...DEFAULT_SOLVER_CONFIG, boardRadius }
+}
+
 function reachMap(state, actionId = 'basic-move', boardRadius = 3, obstacles = []) {
+  const config = configFor(boardRadius)
   const entries = actionId === 'basic-move'
-    ? basicMoveReachability({ state, spatialMode: 'discrete', config: { boardRadius }, obstacles })
-    : discreteActionReachability({ state, actionId, spatialMode: 'discrete', config: { boardRadius }, obstacles })
+    ? basicMoveReachability({ state, spatialMode: 'discrete', config, obstacles })
+    : discreteActionReachability({ state, actionId, spatialMode: 'discrete', config, obstacles })
   return new Map(entries.map((entry) => [axialKey(entry.finalHex), entry]))
 }
 
@@ -37,7 +42,7 @@ describe('player physical boundary reflection', () => {
       state,
       aimPoint: axialToWorld({ q: 1, r: 0 }),
       spatialMode: 'discrete',
-      config: { boardRadius: 3 },
+      config: configFor(3),
       obstacles: [],
     })
 
@@ -82,7 +87,7 @@ describe('player physical boundary reflection', () => {
       actionId: 'drive',
       spatialMode: 'discrete',
       aimPoint: axialToWorld(reflected.finalHex),
-      config: { boardRadius: 3 },
+      config: configFor(3),
       obstacles: [],
     })
     expect(plan.valid).toBe(true)
