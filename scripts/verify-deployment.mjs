@@ -42,6 +42,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'cell-target-curved-composition',
       'clipped-mirror-multi-bounce-v2',
       'clipped-cell-mirror-v2',
+      'contact-ray-step-budget-v3',
       'boundary-corner-chamfer',
       'stepwise-clipped-mirror-v2',
       'reserved-cell-stop',
@@ -72,7 +73,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · clipped mirror boundary/knockback reflection + collision-cell targeting`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · full reflected Cell budget + physical wall mirror branches`)
     process.exit(0)
   } catch (error) {
     lastError = error
