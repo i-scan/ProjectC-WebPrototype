@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 
 const expectedCommit = process.env.EXPECTED_COMMIT || process.env.VITE_BUILD_COMMIT || 'local'
 const distDir = resolve('dist')
-const info = JSON.parse(await readFile(resolve(distDir, 'build-info.json'), 'utf8'))
+const info = JSON.parse(await readFile(resolve(distDir, 'build-info.json'), 'utf8')
 const html = await readFile(resolve(distDir, 'index.html'), 'utf8')
 
 function assert(condition, message) {
@@ -33,6 +33,7 @@ for (const marker of [
   'reachable-cell-target-v4',
   'connected-envelope-m-spend-v4',
   'cell-target-curved-composition',
+  'physical-multi-bounce-v1',
   'actor-body-screen-arrow-v5',
   'actor-axis-hud',
   'unified-arrow-v1',
@@ -87,4 +88,4 @@ for (const marker of [
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified actor-body Axis, Hold, 4 AT / 0.5s defaults, stepwise knockback, and directional reflection dist for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified player physical multi-bounce reflection plus existing Axis/Hold/knockback runtime for ${info.branch}@${info.shortCommit}.`)
