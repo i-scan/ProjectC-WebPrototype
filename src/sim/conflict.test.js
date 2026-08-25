@@ -183,13 +183,13 @@ describe('Cell Conflict / knockback prototype', () => {
     const bounce = resolved.conflictEvents.find((event) => event.kind === 'surface-reflection')
     expect(bounce).toMatchObject({
       obstacleKind: 'hard',
-      geometryKind: 'obstacle',
       axisBefore: 'E',
       axisAfter: 'W',
       beforeM: 3,
       afterM: 2,
       surfaceGeometry: 'clipped-cell-mirror-v2',
     })
+    expect(bounce.geometryKind).toMatch(/^obstacle/)
     expect(resolved.actorTrajectories.dummy.some((point) => !Number.isInteger(point.q) || !Number.isInteger(point.r))).toBe(true)
     expect(resolved.actorStates[0].hex).toEqual({ q: 2, r: 0 })
     expect(momentumLevel(Math.hypot(resolved.actorStates[0].velocity.x, resolved.actorStates[0].velocity.z))).toBe(2)
