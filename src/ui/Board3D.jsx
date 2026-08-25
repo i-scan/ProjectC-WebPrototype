@@ -11,6 +11,7 @@ const DUMMY_YELLOW = 0xf0c84f
 const REACHABLE_CYAN = 0x72ddff
 const AXIS_HUD_LENGTH_PX = 30
 const AXIS_HUD_STROKE_PX = 2.5
+const AXIS_BODY_Y = 0.5
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
@@ -131,33 +132,28 @@ function createActorAxisHud() {
   defs.appendChild(marker)
   svg.appendChild(defs)
 
-  const horizontal = svgElement('g', { 'data-axis-hud-kind': 'horizontal' })
-  const horizontalLine = svgElement('line', {
-    stroke: '#f2c85a', 'stroke-width': AXIS_HUD_STROKE_PX, 'stroke-linecap': 'round',
-    'marker-end': 'url(#projectc-actor-axis-arrow-head)',
-  })
-  horizontalLine.style.filter = 'drop-shadow(0 0 3px rgba(242,200,90,.66))'
-  horizontal.appendChild(horizontalLine)
-  svg.appendChild(horizontal)
+  const makeAxisLine = (kind) => {
+    const group = svgElement('g', { 'data-axis-hud-kind': kind })
+    const line = svgElement('line', {
+      stroke: '#f2c85a', 'stroke-width': AXIS_HUD_STROKE_PX, 'stroke-linecap': 'round',
+      'marker-end': 'url(#projectc-actor-axis-arrow-head)',
+    })
+    line.style.filter = 'drop-shadow(0 0 3px rgba(242,200,90,.66))'
+    group.appendChild(line)
+    svg.appendChild(group)
+    group.style.display = 'none'
+    return { group, line }
+  }
 
-  const down = svgElement('g', { 'data-axis-hud-kind': 'down' })
-  down.appendChild(svgElement('circle', {
-    cx: '0', cy: '10', r: '9', fill: 'rgba(90,190,235,.12)', stroke: '#7ed8ff', 'stroke-width': '2',
-  }))
-  down.appendChild(svgElement('path', {
-    d: 'M 0 4 L 0 15 M -4 11 L 0 15 L 4 11', fill: 'none', stroke: '#7ed8ff', 'stroke-width': '2',
-    'stroke-linecap': 'round', 'stroke-linejoin': 'round',
-  }))
-  const downText = svgElement('text', { x: '12', y: '14', fill: '#bdeeff', 'font-size': '9', 'font-weight': '700' })
-  downText.style.paintOrder = 'stroke'
-  downText.style.stroke = '#111923'
-  downText.style.strokeWidth = '3px'
-  down.appendChild(downText)
-  svg.appendChild(down)
-
-  horizontal.style.display = 'none'
-  down.style.display = 'none'
-  return { svg, horizontal, horizontalLine, down, downText }
+  const horizontal = makeAxisLine('horizontal')
+  const down = makeAxisLine('down')
+  return {
+    svg,
+    horizontal: horizontal.group,
+    horizontalLine: horizontal.line,
+    down: down.group,
+    downLine: down.line,
+  }
 }
 
 function projectedPoint(point, camera, width, height) {
@@ -173,17 +169,34 @@ function downOverrideLevel(override) {
   return clamp(Number(String(override).split('-')[1]) || 1, 1, 3)
 }
 
+function setScreenArrow(line, source, dx, dy, startOffset = 3) {
+  const screenLength = Math.max(1, Math.hypot(dx, dy))
+  const ux = dx / screenLength
+  const uy = dy / screenLength
+  line.setAttribute('x1', (source.x + ux * startOffset).toFixed(2))
+  line.setAttribute('y1', (source.y + uy * startOffset).toFixed(2))
+  line.setAttribute('x2', (source.x + ux * AXIS_HUD_LENGTH_PX).toFixed(2))
+  line.setAttribute('y2', (source.y + uy * AXIS_HUD_LENGTH_PX).toFixed(2))
+}
+
 function updateActorAxisHud(hud, camera, width, height, visualState, spatialMode, override) {
   if (!hud || !camera || width < 1 || height < 1) return 'none'
   const downLevel = downOverrideLevel(override)
-  const sourceWorld = new THREE.Vector3(visualState.position.x, 1.22, visualState.position.z)
+  const sourceWorld = new THREE.Vector3(visualState.position.x, AXIS_BODY_Y, visualState.position.z)
   const source = projectedPoint(sourceWorld, camera, width, height)
 
   if (downLevel) {
     hud.horizontal.style.display = 'none'
     hud.down.style.display = ''
-    hud.down.setAttribute('transform', `translate(${source.x.toFixed(2)} ${source.y.toFixed(2)})`)
-    hud.downText.textContent = `Down · M${downLevel}`
+    const downWorld = sourceWorld.clone().add(new THREE.Vector3(0, -1, 0))
+    const downTarget = projectedPoint(downWorld, camera, width, height)
+    let dx = downTarget.x - source.x
+    let dy = downTarget.y - source.y
+    if (Math.hypot(dx, dy) < 4) {
+      dx = 0
+      dy = 1
+    }
+    setScreenArrow(hud.downLine, source, dx, dy)
     return 'down'
   }
 
@@ -207,16 +220,7 @@ function updateActorAxisHud(hud, camera, width, height, visualState, spatialMode
   hud.horizontal.style.display = ''
   const targetWorld = sourceWorld.clone().add(new THREE.Vector3(direction.x, 0, direction.z))
   const target = projectedPoint(targetWorld, camera, width, height)
-  const dx = target.x - source.x
-  const dy = target.y - source.y
-  const screenLength = Math.max(1, Math.hypot(dx, dy))
-  const ux = dx / screenLength
-  const uy = dy / screenLength
-  const startOffset = 7
-  hud.horizontalLine.setAttribute('x1', (source.x + ux * startOffset).toFixed(2))
-  hud.horizontalLine.setAttribute('y1', (source.y + uy * startOffset).toFixed(2))
-  hud.horizontalLine.setAttribute('x2', (source.x + ux * AXIS_HUD_LENGTH_PX).toFixed(2))
-  hud.horizontalLine.setAttribute('y2', (source.y + uy * AXIS_HUD_LENGTH_PX).toFixed(2))
+  setScreenArrow(hud.horizontalLine, source, target.x - source.x, target.y - source.y)
   return directionId
 }
 
@@ -430,17 +434,19 @@ export function Board3D({
     host.replaceChildren(renderer.domElement, axisHud.svg)
     axisHudRef.current = axisHud
 
-    host.dataset.axisStyle = 'actor-screen-arrow-v4'
+    host.dataset.axisStyle = 'actor-body-screen-arrow-v5'
     host.dataset.actorAxisPersistent = 'true'
     host.dataset.axisLengthPx = String(AXIS_HUD_LENGTH_PX)
     host.dataset.axisStrokePx = String(AXIS_HUD_STROKE_PX)
     host.dataset.axisSupportsDown = 'true'
+    host.dataset.axisAnchor = 'actor-body'
+    host.dataset.axisDownStyle = 'unified-arrow-v1'
     host.dataset.previewStyle = 'blue-dashed-no-arrow-v3'
     host.dataset.previewArrow = 'none'
     host.dataset.previewAuthority = 'cell-target-path-v3'
     host.dataset.reachableHighlight = 'lifted-outline-v3'
     host.dataset.knockbackPreview = 'yellow-dashed-path-v2'
-    host.dataset.knockbackPlayback = 'animated-actor-path-v2'
+    host.dataset.knockbackPlayback = 'contact-staggered-fast-v3'
     host.dataset.middlePan = 'enabled'
 
     const camera = new THREE.OrthographicCamera(-7, 7, 5, -5, 0.1, 60)
@@ -631,21 +637,29 @@ export function Board3D({
             actorPoints,
           }
         }
-        const sampled = sampleRecord(activePlayback.samples, progress)
-        const pathPosition = samplePoint(playbackCacheRef.current.playerPoints, progress)
+        const playerEnd = clamp(activePlayback.playerPlaybackEnd ?? 1, 0.05, 1)
+        const playerProgress = clamp(progress / playerEnd, 0, 1)
+        const sampled = sampleRecord(activePlayback.samples, playerProgress)
+        const pathPosition = samplePoint(playbackCacheRef.current.playerPoints, playerProgress)
         if (sampled) {
           visualState = {
             ...stateRef.current,
             position: pathPosition ? { x: pathPosition.x, z: pathPosition.z } : sampled.position,
             velocity: sampled.velocity,
-            axisId: sampled.axisId ?? (progress > 0.65 ? activePlayback.finalState?.axisId : stateRef.current.axisId),
+            axisId: sampled.axisId ?? (playerProgress > 0.65 ? activePlayback.finalState?.axisId : stateRef.current.axisId),
           }
         }
         host.dataset.playbackProgress = progress.toFixed(3)
+        host.dataset.playerPlaybackProgress = playerProgress.toFixed(3)
+        host.dataset.playerPlaybackEnd = playerEnd.toFixed(3)
+        host.dataset.actorPlaybackWindowCount = String(Object.keys(activePlayback.actorPlaybackWindows ?? {}).length)
         host.dataset.playbackId = String(activePlayback.id)
       } else {
         playbackCacheRef.current = { id: null, playerPoints: [], actorPoints: new Map() }
         host.dataset.playbackProgress = '0'
+        host.dataset.playerPlaybackProgress = '0'
+        host.dataset.playerPlaybackEnd = '1'
+        host.dataset.actorPlaybackWindowCount = '0'
         delete host.dataset.playbackId
       }
 
@@ -683,9 +697,13 @@ export function Board3D({
         if (activePlayback) {
           const points = playbackCacheRef.current.actorPoints.get(actor.id)
           if (points?.length > 1) {
-            const animated = samplePoint(points, progress)
+            const window = activePlayback.actorPlaybackWindows?.[actor.id]
+            const actorProgress = window
+              ? clamp((progress - window.start) / Math.max(0.02, window.end - window.start), 0, 1)
+              : progress
+            const animated = samplePoint(points, actorProgress)
             if (animated) position = { x: animated.x, z: animated.z }
-            y += Math.sin(progress * Math.PI) * 0.34
+            if (actorProgress > 0 && actorProgress < 1) y += Math.sin(actorProgress * Math.PI) * 0.34
           }
         }
         object.position.set(position.x, y, position.z)
