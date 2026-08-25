@@ -81,8 +81,8 @@ describe('destination-driven Basic Move envelope', () => {
     ])
   })
 
-  it('makes M3 a connected seven-Cell front instead of three disconnected segments', () => {
-    expect(reachKeys(3)).toEqual(['0,2', '1,2', '2,-2', '2,1', '3,-1', '3,-2', '3,0'])
+  it('narrows M3 by one Cell on each side while keeping the five-Cell front connected', () => {
+    expect(reachKeys(3)).toEqual(['1,2', '2,1', '3,-1', '3,-2', '3,0'])
 
     const connectorNe = move(stateAt({ q: 0, r: 0 }, 'E', 3), { q: 3, r: -1 })
     expect(connectorNe.valid).toBe(true)
@@ -110,7 +110,7 @@ describe('destination-driven Basic Move envelope', () => {
     expect(ne).toEqual(new Set(['0,-1', '1,-2', '2,-2', '2,-1', '1,0']))
   })
 
-  it('preserves M0 Axis establishment and same-Axis natural M build', () => {
+  it('preserves low-M natural build but spends one M when forward travel uses M2/M3 range', () => {
     const establish = move(stateAt({ q: 0, r: 0 }), { q: 1, r: 0 })
     expect(establish.basicRule).toBe('establish-axis')
     expect(establish.finalState.axisId).toBe('E')
@@ -121,10 +121,16 @@ describe('destination-driven Basic Move envelope', () => {
     expect(m0ToM1.finalM).toBe(1)
 
     const m1ToM2 = move(stateAt({ q: 0, r: 0 }, 'E', 1), { q: 1, r: 0 })
+    expect(m1ToM2.basicRule).toBe('same-axis-build')
     expect(m1ToM2.finalM).toBe(2)
 
-    const m2ToM3 = move(stateAt({ q: 0, r: 0 }, 'E', 2), { q: 2, r: 0 })
-    expect(m2ToM3.finalM).toBe(3)
+    const m2Spend = move(stateAt({ q: 0, r: 0 }, 'E', 2), { q: 2, r: 0 })
+    expect(m2Spend.basicRule).toBe('forward-range-spend')
+    expect(m2Spend.finalM).toBe(1)
+
+    const m3Spend = move(stateAt({ q: 0, r: 0 }, 'E', 3), { q: 3, r: 0 })
+    expect(m3Spend.basicRule).toBe('forward-range-spend')
+    expect(m3Spend.finalM).toBe(2)
   })
 
   it('rejects non-reachable reverse landings without entering a movement plan', () => {
