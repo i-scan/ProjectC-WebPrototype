@@ -40,6 +40,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'reachable-cell-target-v4',
       'connected-envelope-m-spend-v4',
       'cell-target-curved-composition',
+      'physical-multi-bounce-v1',
       'actor-body-screen-arrow-v5',
       'actor-axis-hud',
       'unified-arrow-v1',
@@ -68,7 +69,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · actor-body Axis + Hold + 4 AT / 0.5s + stepwise reflection`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · player physical multi-bounce reflection + existing staged knockback`)
     process.exit(0)
   } catch (error) {
     lastError = error
