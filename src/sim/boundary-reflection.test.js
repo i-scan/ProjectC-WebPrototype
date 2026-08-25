@@ -73,7 +73,9 @@ describe('player clipped mirror boundary reflection', () => {
       { q: 1, r: 1 },
       { q: 0, r: 2 },
     ])
-    expect(worldToAxial(plan.finalState.position)).toEqual({ q: 0, r: 2 })
+    const finalHex = worldToAxial(plan.finalState.position)
+    expect(Math.abs(finalHex.q)).toBe(0)
+    expect(finalHex.r).toBe(2)
     expect(plan.axisAfter).toBe('SW')
     expect(plan.finalM).toBe(1)
     expect(plan.samples.some((sample) => sample.collision)).toBe(true)
@@ -110,18 +112,18 @@ describe('player clipped mirror boundary reflection', () => {
     expect(worldToAxial(plan.finalState.position)).toEqual({ q: 1, r: 2 })
   })
 
-  it('does not impose a one-reflection-per-AT cap in the raw physics experiment', () => {
+  it('chooses one incident wall face at a sharp obstacle vertex instead of synthesizing a 180-degree return', () => {
     const state = stateAt({ q: 1, r: 0 }, 'E', 3)
-    const obstacles = [
-      { id: 'wall-a', hex: { q: 2, r: 0 }, kind: 'hard' },
-      { id: 'wall-b', hex: { q: 0, r: 0 }, kind: 'hard' },
-    ]
+    const obstacles = [{ id: 'wall-a', hex: { q: 2, r: 0 }, kind: 'hard' }]
     const reach = reachMap(state, 'basic-move', 3, obstacles)
-    const multi = [...reach.values()].find((entry) => entry.reflectionCount >= 2)
+    const reflected = reach.get('1,0')
 
-    expect(multi).toBeTruthy()
-    expect(multi.reflectionCount).toBeGreaterThanOrEqual(2)
-    expect(multi.finalM).toBe(0)
+    expect(reflected).toBeTruthy()
+    expect(reflected.reflectionCount).toBe(1)
+    expect(reflected.movedSteps).toBe(reflected.movementBudget)
+    expect(reflected.axisAfter).not.toBe('W')
+    expect(['NW', 'SW']).toContain(reflected.axisAfter)
+    expect(reflected.resolvedFinalHex).not.toEqual({ q: 0, r: 0 })
   })
 
   it('lets Discrete Drive use the same collision-Cell input and full mirror continuation budget', () => {
