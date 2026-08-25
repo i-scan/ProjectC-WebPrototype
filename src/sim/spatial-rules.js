@@ -1,4 +1,4 @@
-import { HEX_DIRECTIONS, axialKey, axialToWorld, worldToAxial } from './hex.js'
+import { HEX_DIRECTIONS, axialDistance, axialKey, axialToWorld, worldToAxial } from './hex.js'
 import {
   DEFAULT_SOLVER_CONFIG,
   actionById,
@@ -9,10 +9,11 @@ import {
 } from './solver.js'
 import { length, normalize, scale } from './vector.js'
 import {
+  REFLECTION_CONTINUATION_RULE,
   SURFACE_GEOMETRY_RULE,
   firstSurfaceImpact,
-  mirrorHexDirection,
-  nudgeFromSurface,
+  mirrorStepOptions,
+  nudgeFromSurfaceVector,
 } from './surface-geometry.js'
 
 const sameHex = (a, b) => Boolean(a && b && a.q === b.q && a.r === b.r)
@@ -115,10 +116,38 @@ function stepCell(cell, directionId) {
   return direction ? { q: cell.q + direction.q, r: cell.r + direction.r } : cloneHex(cell)
 }
 
-// Resolve authored Cell steps against explicit clipped surface geometry. The
-// logical actor remains in its current Cell on the collision step, but the
-// preview timeline records the exact contact point so the reflected dashed path
-// visibly leaves from the mirror surface instead of from the Cell center.
+function bestMirrorOptions(incomingAxisId, impact, current) {
+  const options = mirrorStepOptions(incomingAxisId, impact, current)
+  const seenFaces = new Set()
+  return options.filter((option) => {
+    if (seenFaces.has(option.faceIndex)) return false
+    seenFaces.add(option.faceIndex)
+    return true
+  })
+}
+
+function choosePlayerMirrorStep(current, impact, incomingAxisId, obstacles, boardRadius) {
+  const options = bestMirrorOptions(incomingAxisId, impact, current)
+  if (!options.length) return null
+
+  // At a sharp obstacle vertex, each incident face is a legitimate mirror
+  // branch. Prefer one that actually continues into a playable neighbor rather
+  // than collapsing the two normals into an artificial 180-degree return.
+  for (const option of options) {
+    const cell = stepCell(current, option.direction.id)
+    if (axialDistance(cell) > boardRadius) continue
+    if (obstacleAt(obstacles, cell)) continue
+    return { ...option, cell }
+  }
+  const fallback = options[0]
+  return { ...fallback, cell: stepCell(current, fallback.direction.id) }
+}
+
+// Resolve authored Cell steps against explicit clipped surface geometry. A
+// collision changes direction and may reduce Momentum, but it does NOT consume
+// one of the action's Cell-travel steps. This fixes the previous M2/M3 behavior
+// where the first reflected Cell was silently lost because the for-loop advanced
+// on the collision iteration itself.
 function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
   const actualPath = []
   const collisions = []
@@ -128,11 +157,16 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
   let activeAxisId = route.axisBefore ?? directionIdFromCells(route.startHex, route.pathCells[0]) ?? route.axisAfter
   let remainingMotionM = Math.max(0, Math.min(3, Math.round(motionM) || 0))
   let reflectionCount = 0
+  let authoredStep = 0
+  let movedSteps = 0
+  let guard = 0
+  const movementBudget = route.pathCells.length
   const timeline = [{ position: clonePoint(segmentStart), axisId: activeAxisId }]
 
-  for (let step = 0; step < route.pathCells.length; step += 1) {
-    const authoredCell = route.pathCells[step]
-    const authoredAxisId = directionIdFromCells(current, authoredCell)
+  while (movedSteps < movementBudget && guard < movementBudget * 5 + 12) {
+    guard += 1
+    const authoredCell = route.pathCells[Math.min(authoredStep, route.pathCells.length - 1)]
+    const authoredAxisId = reflectedMode ? null : directionIdFromCells(current, authoredCell)
     const stepAxisId = reflectedMode ? activeAxisId : (authoredAxisId ?? activeAxisId)
     if (!stepAxisId) break
 
@@ -148,15 +182,14 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
 
     if (impact) {
       const beforeM = remainingMotionM
-      const mirror = mirrorHexDirection(stepAxisId, impact.normal)
-      const reflectedDirection = mirror.direction
+      const mirror = choosePlayerMirrorStep(current, impact, stepAxisId, obstacles, config.boardRadius)
       reflectionCount += 1
       remainingMotionM = Math.max(0, remainingMotionM - 1)
       reflectedMode = true
-      if (reflectedDirection) activeAxisId = reflectedDirection.id
+      if (mirror?.direction) activeAxisId = mirror.direction.id
 
       const collision = {
-        t: (step + Math.max(0, Math.min(1, impact.t))) / Math.max(1, route.pathCells.length),
+        t: (movedSteps + Math.max(0, Math.min(1, impact.t))) / Math.max(1, movementBudget),
         kind: impact.surface === 'boundary' ? 'boundary' : obstacle?.kind ?? 'hard',
         geometryKind: impact.kind,
         obstacleId: obstacle?.id ?? null,
@@ -169,19 +202,24 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
         beforeM,
         afterM: remainingMotionM,
         reflection: true,
-        normal: clonePoint(impact.normal),
+        normal: clonePoint(mirror?.normal ?? impact.normal),
+        reflectedVector: mirror?.reflected ? clonePoint(mirror.reflected) : null,
         faceIds: [...(impact.faceIds ?? [])],
         surfaceGeometry: SURFACE_GEOMETRY_RULE,
+        reflectionContinuation: REFLECTION_CONTINUATION_RULE,
       }
       collisions.push(collision)
       timeline.push({ position: clonePoint(impact.point), axisId: activeAxisId, collision: true })
       segmentStart = clonePoint(impact.point)
 
-      if (remainingMotionM <= 0 || !reflectedDirection) break
-      // A tiny outgoing guide point constrains Catmull-Rom preview smoothing so
-      // the visible line leaves the exact mirror point instead of cutting across
-      // the wall/corner. It is visual only and does not consume a Cell step.
-      timeline.push({ position: nudgeFromSurface(impact.point, activeAxisId), axisId: activeAxisId, reflectionGuide: true })
+      if (remainingMotionM <= 0 || !mirror?.direction) break
+      timeline.push({
+        position: nudgeFromSurfaceVector(impact.point, mirror.reflected),
+        axisId: activeAxisId,
+        reflectionGuide: true,
+      })
+      // Do not increment movedSteps/authoredStep here. The remaining travel
+      // budget continues from the mirror contact point in the new direction.
       continue
     }
 
@@ -190,6 +228,8 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
     actualPath.push(cloneHex(current))
     timeline.push({ position: clonePoint(attemptedWorld), axisId: stepAxisId })
     activeAxisId = stepAxisId
+    movedSteps += 1
+    if (!reflectedMode) authoredStep += 1
   }
 
   const firstCollisionCell = collisions[0]?.contactCell ? cloneHex(collisions[0].contactCell) : null
@@ -203,6 +243,9 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
     reflected: reflectionCount > 0,
     axisAfter: reflectionCount > 0 ? activeAxisId : route.axisAfter,
     remainingMotionM,
+    movedSteps,
+    movementBudget,
+    reflectionContinuation: REFLECTION_CONTINUATION_RULE,
   }
 }
 
@@ -360,6 +403,9 @@ function simulateBasicRoute({ state, route, action, spatialMode, config, obstacl
     forwardIntent: Boolean(route.forward),
     playerReflectionRule: 'clipped-mirror-multi-bounce-v2',
     surfaceGeometry: SURFACE_GEOMETRY_RULE,
+    reflectionContinuation: resolved.reflectionContinuation,
+    reflectedMovedSteps: resolved.movedSteps,
+    reflectedMovementBudget: resolved.movementBudget,
   }
 }
 
@@ -439,6 +485,9 @@ function simulateDriveRoute({ state, route, action, config, obstacles }) {
     forwardIntent: Boolean(route.forward),
     playerReflectionRule: 'clipped-mirror-multi-bounce-v2',
     surfaceGeometry: SURFACE_GEOMETRY_RULE,
+    reflectionContinuation: resolved.reflectionContinuation,
+    reflectedMovedSteps: resolved.movedSteps,
+    reflectedMovementBudget: resolved.movementBudget,
   }
 }
 
@@ -522,6 +571,9 @@ export function discreteActionReachability({
       axisAfter: plan.axisAfter,
       rule: plan.basicRule ?? plan.driveRule,
       forward: Boolean(route.forward),
+      reflectionContinuation: plan.reflectionContinuation,
+      movedSteps: plan.reflectedMovedSteps,
+      movementBudget: plan.reflectedMovementBudget,
     })
   }
   return results

@@ -35,6 +35,7 @@ for (const marker of [
   'cell-target-curved-composition',
   'clipped-mirror-multi-bounce-v2',
   'clipped-cell-mirror-v2',
+  'contact-ray-step-budget-v3',
   'boundary-corner-chamfer',
   'stepwise-clipped-mirror-v2',
   'reserved-cell-stop',
@@ -92,4 +93,4 @@ for (const marker of [
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified clipped mirror player/knockback reflection plus existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified full reflected Cell budget + physical wall mirror branches plus existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)
