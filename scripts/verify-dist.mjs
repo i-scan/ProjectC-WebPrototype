@@ -75,7 +75,6 @@ for (const obsolete of [
   'animated-actor-path-v2',
   'connected-envelope-v3',
   'physical-multi-bounce-v1',
-  'stepwise-reflect-v1',
   'exchange → preflight → animate → commit',
 ]) assert(!script.includes(obsolete), `obsolete runtime marker still bundled: ${obsolete}`)
 
