@@ -12,6 +12,7 @@ export const BOARD_CLIP_MARGIN = 0.5
 export const BOARD_CORNER_CHAMFER_OFFSET = 0.25
 export const BOARD_CORNER_CHAMFER_RADIUS = 0.66
 export const SURFACE_GEOMETRY_RULE = 'clipped-cell-mirror-v2'
+export const REFLECTION_CONTINUATION_RULE = 'contact-ray-step-budget-v3'
 
 const AXIAL_FACE_NORMALS = Object.freeze({
   q: Object.freeze({ x: Math.sqrt(3) / 2, z: -0.5 }),
@@ -85,7 +86,6 @@ function cornerDefinitions(radius) {
 }
 
 function cornerChamferHits(fromWorld, toWorld, boardRadius) {
-  const delta = sub2(toWorld, fromWorld)
   const hits = []
   for (const corner of cornerDefinitions(boardRadius)) {
     const center = axialToWorld(corner.hex)
@@ -195,6 +195,13 @@ export function obstacleHexImpact(fromWorld, toWorld, obstacleHex, margin = BOAR
     t,
     point: lerp2(fromWorld, toWorld, t),
     normal,
+    // A sharp wall-Cell vertex has no unique physical normal. Keep the old
+    // bisector normal for diagnostics/backward compatibility, but also expose
+    // the actual incident faces so the continuation solver can choose one
+    // mirror branch instead of manufacturing a 180-degree return path.
+    candidateNormals: simultaneous.length > 1
+      ? simultaneous.map((entry) => ({ ...entry.outwardNormal }))
+      : null,
     faceIds: simultaneous.map((entry) => `${entry.sign > 0 ? '+' : '-'}${entry.axis}`),
   }
 }
@@ -217,6 +224,51 @@ export function mirrorHexDirection(incomingAxisId, normal) {
   return { direction: nearestHexDirection(reflectedVector), reflected: reflectedVector }
 }
 
+function rankedDirectionsFromContact(currentHex, contactPoint, reflectedVector) {
+  const reflectedUnit = normalize(reflectedVector)
+  return HEX_DIRECTIONS.map((direction) => {
+    const center = axialToWorld({ q: currentHex.q + direction.q, r: currentHex.r + direction.r })
+    const towardCenter = normalize(sub2(center, contactPoint))
+    return {
+      direction,
+      score: dot2(reflectedUnit, towardCenter),
+    }
+  }).sort((a, b) => b.score - a.score)
+}
+
+// Return physical continuation candidates without prematurely collapsing a
+// continuous mirror ray into "the opposite neighbor". For an unambiguous face
+// this is simply the reflected ray ranked against the six neighboring Cell
+// centers from the real contact point. For a sharp wall vertex we expose one
+// branch per incident face; callers can then reject occupied/reserved Cells.
+export function mirrorStepOptions(incomingAxisId, impact, currentHex) {
+  if (!incomingAxisId || !impact?.normal || !currentHex) return []
+  const incoming = directionVector(incomingAxisId)
+  const normals = impact.candidateNormals?.length ? impact.candidateNormals : [impact.normal]
+  const options = []
+  const seen = new Set()
+
+  normals.forEach((normal, faceIndex) => {
+    const reflectedVector = reflect(incoming, normal, 1)
+    for (const ranked of rankedDirectionsFromContact(currentHex, impact.point, reflectedVector)) {
+      if (ranked.score <= 0.08) continue
+      const key = `${faceIndex}:${ranked.direction.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      options.push({
+        direction: ranked.direction,
+        reflected: reflectedVector,
+        normal: { ...normal },
+        score: ranked.score,
+        faceIndex,
+        ambiguousVertex: normals.length > 1,
+      })
+    }
+  })
+
+  return options.sort((a, b) => b.score - a.score)
+}
+
 export function fractionalHexForWorldPoint(point) {
   const axial = worldToAxialFraction(point)
   return { q: axial.q, r: axial.r }
@@ -224,5 +276,10 @@ export function fractionalHexForWorldPoint(point) {
 
 export function nudgeFromSurface(point, directionId, distance = 0.035) {
   const direction = directionVector(directionId)
+  return { x: point.x + direction.x * distance, z: point.z + direction.z * distance }
+}
+
+export function nudgeFromSurfaceVector(point, vector, distance = 0.035) {
+  const direction = normalize(vector)
   return { x: point.x + direction.x * distance, z: point.z + direction.z * distance }
 }
