@@ -76,7 +76,10 @@ function stateForConflictScenario(kind) {
   }
 }
 function actorCellList(actors = []) {
-  return actors.map((actor) => `${actor.label ?? actor.id}:${actor.hex.q},${actor.hex.r}`).join(' · ')
+  return actors.map((actor) => {
+    const actorM = momentumLevel(Math.hypot(actor.velocity?.x ?? 0, actor.velocity?.z ?? 0))
+    return `${actor.label ?? actor.id}:${actor.hex.q},${actor.hex.r} M${actorM}`
+  }).join(' · ')
 }
 function kinematicState(current, axisId, level) {
   const normalizedLevel = Math.max(0, Math.min(3, Math.round(Number(level) || 0)))
@@ -149,13 +152,30 @@ export function App() {
   const reachableKeys = useMemo(() => reachableKeySet(reachability), [reachability])
   const reachableCells = useMemo(() => uniqueReachable(reachability), [reachability])
 
+  const resolveConflicts = (plan) => resolveCellConflicts({
+    plan,
+    actors,
+    obstacles,
+    boardRadius,
+    surfaceRestitution: config.restitution,
+    boundaryRestitution: config.boundaryRestitution,
+  })
+
   const previewPlan = useMemo(() => {
     if (playback) return null
-    if (actionId !== 'coast' && !hoverHex) return null
+    if (!['coast', 'hold'].includes(actionId) && !hoverHex) return null
+    if (actionId === 'hold') return null
     if (destinationDriven && hoverHex && !reachableKeys.has(axialKey(hoverHex))) return null
     const aimPoint = hoverHex ? axialToWorld(hoverHex) : null
     const basePlan = simulatePrototypeSpatial({ spatialMode, state, actionId, aimPoint, config, obstacles })
-    return resolveCellConflicts({ plan: basePlan, actors, obstacles, boardRadius })
+    return resolveCellConflicts({
+      plan: basePlan,
+      actors,
+      obstacles,
+      boardRadius,
+      surfaceRestitution: config.restitution,
+      boundaryRestitution: config.boundaryRestitution,
+    })
   }, [playback, actionId, hoverHex, destinationDriven, reachableKeys, spatialMode, state, config, obstacles, actors, boardRadius])
 
   const predictedHex = previewPlan?.valid ? worldToAxial(previewPlan.finalState.position) : null
@@ -163,16 +183,20 @@ export function App() {
   const basicRange = momentumRange(momentum)
   const actionDescriptor = action.kind === 'basic'
     ? `CELL TARGET · M${momentum} envelope · M2/M3 long Move spends 1M`
-    : action.kind === 'coast'
-      ? 'COAST · ΔV 0'
-      : spatialMode === 'discrete' && ['drive', 'heavy-drive', 'hard-turn'].includes(actionId)
-        ? `CELL TARGET · ΔV ${action.force.toFixed(2)} · curved landing path`
-        : `ΔV ${action.force.toFixed(2)}`
+    : action.kind === 'hold'
+      ? 'HOLD · wait 1 AT · Horizontal M-1'
+      : action.kind === 'coast'
+        ? 'COAST · ΔV 0'
+        : spatialMode === 'discrete' && ['drive', 'heavy-drive', 'hard-turn'].includes(actionId)
+          ? `CELL TARGET · ΔV ${action.force.toFixed(2)} · curved landing path`
+          : `ΔV ${action.force.toFixed(2)}`
   const inputContract = destinationDriven
     ? `${action.label} → click a highlighted reachable Cell → follow the shown curve → commit the landing Cell`
-    : action.kind === 'coast'
-      ? 'Coast → current Velocity → 1 AT trajectory'
-      : `Impulse Card + Aim Cell → Current Velocity + ΔV → ${spatialMode === 'hybrid' ? 'continuous curved result' : 'discrete result'}`
+    : action.kind === 'hold'
+      ? 'Hold → remain in current Cell → M-1 → Passive Dissipation'
+      : action.kind === 'coast'
+        ? 'Coast → current Velocity → 1 AT trajectory'
+        : `Impulse Card + Aim Cell → Current Velocity + ΔV → ${spatialMode === 'hybrid' ? 'continuous curved result' : 'discrete result'}`
 
   const changeSpatialMode = (mode) => {
     if (mode !== 'discrete' && mode !== 'hybrid') return false
@@ -213,25 +237,28 @@ export function App() {
     return true
   }
 
-  const resolveClick = (hex) => {
+  const executeAction = (selectedActionId, hex = null) => {
     if (isPlaying) return false
-    if (destinationDriven && !reachableKeys.has(axialKey(hex))) return false
+    const selectedAction = actionById(selectedActionId)
+    const selectedDestinationDriven = isDestinationDrivenAction(selectedActionId, spatialMode)
+    if (selectedDestinationDriven && (!hex || !reachableKeys.has(axialKey(hex)))) return false
 
-    const point = axialToWorld(hex)
+    const point = hex ? axialToWorld(hex) : null
+    const aimPoint = ['coast', 'hold'].includes(selectedActionId) ? null : point
     const basePlan = simulatePrototypeSpatial({
       spatialMode,
       state,
-      actionId,
-      aimPoint: actionId === 'coast' ? null : point,
+      actionId: selectedActionId,
+      aimPoint,
       config,
       obstacles,
     })
-    const plan = resolveCellConflicts({ plan: basePlan, actors, obstacles, boardRadius })
+    const plan = resolveConflicts(basePlan)
     if (!plan.valid) return false
-    if (actionId === 'coast' && !plan.traversedCells.some((entry) => sameHex(entry, hex))) return false
+    if (selectedActionId === 'coast' && hex && !plan.traversedCells.some((entry) => sameHex(entry, hex))) return false
 
     const thermalBehavior = thermalBehaviorFor({
-      actionId,
+      actionId: selectedActionId,
       beforeSpeed: speed,
       collisions: plan.collisions.length,
     })
@@ -242,7 +269,8 @@ export function App() {
       thermal: structuredClone(thermal),
       spatialMode,
     }].slice(-80))
-    setSelectedAimHex({ ...hex })
+    setActionId(selectedAction.id)
+    setSelectedAimHex(selectedDestinationDriven && hex ? { ...hex } : null)
     setHoverHex(null)
     setPlayback({
       id: playbackIdRef.current++,
@@ -261,11 +289,15 @@ export function App() {
       destinationDriven: Boolean(plan.destinationDriven),
       conflictEvents: plan.conflictEvents ?? [],
       actorTrajectories: plan.actorTrajectories ?? {},
+      actorPlaybackWindows: plan.actorPlaybackWindows ?? {},
+      playerPlaybackEnd: plan.playerPlaybackEnd ?? 1,
       cellConflict: plan.cellConflict ?? null,
       thermalPeriodAt,
     })
     return true
   }
+
+  const resolveClick = (hex) => executeAction(actionId, hex)
 
   useEffect(() => {
     if (!playback || playback.pausedAt !== null) return undefined
@@ -319,7 +351,8 @@ export function App() {
 
   useEffect(() => {
     window.__PROJECTC_PROTOTYPE__ = {
-      fireAt(q, r) { return resolveClick({ q, r }) },
+      fireAt(q, r) { return executeAction(actionId, { q, r }) },
+      executeAction(id) { return executeAction(String(id), null) },
       setSpatialMode(mode) { return changeSpatialMode(mode) },
       setAction(id) {
         if (isPlaying || !ACTIONS.some((entry) => entry.id === id)) return false
@@ -357,6 +390,7 @@ export function App() {
       trajectory() { return structuredClone(playback?.samples ?? previewPlan?.samples ?? []) },
       conflicts() { return structuredClone(playback?.conflictEvents ?? previewPlan?.conflictEvents ?? []) },
       actorTrajectories() { return structuredClone(playback?.actorTrajectories ?? previewPlan?.actorTrajectories ?? {}) },
+      actorPlaybackWindows() { return structuredClone(playback?.actorPlaybackWindows ?? previewPlan?.actorPlaybackWindows ?? {}) },
       reachability() { return structuredClone(reachability) },
       snapshot() {
         return {
@@ -410,10 +444,16 @@ export function App() {
     setSelectedAimHex(null)
   }
 
-  const idleAimText = destinationDriven ? 'Hover / click a highlighted reachable Cell' : 'Hover a Cell to aim'
-  const handHelp = destinationDriven
-    ? 'Landing Cell is the input. The dashed curve only explains the route; it is not a second steering input.'
-    : 'Aim Cell defines impulse direction; preview and execution share one solver.'
+  const idleAimText = action.kind === 'hold'
+    ? 'Click Hold to wait in place for 1 AT'
+    : destinationDriven
+      ? 'Hover / click a highlighted reachable Cell'
+      : 'Hover a Cell to aim'
+  const handHelp = action.kind === 'hold'
+    ? 'Hold needs no target: clicking the card resolves 1 AT in place and dissipates 1 Horizontal M.'
+    : destinationDriven
+      ? 'Landing Cell is the input. The dashed curve only explains the route; it is not a second steering input.'
+      : 'Aim Cell defines impulse direction; preview and execution share one solver.'
   const axisHeadline = axisDisplayOverride.startsWith('down-')
     ? `Down · M${axisDisplayOverride.split('-')[1]}`
     : spatialMode === 'discrete'
@@ -447,12 +487,13 @@ export function App() {
       data-basic-aim-contract="reachable-cell-target-v4"
       data-basic-move-rules="connected-envelope-m-spend-v4"
       data-drive-rule="cell-target-curved-composition"
-      data-axis-ui="actor-screen-arrow-v4"
+      data-axis-ui="actor-body-screen-arrow-v5"
       data-at-visual-ms={atVisualMs}
       data-solver-steps={config.steps}
       data-conflict-actors={actors.length}
       data-cell-conflict={previewPlan?.cellConflict ? 'preview' : playback?.conflictEvents?.length ? 'playback' : 'idle'}
-      data-push-atomic="true"
+      data-push-atomic="false"
+      data-knockback-resolution="stepwise-reflect-v1"
       data-actor-collision-restitution={ACTOR_COLLISION_RESTITUTION}
       data-reachable-count={reachableCells.length}
     >
@@ -495,7 +536,7 @@ export function App() {
 
           <section className="panel-card prediction-card">
             <div className="section-heading"><h3>Predicted Outcome</h3><span>{previewPlan?.valid ? spatialMode : 'waiting target'}</span></div>
-            <p>{previewPlan ? planSummary(previewPlan) : destinationDriven ? 'Bright outlined Cells are legal landing Cells.' : 'Hover a Cell to preview this action.'}</p>
+            <p>{previewPlan ? planSummary(previewPlan) : action.kind === 'hold' ? 'Hold resolves immediately from the card.' : destinationDriven ? 'Bright outlined Cells are legal landing Cells.' : 'Hover a Cell to preview this action.'}</p>
             {previewPlan?.valid && (
               <dl className="state-list compact">
                 <div><dt>Clicked Cell</dt><dd>{hoverHex ? axialKey(hoverHex) : '—'}</dd></div>
@@ -503,7 +544,7 @@ export function App() {
                 <div><dt>Rule</dt><dd>{previewPlan.basicRule ?? previewPlan.driveRule ?? 'impulse'}</dd></div>
                 <div><dt>Axis</dt><dd>{previewPlan.axisBefore ?? axisId ?? 'none'} → {previewPlan.axisAfter ?? '—'}</dd></div>
                 <div><dt>Momentum</dt><dd>M{previewPlan.beforeM} → M{previewPlan.finalM}</dd></div>
-                <div><dt>Cell Conflict</dt><dd>{previewPlan.cellConflict ? `${previewPlan.cellConflict.targetActorId} · M${previewPlan.cellConflict.impactM} · ${previewPlan.cellConflict.resolved ? 'push' : 'blocked'}` : '—'}</dd></div>
+                <div><dt>Cell Conflict</dt><dd>{previewPlan.cellConflict ? `${previewPlan.cellConflict.targetActorId} · M${previewPlan.cellConflict.impactM} · ${previewPlan.cellConflict.resolved ? 'vacated' : 'blocked'}` : '—'}</dd></div>
                 <div><dt>M Exchange</dt><dd>{exchangeText(previewPlan.cellConflict?.momentumExchange)}</dd></div>
                 <div><dt>Target Actors</dt><dd>{actorCellList(previewPlan.actorStates ?? actors) || '—'}</dd></div>
               </dl>
@@ -554,8 +595,8 @@ export function App() {
             <div className="board-legend">
               <span><i className="trajectory" />Blue dashed line = player route</span>
               <span><i className="terrain" />Bright outline = legal landing Cell</span>
-              <span><i className="momentum-axis" />30px / 2.5px actor Axis arrow</span>
-              <span><i className="knockback-path" />Yellow dashed line = knockback / launch route</span>
+              <span><i className="momentum-axis" />Unified actor-body Axis arrow</span>
+              <span><i className="knockback-path" />Yellow dashed line = stepwise knockback / reflection</span>
             </div>
             {isPlaying && <div className="playback-badge">{playback?.spatialMode === 'discrete' ? 'Discrete' : 'Hybrid'} · 1 AT · {(playback?.durationMs / 1000).toFixed(2)} s · {playback?.thermalBehavior}</div>}
           </div>
@@ -573,11 +614,19 @@ export function App() {
                   className={`action-card ${entry.id === actionId ? 'selected' : ''}`}
                   data-action-id={entry.id}
                   disabled={isPlaying}
-                  onClick={() => { setActionId(entry.id); setHoverHex(null); setSelectedAimHex(null) }}
+                  onClick={() => {
+                    setHoverHex(null)
+                    setSelectedAimHex(null)
+                    if (entry.id === 'hold') {
+                      executeAction('hold')
+                      return
+                    }
+                    setActionId(entry.id)
+                  }}
                 >
                   <header>
                     <strong>{entry.label}</strong>
-                    <em>{entry.kind === 'basic' ? 'BASE' : entry.kind === 'coast' ? 'ΔV 0' : `ΔV ${entry.force.toFixed(2)}`}</em>
+                    <em>{entry.kind === 'basic' ? 'BASE' : entry.kind === 'hold' ? 'HOLD' : entry.kind === 'coast' ? 'ΔV 0' : `ΔV ${entry.force.toFixed(2)}`}</em>
                   </header>
                   <p>{entry.id === 'basic-move'
                     ? '点击高亮落点。M1=除反向外五邻格；M2=连续五格弧；M3=收窄后的连续五格前弧。M1 同轴仍可建立 M2；M2/M3 使用额外距离后本 AT 消耗 1M；转向同样 M-1。'
@@ -595,10 +644,10 @@ export function App() {
           <section className="panel-card spatial-ab-card">
             <div className="section-heading"><h3>Spatial Model A/B</h3><span>same board</span></div>
             <div className="ab-explain">
-              <button type="button" data-spatial-panel-select="discrete" className={spatialMode === 'discrete' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('discrete')}><b>Discrete</b><span>Cell landing + Axis/M + curved authored route + atomic Cell Conflict</span></button>
+              <button type="button" data-spatial-panel-select="discrete" className={spatialMode === 'discrete' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('discrete')}><b>Discrete</b><span>Cell landing + Axis/M + curved authored route + stepwise Cell Conflict</span></button>
               <button type="button" data-spatial-panel-select="hybrid" className={spatialMode === 'hybrid' ? 'chosen' : ''} disabled={isPlaying} onClick={() => changeSpatialMode('hybrid')}><b>Hybrid</b><span>Continuous impulse P/V; Basic Move still uses explicit landing Cells</span></button>
             </div>
-            <small>Axis 直接常驻在 Actor 上。Horizontal 恢复之前 30px / 2.5px 的短粗规格；Down Axis 也保留为 Actor 上的测试指示，不重新增加独立 Axis 浮窗。</small>
+            <small>Horizontal / Down 现在统一使用 Actor 躯干上的 30px / 2.5px 短粗黄色箭头，避开头顶 Momentum 点；Down 仅改变指示方向，不重新引入独立 Axis 浮窗。</small>
           </section>
 
           <section className="panel-card cell-inspector">
@@ -639,11 +688,11 @@ export function App() {
                 <button type="button" key={level} data-axis-display={`down-${level}`} className={axisDisplayOverride === `down-${level}` ? 'active' : ''} disabled={isPlaying} onClick={() => changeAxisDisplay(`down-${level}`)}>Down M{level}</button>
               ))}
             </div>
-            <small>Down M1/M2/M3 当前用于保留和验证 Down Axis 的 Actor 常驻指示；它暂不改写 Horizontal 移动 solver。</small>
+            <small>Down M1/M2/M3 当前仍用于验证 Down Axis 指示；Horizontal 与 Down 已统一为躯干上的同款箭头。真实 Brake 需要独立 Down Momentum 状态，暂不伪造。</small>
           </section>
 
           <section className="panel-card timebase-card">
-            <div className="section-heading"><h3>Timebase</h3><span>visual + Thermal</span></div>
+            <div className="section-heading"><h3>Timebase</h3><span>default 4 AT / 0.5s</span></div>
             <label className="range-row timebase-range">
               <span>Real time / AT</span>
               <input data-timebase-slider type="range" min="250" max="1600" step="50" value={atVisualMs} disabled={isPlaying} onChange={(event) => changeAtVisualMs(Number(event.target.value))} />
@@ -663,18 +712,18 @@ export function App() {
           </section>
 
           <section className="panel-card">
-            <div className="section-heading"><h3>Cell Conflict / Board</h3><span>momentum exchange + atomic push</span></div>
+            <div className="section-heading"><h3>Cell Conflict / Board</h3><span>momentum exchange + stepwise reflection</span></div>
             <div className="quick-grid">
               <button type="button" data-conflict-scenario="chain" disabled={isPlaying} onClick={() => runConflictScenario('chain')}>Chain Setup</button>
               <button type="button" data-conflict-scenario="wall" disabled={isPlaying} onClick={() => runConflictScenario('wall')}>Wall Setup</button>
             </div>
-            <p className="actor-sub">先按等质量 1D Actor 碰撞计算 M 交换，再用目标交换后的 M 进行整条击退链预检与动画。当前 Actor 恢复系数 e={ACTOR_COLLISION_RESTITUTION.toFixed(2)}，仅作为原型候选。</p>
+            <p className="actor-sub">先计算 Actor 间 M 交换，再逐 Cell 提交击退。撞墙或地图边界时按入射方向计算反射；已经发生的合法位移不会因为后续碰撞回滚。反射后的 Cell 合法则继续，否则停在当前 Cell。</p>
             <dl className="state-list compact">
               <div><dt>Actors</dt><dd>{actorCellList(actors) || '—'}</dd></div>
-              <div><dt>Preview</dt><dd>{previewPlan?.cellConflict ? `${previewPlan.cellConflict.resolved ? 'PUSH' : 'BLOCK'} · impact M${previewPlan.cellConflict.impactM}` : '—'}</dd></div>
+              <div><dt>Preview</dt><dd>{previewPlan?.cellConflict ? `${previewPlan.cellConflict.resolved ? 'VACATE' : 'BLOCK'} · impact M${previewPlan.cellConflict.impactM}` : '—'}</dd></div>
               <div><dt>M Exchange</dt><dd>{exchangeText(exchange)}</dd></div>
               <div><dt>Actor e</dt><dd>{ACTOR_COLLISION_RESTITUTION.toFixed(2)}</dd></div>
-              <div><dt>Atomic</dt><dd>exchange → preflight → animate → commit</dd></div>
+              <div><dt>Resolution</dt><dd>per-Cell → reflect / stop</dd></div>
             </dl>
             <label className="range-row"><span>Surface Restitution</span><input type="range" min="0" max="0.9" step="0.05" value={restitution} disabled={isPlaying} onChange={(event) => setRestitution(Number(event.target.value))} /><output>{restitution.toFixed(2)}</output></label>
             <button type="button" className={obstaclesEnabled ? 'active wide-button' : 'wide-button'} disabled={isPlaying} onClick={() => setObstaclesEnabled((value) => !value)}>Collision Surfaces {obstaclesEnabled ? 'ON' : 'OFF'}</button>
