@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { axialToWorld, directionVector } from './hex.js'
-import { momentumSpeed } from './solver.js'
+import { momentumLevel, momentumSpeed } from './solver.js'
 import { simulateBasicMoveRule } from './spatial-rules.js'
-import { createConflictActors, resolveCellConflicts } from './conflict.js'
+import { ACTOR_COLLISION_RESTITUTION, createConflictActors, exchangeActorMomentum, resolveCellConflicts } from './conflict.js'
 
 function stateAt(hex, level = 0, axisId = level > 0 ? 'E' : null) {
   const direction = axisId ? directionVector(axisId) : { x: 0, z: 0 }
@@ -25,6 +25,21 @@ function basicPlan(state, landingHex, obstacles = []) {
 }
 
 describe('Cell Conflict / knockback prototype', () => {
+  it('quantizes equal-mass actor momentum exchange instead of treating push as position-only', () => {
+    const exchange = exchangeActorMomentum({
+      sourceM: 2,
+      targetVelocity: { x: 0, z: 0 },
+      directionId: 'E',
+    })
+    expect(exchange.restitution).toBe(ACTOR_COLLISION_RESTITUTION)
+    expect(exchange.sourceBeforeM).toBe(2)
+    expect(exchange.targetBeforeM).toBe(0)
+    expect(exchange.sourceAfterM).toBe(1)
+    expect(exchange.targetAfterM).toBe(2)
+    expect(exchange.sourceAfterSpeed).toBeCloseTo(0.2125, 4)
+    expect(exchange.targetAfterSpeed).toBeCloseTo(1.4875, 4)
+  })
+
   it('blocks M0 from entering an occupied Cell without producing a one-sample playback', () => {
     const state = stateAt({ q: 0, r: 0 }, 0)
     const plan = basicPlan(state, { q: 1, r: 0 })
@@ -42,7 +57,7 @@ describe('Cell Conflict / knockback prototype', () => {
     expect(resolved.samples).toHaveLength(2)
   })
 
-  it('transfers M2 into an aligned three-actor knockback chain atomically and exposes animation paths', () => {
+  it('transfers M2 into a stationary actor before the atomic knockback chain resolves', () => {
     const state = stateAt({ q: 0, r: 1 }, 2, 'E')
     const plan = basicPlan(state, { q: 2, r: 1 })
     const resolved = resolveCellConflicts({
@@ -52,7 +67,18 @@ describe('Cell Conflict / knockback prototype', () => {
       boardRadius: 7,
     })
 
-    expect(resolved.cellConflict).toMatchObject({ targetActorId: 'dummy-a', impactM: 2, resolved: true, atomic: true })
+    expect(resolved.cellConflict).toMatchObject({
+      targetActorId: 'dummy-a',
+      impactM: 2,
+      resolved: true,
+      atomic: true,
+      momentumExchange: {
+        sourceBeforeM: 2,
+        targetBeforeM: 0,
+        sourceAfterM: 1,
+        targetAfterM: 2,
+      },
+    })
     expect(resolved.pushAtomic).toBe(true)
     expect(resolved.traversedCells.at(-1)).toEqual({ q: 2, r: 1 })
     expect(Object.fromEntries(resolved.actorStates.map((actor) => [actor.id, actor.hex]))).toEqual({
@@ -67,8 +93,11 @@ describe('Cell Conflict / knockback prototype', () => {
     ])
     expect(resolved.actorTrajectories['dummy-b'].length).toBeGreaterThan(1)
     expect(resolved.actorTrajectories['dummy-c'].length).toBeGreaterThan(1)
-    expect(resolved.conflictEvents.filter((event) => event.kind === 'cell-conflict')).toHaveLength(3)
-    expect(resolved.finalM).toBe(2)
+    expect(momentumLevel(Math.hypot(resolved.actorStates[0].velocity.x, resolved.actorStates[0].velocity.z))).toBe(2)
+    expect(resolved.conflictEvents.some((event) => event.kind === 'momentum-transfer' && event.sourceActorId === 'player' && event.targetAfterM === 2)).toBe(true)
+    // Basic Move itself spends M2 -> M1, and the actor collision also leaves the
+    // source at M1, so the combined final state remains M1 rather than M2/M3.
+    expect(resolved.finalM).toBe(1)
   })
 
   it('keeps the defender in place when a hard wall prevents the first knockback step', () => {
@@ -83,6 +112,7 @@ describe('Cell Conflict / knockback prototype', () => {
     })
 
     expect(resolved.cellConflict).toMatchObject({ targetActorId: 'dummy-a', impactM: 2, resolved: false, atomic: true })
+    expect(resolved.cellConflict.momentumExchange).toMatchObject({ sourceAfterM: 1, targetAfterM: 2 })
     expect(resolved.traversedCells.at(-1)).toEqual({ q: 1, r: 0 })
     expect(resolved.actorStates[0].hex).toEqual({ q: 2, r: 0 })
     expect(resolved.actorTrajectories['dummy-a']).toEqual([{ q: 2, r: 0 }])
