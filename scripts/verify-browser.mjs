@@ -169,10 +169,15 @@ try {
   const actorASpeed=Math.hypot(chainState.actors[0].velocity.x,chainState.actors[0].velocity.z);assert(afterChain.momentum===1&&actorASpeed>=1.2&&actorASpeed<2.2,'Transferred M did not persist',{afterChain,actorASpeed,chainState})
 
   await setConflictScenario(client,'wall');assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.fireAt(1,0)`),'wall partial-knockback rejected')
-  const wallTrajectories=await waitFor('partial wall trajectory',async()=>{const p=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.actorTrajectories()`);if((p['dummy-a']?.length??0)!==2)throw new Error(JSON.stringify(p));return p})
-  const wallEvents=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.conflicts()`);assert(wallEvents.some(e=>e.kind==='wall-crash'&&e.partial)&&wallEvents.some(e=>e.kind==='surface-stop'&&e.reflectedAxis==='W'),'wall must keep first Cell then stop when reflection is illegal',wallEvents)
+  const wallTrajectories=await waitFor('mirror wall trajectory',async()=>{
+    const p=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.actorTrajectories()`);const path=p['dummy-a']??[];const last=path.at(-1)
+    const hasContact=path.some(point=>!Number.isInteger(point.q)||!Number.isInteger(point.r));const hasQ2=path.some(point=>Math.abs(point.q-2)<1e-6&&Math.abs(point.r)<1e-6)
+    if(path.length<4||!hasContact||!hasQ2||!last||Math.abs(last.q-2)>1e-6||Math.abs(last.r)>1e-6)throw new Error(JSON.stringify(p));return p
+  })
+  const wallEvents=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.conflicts()`);assert(wallEvents.some(e=>e.kind==='wall-crash'&&e.partial)&&wallEvents.some(e=>e.kind==='surface-stop'&&e.reflectedAxis==='W'),'wall must keep first Cell, touch the mirror point, then stop when reflection is illegal',wallEvents)
   const afterWall=await idleAt(client,1);const wallState=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.snapshot()`)
-  assert(wallState.actors[0].hex.q===2&&wallState.actors[0].hex.r===0&&wallTrajectories['dummy-a'][0].q===1&&wallTrajectories['dummy-a'][1].q===2,'partial wall move was rolled back',{wallState,wallTrajectories})
+  const wallPath=wallTrajectories['dummy-a'];const crossedPlayer=wallPath.some(point=>Math.abs(point.q-1)<1e-6&&Math.abs(point.r)<1e-6&&point!==wallPath[0])
+  assert(wallState.actors[0].hex.q===2&&wallState.actors[0].hex.r===0&&wallPath[0].q===1&&wallPath.at(-1).q===2&&!crossedPlayer,'knocked Actor crossed through player or snapped away from resting Cell',{wallState,wallTrajectories})
   assert(Math.abs(afterWall.logicalX-1)<.02&&Math.abs(afterWall.logicalZ)<.02&&afterWall.momentum===1,'player must enter vacated contact Cell after partial knockback',afterWall)
 
   await resetUi(client);await setAtMs(client,300);assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.setSpatialMode('hybrid')`),'Hybrid switch failed');await setAction(client,'drive');await setKinematics(client,'E',1);assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.fireAt(0,-2)`),'Hybrid Drive rejected');const hybridSamples=await waitFor('Hybrid samples',async()=>{const s=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.trajectory()`);if(s.length<100)throw new Error(`samples=${s.length}`);return s});await idleAt(client,1)
@@ -180,5 +185,5 @@ try {
   await mkdir(artifactDir,{recursive:true});const screenshot=await client.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(join(artifactDir,'stepwise-reflection-hold.png'),Buffer.from(screenshot.data,'base64'))
   const evidence={initial,downM2,axisAuto,thermal6,thermal8,thermal4,reachM0,afterEstablish,reachM1,afterM1,reachM2,m2ForwardTrajectory,afterM2,reachM3,m3ForwardTrajectory,afterM3,holdPlaying,afterHold,afterReverseMove,driveReachM2,afterReverseDrive,driveTrajectory,duringChain,chainWindows,primaryTransfer,afterChain,chainCells,wallTrajectories,wallEvents,afterWall,hybridSampleCount:hybridSamples.length}
   await writeFile(join(artifactDir,'stepwise-reflection-hold.json'),`${JSON.stringify(evidence,null,2)}\n`)
-  console.log('Verified actor-body unified Axis, 4 AT / 0.5s defaults, direct Hold, M1/M2/M3 movement rules, staged fast knockback after contact, M transfer, partial wall travel with reflect-or-stop, strict map geometry, and Hybrid continuity.')
+  console.log('Verified actor-body unified Axis, 4 AT / 0.5s defaults, direct Hold, M1/M2/M3 movement rules, staged knockback after contact, clipped mirror contact paths, no player-target swap, strict map geometry, and Hybrid continuity.')
 } finally { client?.close();chromeProcess?.kill('SIGTERM');previewProcess?.kill('SIGTERM') }
