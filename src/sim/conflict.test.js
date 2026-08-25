@@ -63,6 +63,10 @@ function velocityForLevel(level, axisId = 'E') {
   return { x: direction.x * speed, z: direction.z * speed }
 }
 
+function integerPathAfterStart(path) {
+  return path.slice(1).filter((point) => Number.isInteger(point.q) && Number.isInteger(point.r))
+}
+
 describe('Cell Conflict / knockback prototype', () => {
   it('quantizes equal-mass actor momentum exchange instead of treating push as position-only', () => {
     const exchange = exchangeActorMomentum({
@@ -114,6 +118,7 @@ describe('Cell Conflict / knockback prototype', () => {
       atomic: false,
       resolution: 'stepwise-clipped-mirror-v2',
       surfaceGeometry: 'clipped-cell-mirror-v2',
+      reflectionContinuation: 'contact-ray-step-budget-v3',
       momentumExchange: {
         sourceBeforeM: 2,
         targetBeforeM: 0,
@@ -140,7 +145,7 @@ describe('Cell Conflict / knockback prototype', () => {
     expect(resolved.playerPlaybackEnd).toBeLessThan(resolved.actorPlaybackWindows['dummy-a'].start)
   })
 
-  it('keeps partial travel and never lets the reflected target cross back through the player Cell', () => {
+  it('uses a real wall-face mirror branch instead of returning along the player-target line', () => {
     const state = stateAt({ q: -1, r: 0 }, 2, 'E')
     const obstacles = [{ id: 'wall', hex: { q: 3, r: 0 }, radius: 0.34, kind: 'hard' }]
     const plan = basicPlan(state, { q: 1, r: 0 }, obstacles)
@@ -156,18 +161,24 @@ describe('Cell Conflict / knockback prototype', () => {
     expect(resolved.cellConflict).toMatchObject({ targetActorId: 'dummy-a', impactM: 2, resolved: true, atomic: false })
     expect(resolved.cellConflict.momentumExchange).toMatchObject({ sourceAfterM: 1, targetAfterM: 2 })
     expect(resolved.traversedCells.at(-1)).toEqual({ q: 1, r: 0 })
-    expect(resolved.actorStates[0].hex).toEqual({ q: 2, r: 0 })
     expect(resolved.actorStates[0].hex).not.toEqual({ q: 0, r: 0 })
+    expect(resolved.actorStates[0].hex).not.toEqual({ q: 1, r: 0 })
     expect(resolved.actorTrajectories['dummy-a'][0]).toEqual({ q: 1, r: 0 })
     expect(resolved.actorTrajectories['dummy-a']).toContainEqual({ q: 2, r: 0 })
     expect(resolved.actorTrajectories['dummy-a'].some((point) => !Number.isInteger(point.q) || !Number.isInteger(point.r))).toBe(true)
-    expect(momentumLevel(Math.hypot(resolved.actorStates[0].velocity.x, resolved.actorStates[0].velocity.z))).toBe(0)
-    expect(resolved.conflictEvents.some((event) => event.kind === 'wall-crash' && event.actorId === 'dummy-a' && event.partial)).toBe(true)
-    expect(resolved.conflictEvents.some((event) => event.kind === 'surface-stop' && event.actorId === 'dummy-a' && event.reflectedAxis === 'W')).toBe(true)
+    expect(integerPathAfterStart(resolved.actorTrajectories['dummy-a'])).not.toContainEqual({ q: 1, r: 0 })
+    const bounce = resolved.conflictEvents.find((event) => event.kind === 'surface-reflection' && event.actorId === 'dummy-a')
+    expect(bounce).toBeTruthy()
+    expect(bounce.axisBefore).toBe('E')
+    expect(bounce.axisAfter).not.toBe('W')
+    expect(['NW', 'SW']).toContain(bounce.axisAfter)
+    expect(bounce.ambiguousVertexBranch).toBe(true)
+    expect(bounce.reflectionContinuation).toBe('contact-ray-step-budget-v3')
+    expect(resolved.conflictEvents.some((event) => event.kind === 'surface-stop' && event.actorId === 'dummy-a')).toBe(false)
     expect(resolved.finalM).toBe(1)
   })
 
-  it('records the actual wall contact point before a legal reflection', () => {
+  it('records the actual wall contact point and leaves the sharp vertex along one mirror face', () => {
     const plan = manualContactPlan()
     const actors = [{ id: 'dummy', label: 'A', hex: { q: 1, r: 0 }, velocity: { x: 0, z: 0 }, axisId: null }]
     const obstacles = [{ id: 'wall', hex: { q: 4, r: 0 }, radius: 0.34, kind: 'hard' }]
@@ -184,14 +195,18 @@ describe('Cell Conflict / knockback prototype', () => {
     expect(bounce).toMatchObject({
       obstacleKind: 'hard',
       axisBefore: 'E',
-      axisAfter: 'W',
       beforeM: 3,
       afterM: 2,
       surfaceGeometry: 'clipped-cell-mirror-v2',
+      reflectionContinuation: 'contact-ray-step-budget-v3',
+      ambiguousVertexBranch: true,
     })
+    expect(['NW', 'SW']).toContain(bounce.axisAfter)
+    expect(bounce.axisAfter).not.toBe('W')
     expect(bounce.geometryKind).toMatch(/^obstacle/)
     expect(resolved.actorTrajectories.dummy.some((point) => !Number.isInteger(point.q) || !Number.isInteger(point.r))).toBe(true)
-    expect(resolved.actorStates[0].hex).toEqual({ q: 2, r: 0 })
+    expect(integerPathAfterStart(resolved.actorTrajectories.dummy)).not.toContainEqual({ q: 1, r: 0 })
+    expect(resolved.actorStates[0].hex.r).not.toBe(0)
     expect(momentumLevel(Math.hypot(resolved.actorStates[0].velocity.x, resolved.actorStates[0].velocity.z))).toBe(2)
   })
 
@@ -214,6 +229,7 @@ describe('Cell Conflict / knockback prototype', () => {
       axisBefore: 'E',
       axisAfter: 'SW',
       surfaceGeometry: 'clipped-cell-mirror-v2',
+      reflectionContinuation: 'contact-ray-step-budget-v3',
     })
     expect(resolved.actorStates[0].hex).not.toEqual({ q: 1, r: -1 })
     expect(resolved.actorStates[0].hex).not.toEqual({ q: 0, r: -1 })
