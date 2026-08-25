@@ -9,6 +9,9 @@ const PLAYER_BLUE = 0x58aed2
 const PLAYER_PATH_BLUE = 0x68cce8
 const DUMMY_YELLOW = 0xf0c84f
 const REACHABLE_CYAN = 0x72ddff
+const AXIS_HUD_LENGTH_PX = 30
+const AXIS_HUD_STROKE_PX = 2.5
+const SVG_NS = 'http://www.w3.org/2000/svg'
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
 function disposeObject(object) {
@@ -103,12 +106,91 @@ function nearestAxisId(velocity) {
   return best
 }
 
-function updateActorAxisArrow(arrow, visualState, spatialMode) {
-  if (!arrow) return 'none'
+function svgElement(tag, attributes = {}) {
+  const element = document.createElementNS(SVG_NS, tag)
+  Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value)))
+  return element
+}
+
+function createActorAxisHud() {
+  const svg = svgElement('svg', {
+    class: 'actor-axis-hud',
+    'aria-label': 'Persistent Actor Axis indicator',
+  })
+  Object.assign(svg.style, {
+    position: 'absolute', inset: '0', width: '100%', height: '100%', zIndex: '18',
+    pointerEvents: 'none', overflow: 'visible',
+  })
+
+  const defs = svgElement('defs')
+  const marker = svgElement('marker', {
+    id: 'projectc-actor-axis-arrow-head', viewBox: '0 0 10 10', refX: '8', refY: '5',
+    markerWidth: '4.8', markerHeight: '4.8', orient: 'auto-start-reverse',
+  })
+  marker.appendChild(svgElement('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: '#f2c85a' }))
+  defs.appendChild(marker)
+  svg.appendChild(defs)
+
+  const horizontal = svgElement('g', { 'data-axis-hud-kind': 'horizontal' })
+  const horizontalLine = svgElement('line', {
+    stroke: '#f2c85a', 'stroke-width': AXIS_HUD_STROKE_PX, 'stroke-linecap': 'round',
+    'marker-end': 'url(#projectc-actor-axis-arrow-head)',
+  })
+  horizontalLine.style.filter = 'drop-shadow(0 0 3px rgba(242,200,90,.66))'
+  horizontal.appendChild(horizontalLine)
+  svg.appendChild(horizontal)
+
+  const down = svgElement('g', { 'data-axis-hud-kind': 'down' })
+  down.appendChild(svgElement('circle', {
+    cx: '0', cy: '10', r: '9', fill: 'rgba(90,190,235,.12)', stroke: '#7ed8ff', 'stroke-width': '2',
+  }))
+  down.appendChild(svgElement('path', {
+    d: 'M 0 4 L 0 15 M -4 11 L 0 15 L 4 11', fill: 'none', stroke: '#7ed8ff', 'stroke-width': '2',
+    'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+  }))
+  const downText = svgElement('text', { x: '12', y: '14', fill: '#bdeeff', 'font-size': '9', 'font-weight': '700' })
+  downText.style.paintOrder = 'stroke'
+  downText.style.stroke = '#111923'
+  downText.style.strokeWidth = '3px'
+  down.appendChild(downText)
+  svg.appendChild(down)
+
+  horizontal.style.display = 'none'
+  down.style.display = 'none'
+  return { svg, horizontal, horizontalLine, down, downText }
+}
+
+function projectedPoint(point, camera, width, height) {
+  const projected = point.clone().project(camera)
+  return {
+    x: (projected.x + 1) * 0.5 * width,
+    y: (1 - projected.y) * 0.5 * height,
+  }
+}
+
+function downOverrideLevel(override) {
+  if (!String(override ?? '').startsWith('down-')) return null
+  return clamp(Number(String(override).split('-')[1]) || 1, 1, 3)
+}
+
+function updateActorAxisHud(hud, camera, width, height, visualState, spatialMode, override) {
+  if (!hud || !camera || width < 1 || height < 1) return 'none'
+  const downLevel = downOverrideLevel(override)
+  const sourceWorld = new THREE.Vector3(visualState.position.x, 1.22, visualState.position.z)
+  const source = projectedPoint(sourceWorld, camera, width, height)
+
+  if (downLevel) {
+    hud.horizontal.style.display = 'none'
+    hud.down.style.display = ''
+    hud.down.setAttribute('transform', `translate(${source.x.toFixed(2)} ${source.y.toFixed(2)})`)
+    hud.downText.textContent = `Down · M${downLevel}`
+    return 'down'
+  }
+
+  hud.down.style.display = 'none'
   let direction = null
   let directionId = visualState.axisId ?? null
   const speed = Math.hypot(visualState.velocity?.x ?? 0, visualState.velocity?.z ?? 0)
-
   if (spatialMode === 'hybrid' && speed > 0.02) {
     direction = { x: visualState.velocity.x / speed, z: visualState.velocity.z / speed }
     directionId = 'continuous'
@@ -118,13 +200,23 @@ function updateActorAxisArrow(arrow, visualState, spatialMode) {
   }
 
   if (!direction) {
-    arrow.visible = false
+    hud.horizontal.style.display = 'none'
     return 'none'
   }
 
-  arrow.visible = true
-  arrow.position.set(visualState.position.x, 1.22, visualState.position.z)
-  arrow.setDirection(new THREE.Vector3(direction.x, 0, direction.z).normalize())
+  hud.horizontal.style.display = ''
+  const targetWorld = sourceWorld.clone().add(new THREE.Vector3(direction.x, 0, direction.z))
+  const target = projectedPoint(targetWorld, camera, width, height)
+  const dx = target.x - source.x
+  const dy = target.y - source.y
+  const screenLength = Math.max(1, Math.hypot(dx, dy))
+  const ux = dx / screenLength
+  const uy = dy / screenLength
+  const startOffset = 7
+  hud.horizontalLine.setAttribute('x1', (source.x + ux * startOffset).toFixed(2))
+  hud.horizontalLine.setAttribute('y1', (source.y + uy * startOffset).toFixed(2))
+  hud.horizontalLine.setAttribute('x2', (source.x + ux * AXIS_HUD_LENGTH_PX).toFixed(2))
+  hud.horizontalLine.setAttribute('y2', (source.y + uy * AXIS_HUD_LENGTH_PX).toFixed(2))
   return directionId
 }
 
@@ -196,13 +288,7 @@ function createDashedPath(points, color, opacity = 0.98) {
   if (!points || points.length < 2) return null
   const geometry = new THREE.BufferGeometry().setFromPoints(points)
   const material = new THREE.LineDashedMaterial({
-    color,
-    transparent: true,
-    opacity,
-    dashSize: 0.17,
-    gapSize: 0.11,
-    depthTest: false,
-    depthWrite: false,
+    color, transparent: true, opacity, dashSize: 0.17, gapSize: 0.11, depthTest: false, depthWrite: false,
   })
   const line = new THREE.Line(geometry, material)
   line.computeLineDistances()
@@ -288,6 +374,7 @@ export function Board3D({
   previewPlan,
   playback,
   atVisualMs,
+  axisDisplayOverride = 'auto',
   boardRadius,
   viewMode,
   cameraResetToken,
@@ -305,7 +392,7 @@ export function Board3D({
   const boardGroupRef = useRef(null)
   const interactionRef = useRef(null)
   const playerRef = useRef(null)
-  const axisArrowRef = useRef(null)
+  const axisHudRef = useRef(null)
   const dummyGroupRef = useRef(null)
   const dummyObjectsRef = useRef(new Map())
   const previewGroupRef = useRef(null)
@@ -316,6 +403,7 @@ export function Board3D({
   const callbacksRef = useRef({ onHoverHex, onClickHex })
   const viewModeRef = useRef(viewMode)
   const atVisualMsRef = useRef(atVisualMs)
+  const axisDisplayOverrideRef = useRef(axisDisplayOverride)
   const playbackCacheRef = useRef({ id: null, playerPoints: [], actorPoints: new Map() })
 
   stateRef.current = state
@@ -324,6 +412,7 @@ export function Board3D({
   callbacksRef.current = { onHoverHex, onClickHex }
   viewModeRef.current = viewMode
   atVisualMsRef.current = atVisualMs
+  axisDisplayOverrideRef.current = axisDisplayOverride
 
   useEffect(() => {
     const host = hostRef.current
@@ -337,10 +426,15 @@ export function Board3D({
     renderer.shadowMap.enabled = true
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.domElement.style.touchAction = 'none'
-    host.replaceChildren(renderer.domElement)
+    const axisHud = createActorAxisHud()
+    host.replaceChildren(renderer.domElement, axisHud.svg)
+    axisHudRef.current = axisHud
 
-    host.dataset.axisStyle = 'actor-world-arrow-v3'
+    host.dataset.axisStyle = 'actor-screen-arrow-v4'
     host.dataset.actorAxisPersistent = 'true'
+    host.dataset.axisLengthPx = String(AXIS_HUD_LENGTH_PX)
+    host.dataset.axisStrokePx = String(AXIS_HUD_STROKE_PX)
+    host.dataset.axisSupportsDown = 'true'
     host.dataset.previewStyle = 'blue-dashed-no-arrow-v3'
     host.dataset.previewArrow = 'none'
     host.dataset.previewAuthority = 'cell-target-path-v3'
@@ -354,19 +448,13 @@ export function Board3D({
     const interaction = new THREE.Group()
     const dummyGroup = new THREE.Group()
     const player = createPlayerActor()
-    const axisArrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 0.66, 0xf2c85a, 0.18, 0.11)
-    axisArrow.visible = false
-    axisArrow.line.material.depthTest = false
-    axisArrow.cone.material.depthTest = false
-    axisArrow.line.renderOrder = 85
-    axisArrow.cone.renderOrder = 85
 
     scene.add(new THREE.HemisphereLight(0xcbe4ef, 0x415064, 1.75))
     const sun = new THREE.DirectionalLight(0xfff0d8, 1.85)
     sun.position.set(-6, 11, -5)
     sun.castShadow = true
     sun.shadow.mapSize.set(2048, 2048)
-    scene.add(sun, boardGroup, interaction, dummyGroup, player, axisArrow)
+    scene.add(sun, boardGroup, interaction, dummyGroup, player)
 
     sceneRef.current = scene
     rendererRef.current = renderer
@@ -375,7 +463,6 @@ export function Board3D({
     interactionRef.current = interaction
     dummyGroupRef.current = dummyGroup
     playerRef.current = player
-    axisArrowRef.current = axisArrow
 
     const updateCamera = () => {
       const orbit = orbitRef.current
@@ -409,6 +496,7 @@ export function Board3D({
       viewportWidth = width
       viewportHeight = height
       renderer.setSize(width, height, false)
+      axisHud.svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
       const size = 6.2
       const aspect = width / height
       camera.left = -size * aspect
@@ -562,18 +650,29 @@ export function Board3D({
       }
 
       const playerObject = playerRef.current
+      const overrideLevel = downOverrideLevel(axisDisplayOverrideRef.current)
+      const actualLevel = momentumLevel(Math.hypot(visualState.velocity?.x ?? 0, visualState.velocity?.z ?? 0))
       if (playerObject) {
         playerObject.position.set(visualState.position.x, 0.1, visualState.position.z)
-        updateMomentumDots(playerObject, momentumLevel(Math.hypot(visualState.velocity?.x ?? 0, visualState.velocity?.z ?? 0)))
+        updateMomentumDots(playerObject, overrideLevel ?? actualLevel)
       }
 
       const spatialMode = host.closest('.cell-world-prototype')?.dataset.spatialMode === 'hybrid' ? 'hybrid' : 'discrete'
-      const renderedAxis = updateActorAxisArrow(axisArrowRef.current, visualState, spatialMode)
+      const renderedAxis = updateActorAxisHud(
+        axisHudRef.current,
+        camera,
+        viewportWidth,
+        viewportHeight,
+        visualState,
+        spatialMode,
+        axisDisplayOverrideRef.current,
+      )
       host.dataset.axisDirection = renderedAxis
       host.dataset.axisQuantization = spatialMode === 'discrete' ? 'hex6' : 'continuous'
+      host.dataset.axisDisplayOverride = axisDisplayOverrideRef.current
       host.dataset.visualX = visualState.position.x.toFixed(4)
       host.dataset.visualZ = visualState.position.z.toFixed(4)
-      host.dataset.visualMomentum = String(momentumLevel(Math.hypot(visualState.velocity?.x ?? 0, visualState.velocity?.z ?? 0)))
+      host.dataset.visualMomentum = String(overrideLevel ?? actualLevel)
       host.dataset.atVisualMs = String(atVisualMsRef.current)
 
       for (const actor of actorsRef.current) {
@@ -611,7 +710,6 @@ export function Board3D({
       disposeObject(interaction)
       disposeObject(dummyGroup)
       disposeObject(player)
-      disposeObject(axisArrow)
       renderer.dispose()
       host.replaceChildren()
     }
