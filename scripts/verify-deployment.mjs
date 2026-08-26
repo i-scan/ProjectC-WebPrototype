@@ -44,6 +44,8 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'clipped-cell-mirror-v2',
       'contact-ray-step-budget-v3',
       'wall-cell-pivot-budget-v1',
+      'wall-axis-mesh-v1',
+      'wall-pivot-polyline-v1',
       'obstacle-wall-cell-pivot',
       'wallCellTravelCost',
       'boundary-corner-chamfer',
@@ -76,7 +78,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · boundary contact-ray budget + internal wall Cell pivot travel`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · visible wall axis + pivot polyline + internal wall Cell travel`)
     process.exit(0)
   } catch (error) {
     lastError = error

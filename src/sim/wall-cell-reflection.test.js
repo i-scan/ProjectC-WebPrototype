@@ -3,7 +3,7 @@ import { axialToWorld, directionVector } from './hex.js'
 import { momentumSpeed } from './solver.js'
 import { simulateBasicMoveRule } from './spatial-rules.js'
 import { resolveCellConflicts } from './conflict.js'
-import { WALL_CELL_TRAVEL_RULE, internalWallCellImpact } from './wall-cell-reflection.js'
+import { WALL_CELL_TRAVEL_RULE, internalWallCellImpact, wallVisualYaw } from './wall-cell-reflection.js'
 
 const nsWall = {
   id: 'wall-ns',
@@ -55,6 +55,11 @@ function manualContactPlan(from, contact, directionId = 'SW', level = 3, finalM 
 }
 
 describe('internal wall Cell pivot reflection', () => {
+  it('uses the same N-S tangent for visual wall yaw and reflection geometry', () => {
+    expect(wallVisualYaw('EW')).toBeCloseTo(0, 6)
+    expect(Math.abs(wallVisualYaw('NS'))).toBeCloseTo(Math.PI / 2, 6)
+  })
+
   it('reflects SW into SE across a north-south wall and exits from the wall Cell', () => {
     const impact = internalWallCellImpact({ obstacle: nsWall, incomingAxisId: 'SW' })
     expect(impact).toMatchObject({

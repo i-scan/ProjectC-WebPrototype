@@ -2,6 +2,11 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { AT_VISUAL_MS, momentumLevel, playbackElapsedMs } from '../sim/solver.js'
 import { HEX_RADIUS, axialDistance, axialToWorld, directionVector, worldToAxial } from '../sim/hex.js'
+import {
+  WALL_REFLECTION_PATH_CONTRACT,
+  WALL_VISUAL_CONTRACT,
+  wallVisualYaw,
+} from '../sim/wall-cell-reflection.js'
 
 const TILE_HEIGHT = 0.18
 const DEFAULT_CAMERA = { yaw: Math.PI * 0.25, pitch: 0.74, zoom: 1, targetX: 0, targetZ: 0 }
@@ -264,19 +269,30 @@ function smoothPoints(points) {
   return curve.getPoints(Math.max(28, (points.length - 1) * 18))
 }
 
+function playerUsesWallPivot(plan) {
+  return Boolean(plan?.collisions?.some((entry) => entry.wallCellPivot))
+}
+
+function wallPivotActorIds(events = []) {
+  return new Set(events
+    .filter((entry) => entry.kind === 'surface-reflection' && entry.wallCellPivot && entry.actorId)
+    .map((entry) => entry.actorId))
+}
+
 function planPathPoints(plan, y = 0.24) {
   if (!plan?.samples?.length) return []
   const source = uniqueWorldPoints(plan.samples, y)
+  if (playerUsesWallPivot(plan)) return source
   const shouldSmooth = plan.destinationDriven || plan.spatialMode === 'discrete' || source.length <= 8
   return shouldSmooth ? smoothPoints(source) : source
 }
 
-function trajectoryPathPoints(hexPath = [], y = 0.32) {
+function trajectoryPathPoints(hexPath = [], y = 0.32, preserveCorners = false) {
   const source = hexPath.map((hex) => {
     const point = axialToWorld(hex)
     return new THREE.Vector3(point.x, y, point.z)
   })
-  return smoothPoints(source)
+  return preserveCorners ? source : smoothPoints(source)
 }
 
 function samplePoint(points, progress) {
@@ -365,6 +381,12 @@ function createObstacleMesh(obstacle) {
     }),
   )
   mesh.position.y = reflector ? 0.46 : 0.56
+  if (obstacle.wallAxis) {
+    mesh.rotation.y = wallVisualYaw(obstacle.wallAxis)
+    mesh.userData.wallAxis = obstacle.wallAxis
+    mesh.userData.wallYaw = mesh.rotation.y
+    mesh.userData.wallVisualContract = WALL_VISUAL_CONTRACT
+  }
   mesh.castShadow = true
   return mesh
 }
@@ -448,6 +470,10 @@ export function Board3D({
     host.dataset.knockbackPreview = 'yellow-dashed-path-v2'
     host.dataset.knockbackPlayback = 'contact-staggered-fast-v3'
     host.dataset.middlePan = 'enabled'
+    host.dataset.wallVisualContract = WALL_VISUAL_CONTRACT
+    host.dataset.wallReflectionPathContract = WALL_REFLECTION_PATH_CONTRACT
+    host.dataset.previewPathMode = 'smooth'
+    host.dataset.playbackPathMode = 'smooth'
 
     const camera = new THREE.OrthographicCamera(-7, 7, 5, -5, 0.1, 60)
     const boardGroup = new THREE.Group()
@@ -628,9 +654,12 @@ export function Board3D({
         progress = clamp(playbackElapsedMs(activePlayback, now) / Math.max(1, durationMs), 0, 1)
         if (playbackCacheRef.current.id !== activePlayback.id) {
           const actorPoints = new Map()
+          const wallActors = wallPivotActorIds(activePlayback.conflictEvents ?? [])
           for (const [id, path] of Object.entries(activePlayback.actorTrajectories ?? {})) {
-            actorPoints.set(id, trajectoryPathPoints(path))
+            actorPoints.set(id, trajectoryPathPoints(path, 0.32, wallActors.has(id)))
           }
+          const wallPolyline = playerUsesWallPivot(activePlayback) || wallActors.size > 0
+          host.dataset.playbackPathMode = wallPolyline ? WALL_REFLECTION_PATH_CONTRACT : 'smooth'
           playbackCacheRef.current = {
             id: activePlayback.id,
             playerPoints: planPathPoints(activePlayback, 0.18),
@@ -660,6 +689,7 @@ export function Board3D({
         host.dataset.playerPlaybackProgress = '0'
         host.dataset.playerPlaybackEnd = '1'
         host.dataset.actorPlaybackWindowCount = '0'
+        host.dataset.playbackPathMode = 'smooth'
         delete host.dataset.playbackId
       }
 
@@ -735,6 +765,7 @@ export function Board3D({
 
   useEffect(() => {
     const boardGroup = boardGroupRef.current
+    const host = hostRef.current
     if (!boardGroup) return
     for (const child of [...boardGroup.children]) {
       boardGroup.remove(child)
@@ -812,12 +843,18 @@ export function Board3D({
       }
     }
 
+    let authoredWall = null
     for (const obstacle of obstacles) {
       const center = axialToWorld(obstacle.hex)
       const mesh = createObstacleMesh(obstacle)
       mesh.position.x = center.x
       mesh.position.z = center.z
       boardGroup.add(mesh)
+      if (!authoredWall && obstacle.wallAxis) authoredWall = { obstacle, mesh }
+    }
+    if (host) {
+      host.dataset.hardWallAxis = authoredWall?.obstacle?.wallAxis ?? 'none'
+      host.dataset.hardWallYaw = authoredWall ? authoredWall.mesh.rotation.y.toFixed(6) : '0'
     }
   }, [cells, obstacles, boardRadius, showThermal, showWeather])
 
@@ -850,6 +887,7 @@ export function Board3D({
 
     host.dataset.previewVisibleLength = '0'
     host.dataset.knockbackPathCount = '0'
+    host.dataset.previewPathMode = 'smooth'
     if (!previewPlan?.valid || previewPlan.samples?.length < 2) return
 
     const group = new THREE.Group()
@@ -862,10 +900,14 @@ export function Board3D({
       host.dataset.previewVisibleLength = length.toFixed(3)
     }
 
+    const wallActors = wallPivotActorIds(previewPlan.conflictEvents ?? [])
+    const wallPolyline = playerUsesWallPivot(previewPlan) || wallActors.size > 0
+    host.dataset.previewPathMode = wallPolyline ? WALL_REFLECTION_PATH_CONTRACT : 'smooth'
+
     let knockbackCount = 0
-    for (const path of Object.values(previewPlan.actorTrajectories ?? {})) {
+    for (const [id, path] of Object.entries(previewPlan.actorTrajectories ?? {})) {
       if (!path || path.length < 2) continue
-      const points = trajectoryPathPoints(path, 0.34)
+      const points = trajectoryPathPoints(path, 0.34, wallActors.has(id))
       const line = createDashedPath(points, DUMMY_YELLOW, 1)
       if (line) {
         group.add(line)

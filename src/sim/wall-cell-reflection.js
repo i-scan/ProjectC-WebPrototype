@@ -2,6 +2,8 @@ import { HEX_DIRECTIONS, axialToWorld, directionVector } from './hex.js'
 import { dot, normalize, reflect, scale } from './vector.js'
 
 export const WALL_CELL_TRAVEL_RULE = 'wall-cell-pivot-budget-v1'
+export const WALL_VISUAL_CONTRACT = 'wall-axis-mesh-v1'
+export const WALL_REFLECTION_PATH_CONTRACT = 'wall-pivot-polyline-v1'
 
 const cloneHex = (hex) => ({ q: hex.q, r: hex.r })
 
@@ -26,6 +28,15 @@ function tangentForWallAxis(wallAxis) {
   if (wallAxis === 'NE_SW') return directionVector('NE')
   if (wallAxis === 'NW_SE') return directionVector('NW')
   return null
+}
+
+export function wallVisualYaw(wallAxis) {
+  const tangent = tangentForWallAxis(wallAxis)
+  if (!tangent) return 0
+  // BoxGeometry is authored with its long edge on local +X. Three.js positive
+  // Y rotation maps local +X to world (cos(yaw), -sin(yaw)) in X/Z, so negate
+  // atan2 to align the visible wall with the same tangent used by reflection.
+  return -Math.atan2(tangent.z, tangent.x)
 }
 
 function opposedNormal(incoming, tangent) {
