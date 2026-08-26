@@ -148,12 +148,13 @@ describe('internal wall Cell pivot reflection', () => {
       reflectionContinuation: WALL_CELL_TRAVEL_RULE,
     })
 
-    const integerPath = resolved.actorTrajectories.dummy.filter((point) => Number.isInteger(point.q) && Number.isInteger(point.r))
-    expect(integerPath.slice(0, 2)).toEqual([
-      { q: 1, r: -1 },
-      { q: 0, r: 1 },
-    ])
-    expect(integerPath).not.toContainEqual({ q: 1, r: 0 })
+    const path = resolved.actorTrajectories.dummy
+    expect(path[0]).toEqual({ q: 1, r: -1 })
+    const pivotIndex = path.findIndex((point) => point.q === 0 && point.r === 0)
+    const exitIndex = path.findIndex((point, index) => index > pivotIndex && point.q === 0 && point.r === 1)
+    expect(pivotIndex).toBeGreaterThan(0)
+    expect(exitIndex).toBeGreaterThan(pivotIndex)
+    expect(path).not.toContainEqual({ q: 1, r: 0 })
     expect(resolved.actorStates[0].axisId).toBe('SE')
   })
 })
