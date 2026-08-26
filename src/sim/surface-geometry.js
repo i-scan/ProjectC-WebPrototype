@@ -1,4 +1,4 @@
-import { HEX_DIRECTIONS, axialDistance, axialToWorld, directionVector, worldToAxial, worldToAxialFraction } from './hex.js'
+import { HEX_DIRECTIONS, axialToWorld, directionVector, worldToAxialFraction } from './hex.js'
 import { normalize, reflect } from './vector.js'
 
 const EPSILON = 1e-7
@@ -12,6 +12,7 @@ export const BOARD_CORNER_CHAMFER_RADIUS = 0.66
 export const SURFACE_GEOMETRY_RULE = 'clipped-cell-mirror-v2'
 export const REFLECTION_CONTINUATION_RULE = 'contact-ray-step-budget-v3'
 export const OBSTACLE_SURFACE_RULE = 'render-footprint-contact-ray-v1'
+export const MIRROR_QUANTIZATION_RULE = 'mirror-vector-hex6-before-cell-v1'
 
 // These values intentionally mirror Board3D.createObstacleMesh(). Internal
 // blockers are physical objects inside a Cell; they are not the Cell boundary.
@@ -50,10 +51,6 @@ function lerp2(a, b, t) {
   return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t }
 }
 
-function sameHex(a, b) {
-  return Boolean(a && b && a.q === b.q && a.r === b.r)
-}
-
 function cubeCoordinates(point) {
   const axial = worldToAxialFraction(point)
   return { q: axial.q, r: axial.r, s: -axial.q - axial.r }
@@ -81,13 +78,6 @@ function nearestHexDirection(vector) {
     }
   }
   return best
-}
-
-function directionFromNeighbor(current, next) {
-  if (!current || !next || axialDistance(current, next) !== 1) return null
-  const dq = next.q - current.q
-  const dr = next.r - current.r
-  return HEX_DIRECTIONS.find((entry) => entry.q === dq && entry.r === dr) ?? null
 }
 
 function rotateVector(vector, angle) {
@@ -336,42 +326,10 @@ export function mirrorHexDirection(incomingAxisId, normal) {
   return { direction: nearestHexDirection(reflectedVector), reflected: reflectedVector }
 }
 
-function rankedDirectionsFromContact(currentHex, contactPoint, reflectedVector) {
-  const reflectedUnit = normalize(reflectedVector)
-  return HEX_DIRECTIONS.map((direction) => {
-    const center = axialToWorld({ q: currentHex.q + direction.q, r: currentHex.r + direction.r })
-    const towardCenter = normalize(sub2(center, contactPoint))
-    return { direction, score: dot2(reflectedUnit, towardCenter) }
-  }).sort((a, b) => b.score - a.score)
-}
-
-// Follow the actual outgoing ray from the physical contact point until it first
-// enters a new playable neighbor of the logical current Cell. This prevents an
-// internal wall contact (which is inside the obstacle Cell, not on the Hex Cell
-// border) from creating a one-Cell steering offset before the correct reflection.
-function firstNeighborAlongReflectedRay(currentHex, impact, reflectedVector) {
-  const unit = normalize(reflectedVector)
-  const blockedHex = impact?.surface === 'obstacle' ? impact.obstacle?.hex : null
-  const startDistance = 0.01
-  const maxDistance = 1.85
-  const step = 0.015
-
-  for (let distance = startDistance; distance <= maxDistance; distance += step) {
-    const point = {
-      x: impact.point.x + unit.x * distance,
-      z: impact.point.z + unit.z * distance,
-    }
-    const cell = worldToAxial(point)
-    if (sameHex(cell, currentHex) || sameHex(cell, blockedHex)) continue
-    const direction = directionFromNeighbor(currentHex, cell)
-    if (direction) return { cell, direction }
-  }
-  return null
-}
-
-// Return physical continuation candidates without collapsing the continuous
-// mirror ray to the Cell-entry edge. The real obstacle/boundary contact point is
-// authoritative; Hex6 is only chosen after the mirror ray exists.
+// One physical face produces one mirror ray, and that mirror ray produces one
+// Hex6 Axis immediately. The exact contact point is retained for preview and
+// animation, but it must not bias the first reflected Cell by ranking nearby
+// Cell centers. For a true geometric corner we expose one branch per face.
 export function mirrorStepOptions(incomingAxisId, impact, currentHex) {
   if (!incomingAxisId || !impact?.normal || !currentHex) return []
   const incoming = directionVector(incomingAxisId)
@@ -381,37 +339,21 @@ export function mirrorStepOptions(incomingAxisId, impact, currentHex) {
 
   normals.forEach((normal, faceIndex) => {
     const reflectedVector = reflect(incoming, normal, 1)
-    const rayNeighbor = firstNeighborAlongReflectedRay(currentHex, impact, reflectedVector)
-    if (rayNeighbor) {
-      const key = `${faceIndex}:${rayNeighbor.direction.id}`
-      seen.add(key)
-      options.push({
-        direction: rayNeighbor.direction,
-        reflected: reflectedVector,
-        normal: { ...normal },
-        score: 2,
-        faceIndex,
-        rayCell: { ...rayNeighbor.cell },
-        ambiguousVertex: normals.length > 1,
-        footprintRule: impact.footprintRule ?? null,
-      })
-    }
-
-    for (const ranked of rankedDirectionsFromContact(currentHex, impact.point, reflectedVector)) {
-      if (ranked.score <= 0.08) continue
-      const key = `${faceIndex}:${ranked.direction.id}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      options.push({
-        direction: ranked.direction,
-        reflected: reflectedVector,
-        normal: { ...normal },
-        score: ranked.score,
-        faceIndex,
-        ambiguousVertex: normals.length > 1,
-        footprintRule: impact.footprintRule ?? null,
-      })
-    }
+    const direction = nearestHexDirection(reflectedVector)
+    if (!direction) return
+    const key = direction.id
+    if (seen.has(key)) return
+    seen.add(key)
+    options.push({
+      direction,
+      reflected: reflectedVector,
+      normal: { ...normal },
+      score: dot2(normalize(reflectedVector), directionVector(direction.id)),
+      faceIndex,
+      ambiguousVertex: normals.length > 1,
+      footprintRule: impact.footprintRule ?? null,
+      quantizationRule: MIRROR_QUANTIZATION_RULE,
+    })
   })
 
   return options.sort((a, b) => b.score - a.score)
