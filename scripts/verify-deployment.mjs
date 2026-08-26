@@ -43,6 +43,9 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'clipped-mirror-multi-bounce-v2',
       'clipped-cell-mirror-v2',
       'contact-ray-step-budget-v3',
+      'render-footprint-contact-ray-v1',
+      'mirror-vector-hex6-before-cell-v1',
+      'obstacle-box-face',
       'boundary-corner-chamfer',
       'stepwise-clipped-mirror-v2',
       'reserved-cell-stop',
@@ -73,7 +76,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · full reflected Cell budget + physical wall mirror branches`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · rendered obstacle footprint/contact reflection + full reflected Cell budget`)
     process.exit(0)
   } catch (error) {
     lastError = error
