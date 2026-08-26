@@ -86,6 +86,12 @@ async function idleAt(client, worldAt) {
 
 async function setKinematics(client, axisId, level) {
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setKinematics(${JSON.stringify(axisId)},${level})`), 'setKinematics failed')
+  const expectedAxis = axisId === 'none' ? 'none' : axisId
+  return waitFor(`kinematics ${axisId} M${level}`, async () => {
+    const value = await snapshot(client)
+    if (value.playing || value.axisId !== expectedAxis || value.momentum !== level) throw new Error(JSON.stringify(value))
+    return value
+  })
 }
 
 async function moveM0(client, q, r, worldAt) {
@@ -138,6 +144,11 @@ try {
   assert(Math.abs(Math.abs(initial.hardWallYaw) - Math.PI / 2) < 0.002, 'NS wall mesh is not rotated onto the N-S tangent', initial)
 
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'wall scenario rejected')
+  await waitFor('wall scenario ready', async () => {
+    const value = await snapshot(client)
+    if (value.playing || value.worldAt !== 0 || value.axisId !== 'E' || value.momentum !== 2) throw new Error(JSON.stringify(value))
+    return value
+  })
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setAtMs(250)`), 'setup AT rejected')
   await moveM0(client, 0, 0, 1)
   await moveM0(client, 1, -1, 2)
