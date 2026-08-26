@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { axialToWorld } from './hex.js'
 import {
+  MIRROR_QUANTIZATION_RULE,
   OBSTACLE_SURFACE_RULE,
   boardBoundaryImpact,
   firstSurfaceImpact,
@@ -57,7 +58,7 @@ describe('clipped mirror surface geometry', () => {
     expect(mirrorHexDirection('E', impact.normal).direction?.id).toBe('W')
   })
 
-  it('uses the wall face actually hit by an oblique NE ray and continues immediately on the reflected side', () => {
+  it('uses the wall face actually hit by an oblique NE ray and turns the first reflected Cell to SE immediately', () => {
     const fromHex = { q: 2, r: 1 }
     const impact = firstSurfaceImpact({
       fromWorld: axialToWorld(fromHex),
@@ -78,11 +79,13 @@ describe('clipped mirror surface geometry', () => {
     expect(mirrorHexDirection('NE', impact.normal).direction?.id).toBe('SE')
 
     const options = mirrorStepOptions('NE', impact, fromHex)
+    expect(options).toHaveLength(1)
+    expect(options[0]).toMatchObject({
+      direction: { id: 'SE' },
+      footprintRule: OBSTACLE_SURFACE_RULE,
+      quantizationRule: MIRROR_QUANTIZATION_RULE,
+    })
     expect(options[0].reflected.x).toBeGreaterThan(0)
     expect(options[0].reflected.z).toBeGreaterThan(0)
-    expect(options[0].footprintRule).toBe(OBSTACLE_SURFACE_RULE)
-    // The outgoing option must be derived from the real mirror ray/contact,
-    // not from the Hex edge that was crossed on the way into the obstacle Cell.
-    expect(options[0].direction.id).not.toBe('SW')
   })
 })
