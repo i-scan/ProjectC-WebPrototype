@@ -110,6 +110,25 @@ async function moveM0(client, q, r, worldAt) {
   await idleAt(client, worldAt)
 }
 
+async function compactTrajectory(client) {
+  const trajectory = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.trajectory()`)
+  return trajectory.map((sample) => {
+    const r = Math.round(sample.position.z / 0.8660254037844386)
+    const q = Math.round(sample.position.x - r * 0.5)
+    return `${q},${r}`
+  }).filter((value, index, values) => index === 0 || value !== values[index - 1])
+}
+
+async function waitForWallPolyline(client, label) {
+  return waitFor(label, async () => {
+    const value = await snapshot(client)
+    if (!value.playing || value.playbackPathMode !== 'wall-pivot-polyline-v1' || value.playbackProgress < 0.20 || value.playbackProgress > 0.82) {
+      throw new Error(JSON.stringify(value))
+    }
+    return value
+  }, 220, 30)
+}
+
 let previewProcess, chromeProcess, client
 try {
   previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4181', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -153,6 +172,7 @@ try {
   assert(initial.wallReflectionPathContract === 'wall-pivot-polyline-v1', 'wall polyline contract missing', initial)
   assert(Math.abs(Math.abs(initial.hardWallYaw) - Math.PI / 2) < 0.002, 'NS wall mesh is not rotated onto the N-S tangent', initial)
 
+  // N-S authored hard wall: NE side -> wall pivot -> SE side.
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'wall scenario rejected')
   await waitFor('wall scenario ready', async () => {
     const value = await snapshot(client)
@@ -167,32 +187,50 @@ try {
   await moveM0(client, 4, -1, 5)
   await setKinematics(client, 'SW', 3)
   await setAtMs(client, 1200)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(3,0)`), 'oblique wall reflection rejected')
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(3,0)`), 'oblique NS wall reflection rejected')
 
-  const duringReflection = await waitFor('wall pivot polyline playback', async () => {
+  const nsDuringReflection = await waitForWallPolyline(client, 'NS wall pivot polyline playback')
+  const nsTrajectory = await compactTrajectory(client)
+  assert(nsTrajectory.join('|') === '4,-1|3,0|3,1|3,2|3,3', 'visible NS player reflection path no longer matches wall pivot geometry', nsTrajectory)
+  const nsFinal = await idleAt(client, 6)
+  assert(nsFinal.axisId === 'SE' && nsFinal.momentum === 1, 'NS wall reflection final Axis/M changed', nsFinal)
+
+  // E-W visible cyan reflector: NW side -> wall pivot -> NE side. This used to
+  // fall back to the legacy generic obstacle reflection because wallAxis was
+  // undefined even though the mesh visibly ran E-W.
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'EW setup reset rejected')
+  await waitFor('EW setup ready', async () => {
     const value = await snapshot(client)
-    if (!value.playing || value.playbackPathMode !== 'wall-pivot-polyline-v1' || value.playbackProgress < 0.20 || value.playbackProgress > 0.82) {
-      throw new Error(JSON.stringify(value))
-    }
+    if (value.playing || value.worldAt !== 0) throw new Error(JSON.stringify(value))
     return value
-  }, 220, 30)
+  })
+  await setAtMs(client, 250)
+  await moveM0(client, 0, -1, 1)
+  await moveM0(client, 1, -2, 2)
+  await moveM0(client, 2, -3, 3)
+  await moveM0(client, 3, -4, 4)
+  await setKinematics(client, 'SE', 3)
+  await setAtMs(client, 1200)
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(3,-3)`), 'oblique EW wall reflection rejected')
 
-  const trajectory = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.trajectory()`)
-  const compact = trajectory.map((sample) => {
-    const r = Math.round(sample.position.z / 0.8660254037844386)
-    const q = Math.round(sample.position.x - r * 0.5)
-    return `${q},${r}`
-  }).filter((value, index, values) => index === 0 || value !== values[index - 1])
-  assert(compact.join('|') === '4,-1|3,0|3,1|3,2|3,3', 'visible player reflection path no longer matches wall pivot geometry', compact)
+  const ewDuringReflection = await waitForWallPolyline(client, 'EW wall pivot polyline playback')
+  const ewTrajectory = await compactTrajectory(client)
+  assert(ewTrajectory.join('|') === '3,-4|3,-3|4,-4|5,-5|6,-6', 'visible EW player reflection path did not exit immediately from the mirrored wall side', ewTrajectory)
+  const ewFinal = await idleAt(client, 5)
+  assert(ewFinal.axisId === 'NE' && ewFinal.momentum === 1, 'EW wall reflection final Axis/M changed', ewFinal)
 
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'wall-visible-reflection.png'), Buffer.from(screenshot.data, 'base64'))
-  await writeFile(join(artifactDir, 'wall-visible-reflection.json'), `${JSON.stringify({ initial, duringReflection, trajectory: compact }, null, 2)}\n`)
+  await writeFile(join(artifactDir, 'wall-visible-reflection.json'), `${JSON.stringify({
+    initial,
+    nsDuringReflection,
+    nsTrajectory,
+    ewDuringReflection,
+    ewTrajectory,
+  }, null, 2)}\n`)
 
-  const final = await idleAt(client, 6)
-  assert(final.axisId === 'SE' && final.momentum === 1, 'wall reflection final Axis/M changed', final)
-  console.log('Verified visible NS wall orientation and unsmoothed wall-cell pivot playback in Chrome.')
+  console.log('Verified visible NS and EW wall-cell pivot reflections and unsmoothed playback in Chrome.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')
