@@ -3,6 +3,7 @@ import { axialToWorld, directionVector } from './hex.js'
 import { momentumSpeed } from './solver.js'
 import { simulateBasicMoveRule } from './spatial-rules.js'
 import { resolveCellConflicts } from './conflict.js'
+import { collisionObstaclesFromCells, createCellWorld } from './world.js'
 import { WALL_CELL_TRAVEL_RULE, internalWallCellImpact, wallVisualYaw } from './wall-cell-reflection.js'
 
 const nsWall = {
@@ -10,6 +11,13 @@ const nsWall = {
   hex: { q: 0, r: 0 },
   kind: 'hard',
   wallAxis: 'NS',
+}
+
+const ewWall = {
+  id: 'wall-ew',
+  hex: { q: 0, r: 0 },
+  kind: 'reflector',
+  wallAxis: 'EW',
 }
 
 function stateAt(hex, axisId, level = 3) {
@@ -55,9 +63,15 @@ function manualContactPlan(from, contact, directionId = 'SW', level = 3, finalM 
 }
 
 describe('internal wall Cell pivot reflection', () => {
-  it('uses the same N-S tangent for visual wall yaw and reflection geometry', () => {
+  it('uses the same authored wall tangent for visual yaw and reflection geometry', () => {
     expect(wallVisualYaw('EW')).toBeCloseTo(0, 6)
     expect(Math.abs(wallVisualYaw('NS'))).toBeCloseTo(Math.PI / 2, 6)
+  })
+
+  it('authors the visible cyan reflector walls as E-W wall-cell pivots instead of generic obstacles', () => {
+    const reflectors = collisionObstaclesFromCells(createCellWorld(7)).filter((entry) => entry.kind === 'reflector')
+    expect(reflectors).toHaveLength(2)
+    expect(reflectors.every((entry) => entry.wallAxis === 'EW')).toBe(true)
   })
 
   it('reflects SW into SE across a north-south wall and exits from the wall Cell', () => {
@@ -68,6 +82,19 @@ describe('internal wall Cell pivot reflection', () => {
       pivotHex: { q: 0, r: 0 },
       exitHex: { q: 0, r: 1 },
       direction: { id: 'SE' },
+      wallCellTravelCost: 1,
+      reflectionContinuation: WALL_CELL_TRAVEL_RULE,
+    })
+  })
+
+  it('reflects SE into NE across an east-west wall and exits from the wall Cell', () => {
+    const impact = internalWallCellImpact({ obstacle: ewWall, incomingAxisId: 'SE' })
+    expect(impact).toMatchObject({
+      wallCellPivot: true,
+      wallAxis: 'EW',
+      pivotHex: { q: 0, r: 0 },
+      exitHex: { q: 1, r: -1 },
+      direction: { id: 'NE' },
       wallCellTravelCost: 1,
       reflectionContinuation: WALL_CELL_TRAVEL_RULE,
     })
@@ -106,7 +133,7 @@ describe('internal wall Cell pivot reflection', () => {
     expect(plan.axisAfter).toBe('W')
   })
 
-  it('uses the wall Cell as the oblique pivot: NE neighbor -> wall -> SE neighbor', () => {
+  it('uses the wall Cell as the oblique pivot: NS wall NE neighbor -> wall -> SE neighbor', () => {
     const plan = simulateBasicMoveRule({
       state: stateAt({ q: 1, r: -1 }, 'SW', 3),
       aimPoint: axialToWorld({ q: 0, r: 0 }),
@@ -129,7 +156,31 @@ describe('internal wall Cell pivot reflection', () => {
     expect(plan.axisAfter).toBe('SE')
   })
 
-  it('uses the same wall pivot for a knocked target and never inserts the incoming-side offset Cell', () => {
+  it('uses the wall Cell as the oblique pivot: EW wall NW neighbor -> wall -> NE neighbor', () => {
+    const plan = simulateBasicMoveRule({
+      state: stateAt({ q: 0, r: -1 }, 'SE', 3),
+      aimPoint: axialToWorld({ q: 0, r: 0 }),
+      spatialMode: 'discrete',
+      obstacles: [ewWall],
+    })
+
+    expect(plan.valid).toBe(true)
+    expect(plan.collisions[0]).toMatchObject({
+      geometryKind: 'obstacle-wall-cell-pivot',
+      contactCell: { q: 0, r: 0 },
+      axisBefore: 'SE',
+      axisAfter: 'NE',
+      wallCellTravelCost: 1,
+      wallAxis: 'EW',
+    })
+    expect(plan.traversedCells.slice(0, 2)).toEqual([
+      { q: 0, r: -1 },
+      { q: 1, r: -1 },
+    ])
+    expect(plan.axisAfter).toBe('NE')
+  })
+
+  it('uses the same NS wall pivot for a knocked target and never inserts the incoming-side offset Cell', () => {
     const targetCell = { q: 1, r: -1 }
     const resolved = resolveCellConflicts({
       plan: manualContactPlan({ q: 2, r: -2 }, targetCell, 'SW', 3, 2),
@@ -161,5 +212,38 @@ describe('internal wall Cell pivot reflection', () => {
     expect(exitIndex).toBeGreaterThan(pivotIndex)
     expect(path).not.toContainEqual({ q: 1, r: 0 })
     expect(resolved.actorStates[0].axisId).toBe('SE')
+  })
+
+  it('uses the same EW wall pivot for a knocked target and exits immediately on the mirrored side', () => {
+    const targetCell = { q: 0, r: -1 }
+    const resolved = resolveCellConflicts({
+      plan: manualContactPlan({ q: 0, r: -2 }, targetCell, 'SE', 3, 2),
+      actors: [{ id: 'dummy', label: 'A', hex: targetCell, velocity: { x: 0, z: 0 }, axisId: null }],
+      obstacles: [ewWall],
+      boardRadius: 7,
+      surfaceRestitution: 0.58,
+      boundaryRestitution: 0.42,
+    })
+
+    const bounce = resolved.conflictEvents.find((event) => event.kind === 'surface-reflection' && event.actorId === 'dummy')
+    expect(bounce).toMatchObject({
+      geometryKind: 'obstacle-wall-cell-pivot',
+      attemptedCell: { q: 0, r: 0 },
+      to: { q: 1, r: -1 },
+      axisBefore: 'SE',
+      axisAfter: 'NE',
+      wallCellPivot: true,
+      wallCellTravelCost: 1,
+      wallAxis: 'EW',
+      reflectionContinuation: WALL_CELL_TRAVEL_RULE,
+    })
+
+    const path = resolved.actorTrajectories.dummy
+    expect(path[0]).toEqual({ q: 0, r: -1 })
+    const pivotIndex = path.findIndex((point) => point.q === 0 && point.r === 0)
+    const exitIndex = path.findIndex((point, index) => index > pivotIndex && point.q === 1 && point.r === -1)
+    expect(pivotIndex).toBeGreaterThan(0)
+    expect(exitIndex).toBeGreaterThan(pivotIndex)
+    expect(resolved.actorStates[0].axisId).toBe('NE')
   })
 })
