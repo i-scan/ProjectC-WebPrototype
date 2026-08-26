@@ -103,10 +103,20 @@ export function cellAt(cells, hex) {
 export function collisionObstaclesFromCells(cells) {
   return cells
     .filter((cell) => cell.tags.some((tag) => ['UT3Hard', 'UT3ReflectLeft', 'UT3ReflectRight', 'Mountain'].includes(tag)))
-    .map((cell) => ({
-      id: `${cell.tags.find((tag) => tag.startsWith('UT3')) ?? 'mountain'}-${cell.key}`,
-      hex: { q: cell.q, r: cell.r },
-      radius: cell.tags.includes('Mountain') ? 0.42 : 0.34,
-      kind: cell.tags.includes('UT3ReflectLeft') || cell.tags.includes('UT3ReflectRight') ? 'reflector' : 'hard',
-    }))
+    .map((cell) => {
+      const reflector = cell.tags.includes('UT3ReflectLeft') || cell.tags.includes('UT3ReflectRight')
+      const mountain = cell.tags.includes('Mountain')
+      return {
+        id: `${cell.tags.find((tag) => tag.startsWith('UT3')) ?? 'mountain'}-${cell.key}`,
+        hex: { q: cell.q, r: cell.r },
+        radius: mountain ? 0.42 : 0.34,
+        kind: reflector ? 'reflector' : 'hard',
+        // Match Board3D.createObstacleMesh exactly. The solver must collide
+        // against the rendered wall footprint, not against the whole Hex Cell.
+        shape: mountain ? undefined : 'box',
+        sizeX: mountain ? undefined : (reflector ? 0.65 : 0.76),
+        sizeZ: mountain ? undefined : (reflector ? 0.12 : 0.20),
+        rotation: 0,
+      }
+    })
 }
