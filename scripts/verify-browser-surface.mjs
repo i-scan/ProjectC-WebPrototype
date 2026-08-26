@@ -105,6 +105,15 @@ async function setCollisionSurfaces(client, enabled) {
     return label
   })
 }
+async function setConflictScenario(client, kind) {
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario(${JSON.stringify(kind)})`), `${kind} scenario rejected`)
+  const expected = kind === 'chain' ? { x: 0.5, z: 0.8660254 } : { x: -1, z: 0 }
+  return waitFor(`${kind} scenario state`, async () => {
+    const value = await snapshot(client)
+    if (value.playing || value.worldAt !== 0 || value.axisId !== 'E' || value.momentum !== 2 || Math.abs(value.logicalX - expected.x) > 0.02 || Math.abs(value.logicalZ - expected.z) > 0.02) throw new Error(JSON.stringify(value))
+    return value
+  })
+}
 async function moveFreeM0(client, q, r) {
   await setKinematics(client, 'none', 0)
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(${q},${r})`), `M0 move to ${q},${r} failed`)
@@ -171,7 +180,7 @@ try {
   assert(!afterReverse.playing && afterReverse.worldAt === 0 && afterReverse.momentum === 2, 'reverse Move corrupted state', afterReverse)
 
   await setCollisionSurfaces(client, true); await setAtMs(client, 900)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('chain')`), 'chain scenario rejected')
+  await setConflictScenario(client, 'chain')
   assert(await evaluate(client, 'window.__PROJECTC_PROTOTYPE__.fireAt(2,1)'), 'chain knockback rejected')
   const duringChain = await waitFor('staged chain playback', async () => {
     const value = await snapshot(client)
@@ -189,7 +198,7 @@ try {
   // Head-on target→wall: the rendered box end cap is a real perpendicular face.
   // E→W is correct, but W would enter the player's reserved contact Cell, so the
   // target must stop at q2 rather than crossing/swapping through the player.
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'wall scenario rejected')
+  await setConflictScenario(client, 'wall')
   assert(await evaluate(client, 'window.__PROJECTC_PROTOTYPE__.fireAt(1,0)'), 'wall knockback rejected')
   const wallData = await waitFor('rendered wall contact trajectory', async () => {
     const paths = await evaluate(client, 'window.__PROJECTC_PROTOTYPE__.actorTrajectories()')
