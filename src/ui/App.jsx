@@ -281,6 +281,7 @@ export function App() {
       startWorldAt: state.worldAt,
       startThermal: structuredClone(thermal),
       samples: plan.samples,
+      collisions: plan.collisions ?? [],
       finalState: plan.finalState,
       finalThermal,
       thermalBehavior,
