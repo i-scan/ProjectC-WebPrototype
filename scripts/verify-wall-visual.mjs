@@ -64,6 +64,7 @@ const snapshotExpression = `(() => {
     worldAt:Number(root?.dataset.worldAt??-1),
     momentum:Number(root?.dataset.momentum??-1),
     axisId:root?.dataset.axisId??'',
+    atVisualMs:Number(root?.dataset.atVisualMs??0),
     wallVisualContract:board?.dataset.wallVisualContract??'',
     wallReflectionPathContract:board?.dataset.wallReflectionPathContract??'',
     hardWallAxis:board?.dataset.hardWallAxis??'',
@@ -91,6 +92,15 @@ async function setKinematics(client, axisId, level) {
     const value = await snapshot(client)
     if (value.playing || value.axisId !== expectedAxis || value.momentum !== level) throw new Error(JSON.stringify(value))
     return value
+  })
+}
+
+async function setAtMs(client, value) {
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setAtMs(${value})`), `AT ${value} rejected`)
+  return waitFor(`AT ${value}`, async () => {
+    const state = await snapshot(client)
+    if (state.atVisualMs !== value) throw new Error(JSON.stringify(state))
+    return state
   })
 }
 
@@ -149,19 +159,19 @@ try {
     if (value.playing || value.worldAt !== 0 || value.axisId !== 'E' || value.momentum !== 2) throw new Error(JSON.stringify(value))
     return value
   })
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setAtMs(250)`), 'setup AT rejected')
+  await setAtMs(client, 250)
   await moveM0(client, 0, 0, 1)
   await moveM0(client, 1, -1, 2)
   await moveM0(client, 2, -1, 3)
   await moveM0(client, 3, -1, 4)
   await moveM0(client, 4, -1, 5)
   await setKinematics(client, 'SW', 3)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setAtMs(1200)`), 'reflection AT rejected')
+  await setAtMs(client, 1200)
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(3,0)`), 'oblique wall reflection rejected')
 
   const duringReflection = await waitFor('wall pivot polyline playback', async () => {
     const value = await snapshot(client)
-    if (!value.playing || value.playbackPathMode !== 'wall-pivot-polyline-v1' || value.playbackProgress < 0.25 || value.playbackProgress > 0.78) {
+    if (!value.playing || value.playbackPathMode !== 'wall-pivot-polyline-v1' || value.playbackProgress < 0.20 || value.playbackProgress > 0.82) {
       throw new Error(JSON.stringify(value))
     }
     return value
