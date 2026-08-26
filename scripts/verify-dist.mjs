@@ -36,6 +36,9 @@ for (const marker of [
   'clipped-mirror-multi-bounce-v2',
   'clipped-cell-mirror-v2',
   'contact-ray-step-budget-v3',
+  'wall-cell-pivot-budget-v1',
+  'obstacle-wall-cell-pivot',
+  'wallCellTravelCost',
   'boundary-corner-chamfer',
   'stepwise-clipped-mirror-v2',
   'reserved-cell-stop',
@@ -93,4 +96,4 @@ for (const marker of [
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified full reflected Cell budget + physical wall mirror branches plus existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified boundary contact-ray budget + internal wall Cell pivot travel + existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)

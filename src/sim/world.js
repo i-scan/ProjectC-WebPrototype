@@ -108,5 +108,8 @@ export function collisionObstaclesFromCells(cells) {
       hex: { q: cell.q, r: cell.r },
       radius: cell.tags.includes('Mountain') ? 0.42 : 0.34,
       kind: cell.tags.includes('UT3ReflectLeft') || cell.tags.includes('UT3ReflectRight') ? 'reflector' : 'hard',
+      // The authored hard test wall runs north-south through the center of its
+      // occupied Cell. Reflectors and mountains keep their existing geometry.
+      wallAxis: cell.tags.includes('UT3Hard') ? 'NS' : undefined,
     }))
 }
