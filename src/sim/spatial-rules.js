@@ -15,6 +15,7 @@ import {
   mirrorStepOptions,
   nudgeFromSurfaceVector,
 } from './surface-geometry.js'
+import { WALL_CELL_TRAVEL_RULE, internalWallCellImpact } from './wall-cell-reflection.js'
 
 const sameHex = (a, b) => Boolean(a && b && a.q === b.q && a.r === b.r)
 const cloneHex = (hex) => ({ q: hex.q, r: hex.r })
@@ -127,6 +128,23 @@ function bestMirrorOptions(incomingAxisId, impact, current) {
 }
 
 function choosePlayerMirrorStep(current, impact, incomingAxisId, obstacles, boardRadius) {
+  if (impact?.wallCellPivot) {
+    const cell = cloneHex(impact.exitHex)
+    if (axialDistance(cell) > boardRadius) return null
+    if (obstacleAt(obstacles, cell)) return null
+    return {
+      direction: impact.direction,
+      reflected: { ...impact.reflected },
+      normal: { ...impact.normal },
+      faceIndex: 0,
+      ambiguousVertex: false,
+      cell,
+      wallCellPivot: true,
+      wallCellTravelCost: impact.wallCellTravelCost ?? 1,
+      reflectionContinuation: WALL_CELL_TRAVEL_RULE,
+    }
+  }
+
   const options = bestMirrorOptions(incomingAxisId, impact, current)
   if (!options.length) return null
 
@@ -143,11 +161,10 @@ function choosePlayerMirrorStep(current, impact, incomingAxisId, obstacles, boar
   return { ...fallback, cell: stepCell(current, fallback.direction.id) }
 }
 
-// Resolve authored Cell steps against explicit clipped surface geometry. A
-// collision changes direction and may reduce Momentum, but it does NOT consume
-// one of the action's Cell-travel steps. This fixes the previous M2/M3 behavior
-// where the first reflected Cell was silently lost because the for-loop advanced
-// on the collision iteration itself.
+// Resolve authored Cell steps against explicit surface geometry. Map-boundary
+// contact keeps the #62 continuation rule (contact itself costs no Cell step),
+// while an internal wall Cell is a route pivot: entry half + reflected exit half
+// consumes exactly one Cell of the action's movement budget.
 function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
   const actualPath = []
   const collisions = []
@@ -173,7 +190,8 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
     const attempted = stepCell(current, stepAxisId)
     const attemptedWorld = axialToWorld(attempted)
     const obstacle = obstacleAt(obstacles, attempted)
-    const impact = firstSurfaceImpact({
+    const wallImpact = obstacle ? internalWallCellImpact({ obstacle, incomingAxisId: stepAxisId }) : null
+    const impact = wallImpact ?? firstSurfaceImpact({
       fromWorld: segmentStart,
       toWorld: attemptedWorld,
       boardRadius: config.boardRadius,
@@ -187,6 +205,10 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
       remainingMotionM = Math.max(0, remainingMotionM - 1)
       reflectedMode = true
       if (mirror?.direction) activeAxisId = mirror.direction.id
+      const wallCellPivot = Boolean(impact.wallCellPivot)
+      const wallCellTravelCost = wallCellPivot ? (impact.wallCellTravelCost ?? 1) : 0
+      const contactCell = wallCellPivot ? attempted : current
+      const continuationRule = wallCellPivot ? WALL_CELL_TRAVEL_RULE : REFLECTION_CONTINUATION_RULE
 
       const collision = {
         t: (movedSteps + Math.max(0, Math.min(1, impact.t))) / Math.max(1, movementBudget),
@@ -194,8 +216,8 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
         geometryKind: impact.kind,
         obstacleId: obstacle?.id ?? null,
         position: clonePoint(impact.point),
-        contactCell: cloneHex(current),
-        cell: cloneHex(current),
+        contactCell: cloneHex(contactCell),
+        cell: cloneHex(contactCell),
         attemptedCell: cloneHex(attempted),
         axisBefore: stepAxisId,
         axisAfter: activeAxisId,
@@ -206,20 +228,35 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
         reflectedVector: mirror?.reflected ? clonePoint(mirror.reflected) : null,
         faceIds: [...(impact.faceIds ?? [])],
         surfaceGeometry: SURFACE_GEOMETRY_RULE,
-        reflectionContinuation: REFLECTION_CONTINUATION_RULE,
+        reflectionContinuation: continuationRule,
+        wallCellPivot,
+        wallCellTravelCost,
+        wallAxis: impact.wallAxis ?? null,
       }
       collisions.push(collision)
       timeline.push({ position: clonePoint(impact.point), axisId: activeAxisId, collision: true })
       segmentStart = clonePoint(impact.point)
 
-      if (remainingMotionM <= 0 || !mirror?.direction) break
+      if (remainingMotionM <= 0 || !mirror?.direction) {
+        if (wallCellPivot) movedSteps += wallCellTravelCost
+        break
+      }
       timeline.push({
         position: nudgeFromSurfaceVector(impact.point, mirror.reflected),
         axisId: activeAxisId,
         reflectionGuide: true,
       })
-      // Do not increment movedSteps/authoredStep here. The remaining travel
-      // budget continues from the mirror contact point in the new direction.
+
+      if (wallCellPivot) {
+        current = cloneHex(mirror.cell)
+        segmentStart = axialToWorld(current)
+        actualPath.push(cloneHex(current))
+        timeline.push({ position: clonePoint(segmentStart), axisId: activeAxisId, wallExit: true })
+        movedSteps += wallCellTravelCost
+        continue
+      }
+
+      // Map-boundary reflection retains the full remaining Cell budget.
       continue
     }
 
@@ -233,6 +270,9 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
   }
 
   const firstCollisionCell = collisions[0]?.contactCell ? cloneHex(collisions[0].contactCell) : null
+  const reflectionContinuation = collisions.some((entry) => entry.wallCellPivot)
+    ? WALL_CELL_TRAVEL_RULE
+    : REFLECTION_CONTINUATION_RULE
   return {
     finalHex: cloneHex(current),
     inputHex: firstCollisionCell ?? cloneHex(route.targetHex),
@@ -245,7 +285,7 @@ function resolveRouteWithPhysicalReflection(route, config, obstacles, motionM) {
     remainingMotionM,
     movedSteps,
     movementBudget,
-    reflectionContinuation: REFLECTION_CONTINUATION_RULE,
+    reflectionContinuation,
   }
 }
 
