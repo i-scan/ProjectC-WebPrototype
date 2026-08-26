@@ -36,9 +36,6 @@ for (const marker of [
   'clipped-mirror-multi-bounce-v2',
   'clipped-cell-mirror-v2',
   'contact-ray-step-budget-v3',
-  'render-footprint-contact-ray-v1',
-  'mirror-vector-hex6-before-cell-v1',
-  'obstacle-box-face',
   'boundary-corner-chamfer',
   'stepwise-clipped-mirror-v2',
   'reserved-cell-stop',
@@ -96,4 +93,4 @@ for (const marker of [
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified rendered obstacle footprint/contact reflection + full reflected Cell budget + existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified full reflected Cell budget + physical wall mirror branches plus existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)

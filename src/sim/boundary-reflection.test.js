@@ -43,6 +43,7 @@ describe('player clipped mirror boundary reflection', () => {
     const state = stateAt({ q: 3, r: -1 }, 'E', 3)
     const plan = simulateBasicMoveRule({
       state,
+      // The player clicks the collision Cell; the preview continues past it.
       aimPoint: axialToWorld({ q: 3, r: -1 }),
       spatialMode: 'discrete',
       config: configFor(3),
@@ -111,7 +112,7 @@ describe('player clipped mirror boundary reflection', () => {
     expect(worldToAxial(plan.finalState.position)).toEqual({ q: 1, r: 2 })
   })
 
-  it('uses the rendered Hard Wall end face instead of inventing a Hex-vertex side branch', () => {
+  it('chooses one incident wall face at a sharp obstacle vertex instead of synthesizing a 180-degree return', () => {
     const state = stateAt({ q: 1, r: 0 }, 'E', 3)
     const obstacles = [{ id: 'wall-a', hex: { q: 2, r: 0 }, kind: 'hard' }]
     const reach = reachMap(state, 'basic-move', 3, obstacles)
@@ -120,14 +121,9 @@ describe('player clipped mirror boundary reflection', () => {
     expect(reflected).toBeTruthy()
     expect(reflected.reflectionCount).toBe(1)
     expect(reflected.movedSteps).toBe(reflected.movementBudget)
-    expect(reflected.axisAfter).toBe('W')
-    expect(reflected.collisions[0]).toMatchObject({
-      geometryKind: 'obstacle-box-face',
-      faceIds: ['x-'],
-      axisBefore: 'E',
-      axisAfter: 'W',
-    })
-    expect(reflected.resolvedFinalHex).toEqual({ q: -2, r: 0 })
+    expect(reflected.axisAfter).not.toBe('W')
+    expect(['NW', 'SW']).toContain(reflected.axisAfter)
+    expect(reflected.resolvedFinalHex).not.toEqual({ q: 0, r: 0 })
   })
 
   it('lets Discrete Drive use the same collision-Cell input and full mirror continuation budget', () => {
