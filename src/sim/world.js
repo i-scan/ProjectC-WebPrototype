@@ -103,13 +103,18 @@ export function cellAt(cells, hex) {
 export function collisionObstaclesFromCells(cells) {
   return cells
     .filter((cell) => cell.tags.some((tag) => ['UT3Hard', 'UT3ReflectLeft', 'UT3ReflectRight', 'Mountain'].includes(tag)))
-    .map((cell) => ({
-      id: `${cell.tags.find((tag) => tag.startsWith('UT3')) ?? 'mountain'}-${cell.key}`,
-      hex: { q: cell.q, r: cell.r },
-      radius: cell.tags.includes('Mountain') ? 0.42 : 0.34,
-      kind: cell.tags.includes('UT3ReflectLeft') || cell.tags.includes('UT3ReflectRight') ? 'reflector' : 'hard',
-      // The authored hard test wall runs north-south through the center of its
-      // occupied Cell. Reflectors and mountains keep their existing geometry.
-      wallAxis: cell.tags.includes('UT3Hard') ? 'NS' : undefined,
-    }))
+    .map((cell) => {
+      const reflector = cell.tags.includes('UT3ReflectLeft') || cell.tags.includes('UT3ReflectRight')
+      return {
+        id: `${cell.tags.find((tag) => tag.startsWith('UT3')) ?? 'mountain'}-${cell.key}`,
+        hex: { q: cell.q, r: cell.r },
+        radius: cell.tags.includes('Mountain') ? 0.42 : 0.34,
+        kind: reflector ? 'reflector' : 'hard',
+        // The authored hard wall is N-S. Both visible cyan reflector walls are
+        // E-W: their BoxGeometry long edge is local/world X, so they must use
+        // the same wall-cell pivot solver instead of falling back to the old
+        // generic obstacle-surface path.
+        wallAxis: cell.tags.includes('UT3Hard') ? 'NS' : reflector ? 'EW' : undefined,
+      }
+    })
 }
