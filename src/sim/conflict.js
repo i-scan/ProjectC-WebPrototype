@@ -8,6 +8,7 @@ import {
   mirrorStepOptions,
   nudgeFromSurfaceVector,
 } from './surface-geometry.js'
+import { WALL_CELL_TRAVEL_RULE, internalWallCellImpact } from './wall-cell-reflection.js'
 
 export const ACTOR_COLLISION_RESTITUTION = 0.75
 
@@ -205,6 +206,22 @@ function resolveStepwiseKnockback({
   }
 
   const chooseActorMirrorStep = (actor, impact, incomingDirection, previousCell) => {
+    if (impact?.wallCellPivot) {
+      const cell = cloneHex(impact.exitHex)
+      if (!legalReflectionCell(cell, actor.id)) return null
+      return {
+        direction: impact.direction,
+        reflected: { ...impact.reflected },
+        normal: { ...impact.normal },
+        faceIndex: 0,
+        ambiguousVertex: false,
+        cell,
+        wallCellPivot: true,
+        wallCellTravelCost: impact.wallCellTravelCost ?? 1,
+        reflectionContinuation: WALL_CELL_TRAVEL_RULE,
+      }
+    }
+
     const options = bestMirrorOptions(incomingDirection.id, impact, actor.hex)
       .map((option) => ({ ...option, cell: stepCell(actor.hex, option.direction) }))
       .filter((option) => legalReflectionCell(option.cell, actor.id))
@@ -236,7 +253,8 @@ function resolveStepwiseKnockback({
       const next = stepCell(actor.hex, activeDirection)
       const nextWorld = axialToWorld(next)
       const obstacle = obstacleAt(obstacles, next)
-      const impact = firstSurfaceImpact({
+      const wallImpact = obstacle ? internalWallCellImpact({ obstacle, incomingAxisId: activeDirection.id }) : null
+      const impact = wallImpact ?? firstSurfaceImpact({
         fromWorld: segmentStart,
         toWorld: nextWorld,
         boardRadius,
@@ -248,6 +266,7 @@ function resolveStepwiseKnockback({
         const beforeM = activeM
         const axisBefore = activeDirection.id
         const bounce = surfaceBounceM(activeM, obstacle, boundary, surfaceRestitution, boundaryRestitution)
+        const continuationRule = impact.wallCellPivot ? WALL_CELL_TRAVEL_RULE : REFLECTION_CONTINUATION_RULE
         events.push({
           kind: 'wall-crash',
           actorId: currentActorId,
@@ -260,7 +279,10 @@ function resolveStepwiseKnockback({
           contactPoint: { ...impact.point },
           faceIds: [...(impact.faceIds ?? [])],
           surfaceGeometry: SURFACE_GEOMETRY_RULE,
-          reflectionContinuation: REFLECTION_CONTINUATION_RULE,
+          reflectionContinuation: continuationRule,
+          wallCellPivot: Boolean(impact.wallCellPivot),
+          wallCellTravelCost: impact.wallCellTravelCost ?? 0,
+          wallAxis: impact.wallAxis ?? null,
           partial: movedSteps > 0,
         })
         trajectories[actor.id].push(fractionalHexForWorldPoint(impact.point))
@@ -282,7 +304,9 @@ function resolveStepwiseKnockback({
             beforeM,
             afterM: 0,
             surfaceGeometry: SURFACE_GEOMETRY_RULE,
-            reflectionContinuation: REFLECTION_CONTINUATION_RULE,
+            reflectionContinuation: continuationRule,
+            wallCellPivot: Boolean(impact.wallCellPivot),
+            wallCellTravelCost: impact.wallCellTravelCost ?? 0,
           })
           trajectories[actor.id].push(cloneHex(actor.hex))
           break
@@ -297,7 +321,7 @@ function resolveStepwiseKnockback({
         occupancy.set(axialKey(actor.hex), actor.id)
         trajectories[actor.id].push(cloneHex(actor.hex))
         previousCell = fromCell
-        movedSteps += 1
+        movedSteps += impact.wallCellPivot ? (impact.wallCellTravelCost ?? 1) : 1
         segmentStart = axialToWorld(actor.hex)
         actor.velocity = velocityFor(activeDirection.id, activeM)
         actor.axisId = activeDirection.id
@@ -320,8 +344,11 @@ function resolveStepwiseKnockback({
           reflectedVector: { ...mirror.reflected },
           faceIds: [...(impact.faceIds ?? [])],
           surfaceGeometry: SURFACE_GEOMETRY_RULE,
-          reflectionContinuation: REFLECTION_CONTINUATION_RULE,
+          reflectionContinuation: continuationRule,
           ambiguousVertexBranch: Boolean(mirror.ambiguousVertex),
+          wallCellPivot: Boolean(impact.wallCellPivot),
+          wallCellTravelCost: impact.wallCellTravelCost ?? 0,
+          wallAxis: impact.wallAxis ?? null,
         })
         continue
       }
@@ -402,13 +429,16 @@ function resolveStepwiseKnockback({
   }
 
   const result = moveActor(actorId, direction, power)
+  const reflectionContinuation = events.some((event) => event.wallCellPivot)
+    ? WALL_CELL_TRAVEL_RULE
+    : REFLECTION_CONTINUATION_RULE
   return {
     moved: result.vacated,
     actors: shadowActors.map(cloneActor),
     events,
     trajectories,
     actorPlaybackWindows: buildActorPlaybackWindows(motionOrder, trajectories),
-    reflectionContinuation: REFLECTION_CONTINUATION_RULE,
+    reflectionContinuation,
   }
 }
 
@@ -517,7 +547,7 @@ export function resolveCellConflicts({
     if (attempted.moved && !occupancy.has(axialKey(next))) {
       playerCell = cloneHex(next)
       playerRoute.push(cloneHex(playerCell))
-      playerConflict = { targetActorId, impactM, resolved: true, direction, momentumExchange }
+      playerConflict = { targetActorId, impactM, resolved: true, direction, momentumExchange, reflectionContinuation: attempted.reflectionContinuation }
     } else {
       conflictEvents.push({
         kind: 'cell-conflict-blocked',
@@ -529,7 +559,7 @@ export function resolveCellConflicts({
         chained: false,
         partial: attempted.moved,
       })
-      playerConflict = { targetActorId, impactM, resolved: false, direction, momentumExchange }
+      playerConflict = { targetActorId, impactM, resolved: false, direction, momentumExchange, reflectionContinuation: attempted.reflectionContinuation }
     }
     break
   }
@@ -595,7 +625,7 @@ export function resolveCellConflicts({
       atomic: false,
       resolution: 'stepwise-clipped-mirror-v2',
       surfaceGeometry: SURFACE_GEOMETRY_RULE,
-      reflectionContinuation: REFLECTION_CONTINUATION_RULE,
+      reflectionContinuation: playerConflict.reflectionContinuation ?? REFLECTION_CONTINUATION_RULE,
       momentumExchange: playerConflict.momentumExchange ?? null,
     },
   }
