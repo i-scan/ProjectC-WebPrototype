@@ -23,10 +23,13 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
     if (info.implementation !== 'cell-world-spatial-ab-v3') throw new Error(`published implementation is ${info.implementation}`)
 
     const html = await fresh(baseUrl, attempt)
-    const match = html.match(/<script[^>]+src="([^"]+\.js)"/)
-    if (!match) throw new Error('published bundle missing')
-    const bundleUrl = new URL(match[1], baseUrl.origin)
-    const bundle = await fresh(bundleUrl, attempt)
+    const matches = [...html.matchAll(/<script[^>]+src="([^"]+\.js)"/g)]
+    if (!matches.length) throw new Error('published bundle missing')
+    let bundle = ''
+    for (const match of matches) {
+      const bundleUrl = new URL(match[1], baseUrl.origin)
+      bundle += `\n${await fresh(bundleUrl, attempt)}`
+    }
     if (!bundle.includes(expectedCommit)) throw new Error('published bundle commit mismatch')
 
     for (const marker of [
@@ -46,6 +49,13 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'wall-cell-pivot-budget-v1',
       'wall-cell-roundtrip-costs-one-v2',
       'reflected-actor-current-m-exchange-v1',
+      'cell-motion-trace-v1',
+      'authoritative-cell-travel-budget-v1',
+      'single-cell-entry-resolution-v1',
+      'cell-conflict-consumes-motion-trace-v1',
+      'actor-knockback-cell-motion-v1',
+      'motion-trace-event-v1',
+      'motion-trace-debug-bridge-v1',
       'wall-axis-mesh-v1',
       'wall-pivot-polyline-v1',
       'obstacle-wall-cell-pivot',
@@ -80,7 +90,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · wall round-trip travel budget + reflected Actor current-M conflicts`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · authoritative Cell motion trace + travel budget`)
     process.exit(0)
   } catch (error) {
     lastError = error
