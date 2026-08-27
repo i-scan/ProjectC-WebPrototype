@@ -54,10 +54,10 @@ function manualPlan(from, contact, axisId, level, finalM = Math.max(0, level - 1
 
 describe('wall travel budget regression', () => {
   it.each([
-    [1, { q: -1, r: 0 }],
-    [2, { q: -2, r: 0 }],
-    [3, { q: -3, r: 0 }],
-  ])('charges the internal wall round-trip as one full Cell for player M%d', (level, expectedHex) => {
+    [1, 1, { q: -1, r: 0 }],
+    [2, 1, { q: -1, r: 0 }],
+    [3, 2, { q: -2, r: 0 }],
+  ])('uses current-M travel after Basic spend for player M%d wall reflection', (level, expectedMovedSteps, expectedHex) => {
     const wall = nsWallAt(0, 0)
     const plan = simulateBasicMoveRule({
       state: stateAt({ q: -1, r: 0 }, 'E', level),
@@ -73,7 +73,7 @@ describe('wall travel budget regression', () => {
       contactCell: { q: 0, r: 0 },
     })
     expect(plan.reflectedMovementBudget).toBe(level)
-    expect(plan.reflectedMovedSteps).toBe(level)
+    expect(plan.reflectedMovedSteps).toBe(expectedMovedSteps)
     expect(plan.finalState.position).toEqual(axialToWorld(expectedHex))
   })
 
