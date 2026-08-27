@@ -15,11 +15,14 @@ assert(info.implementation === 'cell-world-spatial-ab-v3', 'build-info implement
 assert(info.commit === expectedCommit, `build commit ${info.commit} != ${expectedCommit}`)
 assert(info.status === (expectedCommit === 'local' ? 'local' : 'verified'), 'unexpected build status')
 
-const scriptMatch = html.match(/<script[^>]+src="([^"]+\.js)"/)
-assert(scriptMatch, 'built JavaScript entry missing')
-const scriptPath = scriptMatch[1].replace(/^\/ProjectC-WebPrototype\//, '')
-await stat(resolve(distDir, scriptPath))
-const script = await readFile(resolve(distDir, scriptPath), 'utf8')
+const scriptMatches = [...html.matchAll(/<script[^>]+src="([^"]+\.js)"/g)]
+assert(scriptMatches.length, 'built JavaScript entries missing')
+let script = ''
+for (const match of scriptMatches) {
+  const scriptPath = match[1].replace(/^\/ProjectC-WebPrototype\//, '')
+  await stat(resolve(distDir, scriptPath))
+  script += `\n${await readFile(resolve(distDir, scriptPath), 'utf8')}`
+}
 
 for (const marker of [
   'cell-world-spatial-ab-v3',
@@ -39,6 +42,12 @@ for (const marker of [
   'wall-cell-pivot-budget-v1',
   'wall-cell-roundtrip-costs-one-v2',
   'reflected-actor-current-m-exchange-v1',
+  'cell-motion-trace-v1',
+  'authoritative-cell-travel-budget-v1',
+  'single-cell-entry-resolution-v1',
+  'cell-conflict-consumes-motion-trace-v1',
+  'motion-trace-event-v1',
+  'motion-trace-debug-bridge-v1',
   'wall-axis-mesh-v1',
   'wall-pivot-polyline-v1',
   'obstacle-wall-cell-pivot',
@@ -100,4 +109,4 @@ for (const marker of [
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified wall Cell round-trip travel budget, reflected Actor current-M conflict, visible wall axis + pivot polyline, and existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified authoritative Cell motion trace + travel budget, wall/Actor reflection rules, and existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)
