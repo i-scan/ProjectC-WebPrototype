@@ -46,7 +46,6 @@ for (const marker of [
   'authoritative-cell-travel-budget-v1',
   'single-cell-entry-resolution-v1',
   'cell-conflict-consumes-motion-trace-v1',
-  'actor-knockback-cell-motion-v1',
   'motion-trace-event-v1',
   'motion-trace-debug-bridge-v1',
   'wall-axis-mesh-v1',
