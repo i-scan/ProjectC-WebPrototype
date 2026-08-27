@@ -46,6 +46,9 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       'wall-cell-pivot-budget-v1',
       'wall-cell-roundtrip-costs-one-v2',
       'reflected-actor-current-m-exchange-v1',
+      'remaining-travel-capped-by-current-m-v1',
+      'reflected-contact-causal-window-v1',
+      'reflection-chain',
       'wall-axis-mesh-v1',
       'wall-pivot-polyline-v1',
       'obstacle-wall-cell-pivot',
@@ -80,7 +83,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (!bundle.includes(marker)) throw new Error(`published bundle missing ${marker}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · wall round-trip travel budget + reflected Actor current-M conflicts`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · current-M travel cap + reflected-contact causal playback + wall round-trip budget`)
     process.exit(0)
   } catch (error) {
     lastError = error
