@@ -89,20 +89,7 @@ function chooseMirror(current, impact, incomingAxisId, previousCell, obstacles, 
   return options[0]
 }
 
-function collisionRecord({
-  impact,
-  obstacle,
-  attempted,
-  current,
-  axisBefore,
-  axisAfter,
-  beforeM,
-  afterM,
-  mirror,
-  spentBefore,
-  budget,
-  restitution,
-}) {
+function collisionRecord({ impact, obstacle, attempted, current, axisBefore, axisAfter, beforeM, afterM, mirror, spentBefore, budget, restitution }) {
   const wallCellPivot = Boolean(impact.wallCellPivot)
   const contactCell = wallCellPivot ? attempted : current
   const boundary = impact.surface === 'boundary'
@@ -111,10 +98,12 @@ function collisionRecord({
     kind: boundary ? 'boundary' : obstacle?.kind ?? 'hard',
     geometryKind: impact.kind,
     obstacleId: obstacle?.id ?? null,
+    from: cloneHex(current),
     position: clonePoint(impact.point),
     contactCell: cloneHex(contactCell),
     cell: cloneHex(contactCell),
     attemptedCell: cloneHex(attempted),
+    reflectedCell: mirror?.cell ? cloneHex(mirror.cell) : null,
     axisBefore,
     axisAfter,
     beforeM,
@@ -129,25 +118,12 @@ function collisionRecord({
     wallCellTravelCost: wallCellPivot ? (impact.wallCellTravelCost ?? 1) : 0,
     wallAxis: impact.wallAxis ?? null,
     restitution,
+    ambiguousVertexBranch: Boolean(mirror?.ambiguousVertex),
     motionTraceRule: CELL_MOTION_TRACE_RULE,
     travelBudgetRule: CELL_TRAVEL_BUDGET_RULE,
   }
 }
 
-/**
- * Resolve one discrete motion as an ordered sequence of authoritative Cell steps.
- *
- * The travel budget is the only distance counter. Every completed Cell-travel
- * step consumes exactly one unit. An internal wall crossing is one such step:
- * incoming half-Cell + reflected outgoing half-Cell = 1. A board-boundary
- * reflection changes direction/momentum without completing a Cell transition,
- * so it costs 0 and the same remaining travel is continued from the reflected
- * direction.
- *
- * `onEnterCell` is the only hook allowed to decide occupancy/Actor conflicts.
- * It runs before the source commits to a destination Cell and may mutate an
- * external occupancy model. It returns { allowed, momentum?, stop?, events? }.
- */
 export function runCellMotion({
   startHex,
   initialAxisId,
@@ -181,29 +157,17 @@ export function runCellMotion({
   const actualPath = []
 
   const appendTrace = (event) => {
-    trace.push({
-      index: trace.length,
-      motionTraceRule: CELL_MOTION_TRACE_RULE,
-      travelBudgetRule: CELL_TRAVEL_BUDGET_RULE,
-      ...event,
-    })
+    trace.push({ index: trace.length, motionTraceRule: CELL_MOTION_TRACE_RULE, travelBudgetRule: CELL_TRAVEL_BUDGET_RULE, ...event })
   }
 
   const applyEntry = ({ to, cost, entryKind, context }) => {
     const remainingBefore = remainingTravel
+    const momentumBefore = momentum
     const from = cloneHex(current)
     const result = onEnterCell
       ? (onEnterCell({
-          from: cloneHex(from),
-          to: cloneHex(to),
-          cost,
-          axisId,
-          momentum,
-          remainingTravel,
-          spentTravel,
-          reflected,
-          entryKind,
-          context,
+          from: cloneHex(from), to: cloneHex(to), cost, axisId, momentum,
+          remainingTravel, spentTravel, reflected, entryKind, context,
         }) ?? {})
       : { allowed: true }
 
@@ -229,7 +193,7 @@ export function runCellMotion({
       cost: consume,
       axisBefore: context?.axisBefore ?? axisId,
       axisAfter: axisId,
-      momentumBefore: context?.momentumBefore ?? momentum,
+      momentumBefore: context?.momentumBefore ?? momentumBefore,
       momentumAfter: momentum,
       remainingBefore,
       remainingAfter: remainingTravel,
@@ -262,12 +226,7 @@ export function runCellMotion({
     const attemptedWorld = axialToWorld(attempted)
     const obstacle = obstacleAt(obstacles, attempted)
     const wallImpact = obstacle ? internalWallCellImpact({ obstacle, incomingAxisId: stepAxisId }) : null
-    const impact = wallImpact ?? firstSurfaceImpact({
-      fromWorld: segmentStart,
-      toWorld: attemptedWorld,
-      boardRadius,
-      obstacle,
-    })
+    const impact = wallImpact ?? firstSurfaceImpact({ fromWorld: segmentStart, toWorld: attemptedWorld, boardRadius, obstacle })
 
     if (!impact) {
       const entry = applyEntry({
@@ -282,55 +241,32 @@ export function runCellMotion({
 
     const beforeM = momentum
     const reflectionResult = normalizeReflectionResult(
-      reflectionMomentum({
-        momentum,
-        obstacle,
-        boundary: impact.surface === 'boundary',
-        impact,
-        axisId: stepAxisId,
-      }),
+      reflectionMomentum({ momentum, obstacle, boundary: impact.surface === 'boundary', impact, axisId: stepAxisId }),
       beforeM,
     )
     const mirror = chooseMirror(current, impact, stepAxisId, previousCell, obstacles, boardRadius)
     const axisAfter = mirror?.direction?.id ?? stepAxisId
     const collision = collisionRecord({
-      impact,
-      obstacle,
-      attempted,
-      current,
-      axisBefore: stepAxisId,
-      axisAfter,
-      beforeM,
-      afterM: reflectionResult.momentum,
-      mirror,
-      spentBefore: spentTravel,
-      budget,
-      restitution: reflectionResult.restitution,
+      impact, obstacle, attempted, current, axisBefore: stepAxisId, axisAfter,
+      beforeM, afterM: reflectionResult.momentum, mirror, spentBefore: spentTravel,
+      budget, restitution: reflectionResult.restitution,
     })
     collisions.push(collision)
     timeline.push({ position: clonePoint(impact.point), axisId: axisAfter, kind: 'surface-contact', collision: true })
 
     if (!mirror?.direction) {
+      const wallCost = impact.wallCellPivot ? (impact.wallCellTravelCost ?? 1) : 0
+      const remainingBefore = remainingTravel
+      const consume = Math.min(remainingTravel, wallCost)
+      remainingTravel -= consume
+      spentTravel += consume
       appendTrace({
-        kind: 'surface-stop',
-        from: cloneHex(current),
-        attemptedCell: cloneHex(attempted),
-        pivotCell: impact.wallCellPivot ? cloneHex(attempted) : null,
-        to: cloneHex(current),
-        cost: impact.wallCellPivot ? (impact.wallCellTravelCost ?? 1) : 0,
-        axisBefore: stepAxisId,
-        axisAfter: stepAxisId,
-        momentumBefore: beforeM,
-        momentumAfter: 0,
-        remainingBefore: remainingTravel,
-        remainingAfter: Math.max(0, remainingTravel - (impact.wallCellPivot ? (impact.wallCellTravelCost ?? 1) : 0)),
-        collision,
+        kind: 'surface-stop', from: cloneHex(current), attemptedCell: cloneHex(attempted),
+        pivotCell: impact.wallCellPivot ? cloneHex(attempted) : null, to: cloneHex(current),
+        cost: consume, axisBefore: stepAxisId, axisAfter: stepAxisId,
+        momentumBefore: beforeM, momentumAfter: 0,
+        remainingBefore, remainingAfter: remainingTravel, collision,
       })
-      if (impact.wallCellPivot) {
-        const consume = Math.min(remainingTravel, impact.wallCellTravelCost ?? 1)
-        remainingTravel -= consume
-        spentTravel += consume
-      }
       momentum = 0
       stopped = true
       stopReason = 'surface-stop'
@@ -341,12 +277,7 @@ export function runCellMotion({
     reflected = true
     axisId = axisAfter
     momentum = reflectionResult.momentum
-    timeline.push({
-      position: nudgeFromSurfaceVector(impact.point, mirror.reflected),
-      axisId,
-      kind: 'reflection-guide',
-      reflectionGuide: true,
-    })
+    timeline.push({ position: nudgeFromSurfaceVector(impact.point, mirror.reflected), axisId, kind: 'reflection-guide', reflectionGuide: true })
 
     if (impact.wallCellPivot) {
       const exitCell = cloneHex(mirror.cell)
@@ -355,14 +286,9 @@ export function runCellMotion({
         cost: impact.wallCellTravelCost ?? 1,
         entryKind: 'wall-cell-step',
         context: {
-          collision,
-          pivotCell: cloneHex(attempted),
-          attemptedCell: cloneHex(attempted),
-          axisBefore: stepAxisId,
-          momentumBefore: beforeM,
-          reflectedMomentum: momentum,
-          wallCellPivot: true,
-          wallCellTravelCost: impact.wallCellTravelCost ?? 1,
+          collision, pivotCell: cloneHex(attempted), attemptedCell: cloneHex(attempted),
+          axisBefore: stepAxisId, momentumBefore: beforeM, reflectedMomentum: momentum,
+          wallCellPivot: true, wallCellTravelCost: impact.wallCellTravelCost ?? 1,
         },
       })
       if (!entry.allowed) timeline.push({ position: clonePoint(axialToWorld(current)), axisId, kind: 'blocked-return' })
@@ -373,21 +299,14 @@ export function runCellMotion({
       continue
     }
 
-    appendTrace({
-      kind: 'boundary-reflection',
-      from: cloneHex(current),
-      attemptedCell: cloneHex(attempted),
-      to: cloneHex(current),
-      cost: 0,
-      axisBefore: stepAxisId,
-      axisAfter: axisId,
-      momentumBefore: beforeM,
-      momentumAfter: momentum,
-      remainingBefore: remainingTravel,
-      remainingAfter: capRemainingByMomentum ? Math.min(remainingTravel, momentum) : remainingTravel,
-      collision,
-    })
+    const remainingBefore = remainingTravel
     if (capRemainingByMomentum) remainingTravel = Math.min(remainingTravel, momentum)
+    appendTrace({
+      kind: 'boundary-reflection', from: cloneHex(current), attemptedCell: cloneHex(attempted), to: cloneHex(current),
+      cost: 0, axisBefore: stepAxisId, axisAfter: axisId,
+      momentumBefore: beforeM, momentumAfter: momentum,
+      remainingBefore, remainingAfter: remainingTravel, collision,
+    })
     segmentStart = nudgeFromSurfaceVector(impact.point, mirror.reflected)
     if (momentum <= 0) {
       stopped = true
@@ -421,8 +340,6 @@ export function runCellMotion({
     collisions,
     timeline,
     actualPath,
-    reflectionContinuation: collisions.some((entry) => entry.wallCellPivot)
-      ? WALL_CELL_TRAVEL_RULE
-      : REFLECTION_CONTINUATION_RULE,
+    reflectionContinuation: collisions.some((entry) => entry.wallCellPivot) ? WALL_CELL_TRAVEL_RULE : REFLECTION_CONTINUATION_RULE,
   }
 }
