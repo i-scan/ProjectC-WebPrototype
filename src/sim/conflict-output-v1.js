@@ -17,6 +17,10 @@ function normalizePoint(point) {
   return point ? { ...point, q: normalizeNumber(point.q), r: normalizeNumber(point.r) } : point
 }
 
+function samePoint(a, b) {
+  return Boolean(a && b && Math.abs((a.q ?? 0) - (b.q ?? 0)) < 1e-6 && Math.abs((a.r ?? 0) - (b.r ?? 0)) < 1e-6)
+}
+
 function wallExitCell(event) {
   if (!event?.wallCellPivot || !event.attemptedCell || !event.axisAfter) return event?.to
   const direction = HEX_DIRECTIONS.find((entry) => entry.id === event.axisAfter)
@@ -27,14 +31,17 @@ function wallExitCell(event) {
   }
 }
 
-function compatibleEvent(event) {
+function compatibleEvent(event, actorTrajectories) {
   const result = { ...event }
   if (result.kind === 'surface-reflection' && result.wallCellPivot && !result.to) result.to = wallExitCell(result)
   if ((result.kind === 'surface-reflection' || result.kind === 'surface-stop' || result.kind === 'wall-crash') && result.wallCellPivot) {
     // Keep the old public event marker while the authoritative distance engine
-    // is now identified independently by motionTraceRule/travelBudgetRule on
-    // the CellMotionTrace itself.
+    // is identified independently on the CellMotionTrace.
     result.travelBudgetRule = WALL_TRAVEL_BUDGET_RULE
+  }
+  if (result.kind === 'wall-crash' && result.actorId && typeof result.partial !== 'boolean') {
+    const start = actorTrajectories[result.actorId]?.[0]
+    result.partial = Boolean(start && result.from && !samePoint(start, result.from))
   }
   for (const key of ['cell', 'from', 'to', 'attemptedCell', 'reflectedCell']) {
     if (result[key]) result[key] = normalizePoint(result[key])
@@ -50,7 +57,7 @@ export function resolveCellConflicts(input) {
   ]))
   return {
     ...resolved,
-    conflictEvents: (resolved.conflictEvents ?? []).map(compatibleEvent),
+    conflictEvents: (resolved.conflictEvents ?? []).map((event) => compatibleEvent(event, actorTrajectories)),
     actorTrajectories,
     conflictOutputCompatRule: CONFLICT_OUTPUT_COMPAT_RULE,
   }
