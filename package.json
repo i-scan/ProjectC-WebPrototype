@@ -9,7 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "verify:dist": "node scripts/verify-dist.mjs",
-    "verify:browser": "node scripts/verify-browser.mjs && node scripts/verify-wall-visual.mjs"
+    "verify:browser": "node scripts/verify-browser.mjs && node scripts/verify-wall-visual.mjs && node scripts/verify-wall-budget.mjs"
   },
   "dependencies": {
     "react": "19.2.8",
