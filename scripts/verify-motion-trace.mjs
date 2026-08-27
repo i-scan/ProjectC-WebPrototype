@@ -107,6 +107,8 @@ function assertStep(step, expected, label) {
   assert(step?.remainingBefore === expected.before && step?.remainingAfter === expected.after, `${label} remaining`, step)
   assert(step?.from?.q === expected.from[0] && step?.from?.r === expected.from[1], `${label} from`, step)
   assert(step?.to?.q === expected.to[0] && step?.to?.r === expected.to[1], `${label} to`, step)
+  if (expected.mBefore !== undefined) assert(step?.momentumBefore === expected.mBefore, `${label} momentumBefore`, step)
+  if (expected.mAfter !== undefined) assert(step?.momentumAfter === expected.mAfter, `${label} momentumAfter`, step)
 }
 
 let previewProcess, chromeProcess, client
@@ -145,35 +147,41 @@ try {
   })
   assert(ready.bridge === 'motion-trace-debug-bridge-v1', 'motion trace bridge missing', ready)
 
+  // Player starts E M3 immediately west of the wall. Basic spend produces
+  // Current M2 first; wall reflection makes it M1, so exactly one reflected
+  // full Cell remains after the wall-cell round-trip.
   await prepareAdjacentToWall(client)
   await syncSet(client, `window.__PROJECTC_PROTOTYPE__.setKinematics('E',3)`, (v) => v.axisId === 'E' && v.momentum === 3, 'E M3')
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(3,0)`), 'M3 wall action rejected')
   const playerTrace = await waitFor('player M3 authoritative trace', async () => {
     const trace = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.motionTrace('player')`)
-    if (!Array.isArray(trace) || trace.length !== 3) throw new Error(JSON.stringify(trace))
+    if (!Array.isArray(trace) || trace.length !== 2) throw new Error(JSON.stringify(trace))
     return trace
   })
-  assertStep(playerTrace[0], { kind: 'wall-cell-step', cost: 1, before: 3, after: 2, from: [2,0], to: [2,0] }, 'player #0')
-  assertStep(playerTrace[1], { kind: 'cell-step', cost: 1, before: 2, after: 1, from: [2,0], to: [1,0] }, 'player #1')
-  assertStep(playerTrace[2], { kind: 'cell-step', cost: 1, before: 1, after: 0, from: [1,0], to: [0,0] }, 'player #2')
-  await waitIdle(client, 3, 0, 0)
+  assertStep(playerTrace[0], { kind: 'wall-cell-step', cost: 1, before: 3, after: 1, from: [2,0], to: [2,0], mBefore: 2, mAfter: 1 }, 'player #0')
+  assertStep(playerTrace[1], { kind: 'cell-step', cost: 1, before: 1, after: 0, from: [2,0], to: [1,0], mBefore: 1, mAfter: 1 }, 'player #1')
+  await waitIdle(client, 3, 1, 0)
 
+  // Keep raw M2 knockback-wall coverage separate from Basic M2 impact semantics:
+  // the player is made M3, whose Basic spend creates Current M2 and transfers M2
+  // to dummy-a before the target reaches the wall.
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'wall scenario rejected')
   await waitFor('wall scenario ready', async () => {
     const value = await snapshot(client)
     if (value.playing || value.q !== -1 || value.r !== 0 || value.momentum !== 2) throw new Error(JSON.stringify(value))
     return value
   })
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1,0)`), 'wall knockback rejected')
+  await syncSet(client, `window.__PROJECTC_PROTOTYPE__.setKinematics('E',3)`, (v) => v.axisId === 'E' && v.momentum === 3, 'wall scenario E M3')
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2,0)`), 'wall knockback rejected')
   const actorTrace = await waitFor('dummy-a authoritative trace', async () => {
     const trace = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.motionTrace('dummy-a')`)
     if (!Array.isArray(trace) || trace.length !== 2) throw new Error(JSON.stringify(trace))
     return trace
   })
-  assertStep(actorTrace[0], { kind: 'cell-step', cost: 1, before: 2, after: 1, from: [1,0], to: [2,0] }, 'dummy-a #0')
-  assertStep(actorTrace[1], { kind: 'wall-cell-step', cost: 1, before: 1, after: 0, from: [2,0], to: [2,0] }, 'dummy-a #1')
+  assertStep(actorTrace[0], { kind: 'cell-step', cost: 1, before: 2, after: 1, from: [1,0], to: [2,0], mBefore: 2, mAfter: 2 }, 'dummy-a #0')
+  assertStep(actorTrace[1], { kind: 'wall-cell-step', cost: 1, before: 1, after: 0, from: [2,0], to: [2,0], mBefore: 2, mAfter: 1 }, 'dummy-a #1')
 
-  console.log('Verified authoritative per-Cell motion traces in Chrome for player and knocked Actor wall travel.')
+  console.log('Verified Current-M per-Cell motion traces in Chrome for Basic wall travel and true M2 knocked-Actor wall travel.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')
