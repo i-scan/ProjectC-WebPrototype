@@ -112,7 +112,9 @@ try {
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setAtMs(900)`), 'AT 900 rejected')
   await sleep(80)
 
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(-1,1)`), 'reflection-chain action rejected')
+  // Player (5,-2) follows the M3 SW forward route through A (4,-1), the
+  // authored hard wall (3,0), and nominally toward (2,1).
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2,1)`), 'reflection-chain action rejected')
   await waitFor('reflection-chain playback', async () => {
     const value = await snapshot(client)
     if (!value.playing) throw new Error(JSON.stringify(value))
@@ -138,9 +140,9 @@ try {
   const aPath = evidence.trajectories['dummy-a'] ?? []
   const bPath = evidence.trajectories['dummy-b'] ?? []
   assert(aPath.length > 2 && bPath.length > 1, 'both Actors need real playback trajectories', evidence.trajectories)
-  assert(aPath.at(-1)?.q === 0 && aPath.at(-1)?.r === 2, 'A over-travelled after becoming M1', aPath)
-  assert(!aPath.some((cell) => cell.q === 0 && cell.r === 3), 'A must not consume the old M3 remainder', aPath)
-  assert(bPath.at(-1)?.q === 0 && bPath.at(-1)?.r === 3, 'B must be visibly/logically knocked away', bPath)
+  assert(aPath.at(-1)?.q === 3 && aPath.at(-1)?.r === 2, 'A over-travelled after becoming M1', aPath)
+  assert(!aPath.some((cell) => cell.q === 3 && cell.r === 3), 'A must not consume the old M3 remainder', aPath)
+  assert(bPath.at(-1)?.q === 3 && bPath.at(-1)?.r === 3, 'B must be visibly/logically knocked away', bPath)
 
   const aWindow = evidence.windows['dummy-a']
   const bWindow = evidence.windows['dummy-b']
