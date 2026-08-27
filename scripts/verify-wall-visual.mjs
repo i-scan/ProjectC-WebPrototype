@@ -172,7 +172,9 @@ try {
   assert(initial.wallReflectionPathContract === 'wall-pivot-polyline-v1', 'wall polyline contract missing', initial)
   assert(Math.abs(Math.abs(initial.hardWallYaw) - Math.PI / 2) < 0.002, 'NS wall mesh is not rotated onto the N-S tangent', initial)
 
-  // N-S authored hard wall: NE side -> wall pivot -> SE side.
+  // N-S authored hard wall: M3 Basic spends to Current M2 first, then the
+  // wall reflection lowers M2 -> M1. The wall-cell round-trip costs one Cell,
+  // leaving exactly one reflected full Cell after the mirrored exit.
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'wall scenario rejected')
   await waitFor('wall scenario ready', async () => {
     const value = await snapshot(client)
@@ -191,13 +193,11 @@ try {
 
   const nsDuringReflection = await waitForWallPolyline(client, 'NS wall pivot polyline playback')
   const nsTrajectory = await compactTrajectory(client)
-  assert(nsTrajectory.join('|') === '4,-1|3,0|3,1|3,2|3,3', 'visible NS player reflection path no longer matches wall pivot geometry', nsTrajectory)
+  assert(nsTrajectory.join('|') === '4,-1|3,0|3,1|3,2', 'visible NS player reflection path over-travelled beyond Current M', nsTrajectory)
   const nsFinal = await idleAt(client, 6)
   assert(nsFinal.axisId === 'SE' && nsFinal.momentum === 1, 'NS wall reflection final Axis/M changed', nsFinal)
 
-  // E-W visible cyan reflector: NW side -> wall pivot -> NE side. This used to
-  // fall back to the legacy generic obstacle reflection because wallAxis was
-  // undefined even though the mesh visibly ran E-W.
+  // E-W visible cyan reflector follows the same Current-M accounting.
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'EW setup reset rejected')
   await waitFor('EW setup ready', async () => {
     const value = await snapshot(client)
@@ -215,7 +215,7 @@ try {
 
   const ewDuringReflection = await waitForWallPolyline(client, 'EW wall pivot polyline playback')
   const ewTrajectory = await compactTrajectory(client)
-  assert(ewTrajectory.join('|') === '3,-4|3,-3|4,-4|5,-5|6,-6', 'visible EW player reflection path did not exit immediately from the mirrored wall side', ewTrajectory)
+  assert(ewTrajectory.join('|') === '3,-4|3,-3|4,-4|5,-5', 'visible EW player reflection path over-travelled beyond Current M', ewTrajectory)
   const ewFinal = await idleAt(client, 5)
   assert(ewFinal.axisId === 'NE' && ewFinal.momentum === 1, 'EW wall reflection final Axis/M changed', ewFinal)
 
@@ -230,7 +230,7 @@ try {
     ewTrajectory,
   }, null, 2)}\n`)
 
-  console.log('Verified visible NS and EW wall-cell pivot reflections and unsmoothed playback in Chrome.')
+  console.log('Verified visible NS/EW wall-cell pivots use post-spend Current M and stop without the historical extra Cell.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')
