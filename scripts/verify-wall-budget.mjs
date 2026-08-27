@@ -134,10 +134,12 @@ try {
     return value
   })
 
+  // Start immediately west of the N-S wall at (3,0). Basic Action spend/build
+  // creates Current M before the wall collision is resolved.
   const cases = [
-    { level: 1, q: 2 },
-    { level: 2, q: 1 },
-    { level: 3, q: 0 },
+    { level: 1, q: 2 }, // M1 builds to M2, wall reflection -> M1, budget already exhausted.
+    { level: 2, q: 2 }, // M2 spends to M1, wall reflection -> M0: no extra reflected Cell.
+    { level: 3, q: 1 }, // M3 spends to M2, wall reflection -> M1: one reflected Cell remains.
   ]
   for (const testCase of cases) {
     await prepareAdjacentToWall(client)
@@ -152,7 +154,7 @@ try {
     assert(final.q === testCase.q && final.r === 0, `M${testCase.level} wall budget mismatch`, final)
   }
 
-  console.log('Verified browser wall travel budget: M1 returns to origin, M2 travels one reflected Cell, M3 travels two reflected Cells.')
+  console.log('Verified browser wall travel uses post-spend Current M: M2 adds no reflected Cell; M3 adds exactly one.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')
