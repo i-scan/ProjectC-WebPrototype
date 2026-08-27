@@ -1,1 +1,1 @@
-export * from './conflict-v4.js'
+export * from './conflict-output-v1.js'
