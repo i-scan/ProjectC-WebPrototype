@@ -39,7 +39,7 @@ describe('player clipped mirror boundary reflection', () => {
     expect(bounce.resolvedFinalHex).not.toEqual(bounce.finalHex)
   })
 
-  it('keeps all M3 Cell-travel steps after a side-face reflection', () => {
+  it('caps an immediate M3 Basic boundary reflection by post-spend current M', () => {
     const state = stateAt({ q: 3, r: -1 }, 'E', 3)
     const plan = simulateBasicMoveRule({
       state,
@@ -56,13 +56,15 @@ describe('player clipped mirror boundary reflection', () => {
     expect(plan.reflectionContinuation).toBe('contact-ray-step-budget-v3')
     expect(plan.reflectionCount).toBe(1)
     expect(plan.reflectedMovementBudget).toBe(3)
-    expect(plan.reflectedMovedSteps).toBe(3)
+    expect(plan.reflectedMovedSteps).toBe(1)
     expect(plan.collisions[0]).toMatchObject({
       kind: 'boundary',
       geometryKind: 'boundary',
       reflection: true,
       axisBefore: 'E',
       axisAfter: 'SW',
+      beforeM: 2,
+      afterM: 1,
       contactCell: { q: 3, r: -1 },
       faceIds: ['+q'],
       reflectionContinuation: 'contact-ray-step-budget-v3',
@@ -70,19 +72,15 @@ describe('player clipped mirror boundary reflection', () => {
     expect(plan.traversedCells).toEqual([
       { q: 3, r: -1 },
       { q: 2, r: 0 },
-      { q: 1, r: 1 },
-      { q: 0, r: 2 },
     ])
-    const finalHex = worldToAxial(plan.finalState.position)
-    expect(Math.abs(finalHex.q)).toBe(0)
-    expect(finalHex.r).toBe(2)
+    expect(worldToAxial(plan.finalState.position)).toEqual({ q: 2, r: 0 })
     expect(plan.axisAfter).toBe('SW')
     expect(plan.finalM).toBe(1)
     expect(plan.samples.some((sample) => sample.collision)).toBe(true)
     expect(plan.samples.some((sample) => sample.reflectionGuide)).toBe(true)
   })
 
-  it('keeps the remaining Cell budget when the symmetric corner chamfer reflects the route', () => {
+  it('preserves spent Cells before a corner reflection, then caps only the remaining travel by current M', () => {
     const state = stateAt({ q: 3, r: -1 }, 'SE', 3)
     const plan = simulateBasicMoveRule({
       state,
@@ -95,24 +93,25 @@ describe('player clipped mirror boundary reflection', () => {
     expect(plan.valid).toBe(true)
     expect(plan.reflectionCount).toBe(1)
     expect(plan.reflectedMovementBudget).toBe(3)
-    expect(plan.reflectedMovedSteps).toBe(3)
+    expect(plan.reflectedMovedSteps).toBe(2)
     expect(plan.collisions[0]).toMatchObject({
       geometryKind: 'boundary-corner-chamfer',
       axisBefore: 'SE',
       axisAfter: 'SW',
+      beforeM: 2,
+      afterM: 1,
       contactCell: { q: 3, r: 0 },
     })
     expect(plan.traversedCells).toEqual([
       { q: 3, r: -1 },
       { q: 3, r: 0 },
       { q: 2, r: 1 },
-      { q: 1, r: 2 },
     ])
     expect(plan.axisAfter).toBe('SW')
-    expect(worldToAxial(plan.finalState.position)).toEqual({ q: 1, r: 2 })
+    expect(worldToAxial(plan.finalState.position)).toEqual({ q: 2, r: 1 })
   })
 
-  it('chooses one incident wall face at a sharp obstacle vertex instead of synthesizing a 180-degree return', () => {
+  it('chooses one incident wall face at a sharp obstacle vertex and caps continuation by current M', () => {
     const state = stateAt({ q: 1, r: 0 }, 'E', 3)
     const obstacles = [{ id: 'wall-a', hex: { q: 2, r: 0 }, kind: 'hard' }]
     const reach = reachMap(state, 'basic-move', 3, obstacles)
@@ -120,7 +119,7 @@ describe('player clipped mirror boundary reflection', () => {
 
     expect(reflected).toBeTruthy()
     expect(reflected.reflectionCount).toBe(1)
-    expect(reflected.movedSteps).toBe(reflected.movementBudget)
+    expect(reflected.movedSteps).toBe(1)
     expect(reflected.axisAfter).not.toBe('W')
     expect(['NW', 'SW']).toContain(reflected.axisAfter)
     expect(reflected.resolvedFinalHex).not.toEqual({ q: 0, r: 0 })

@@ -101,7 +101,7 @@ describe('Cell Conflict / knockback prototype', () => {
     expect(resolved.samples).toHaveLength(2)
   })
 
-  it('transfers M2 into a stationary actor and resolves a chain one Cell at a time', () => {
+  it('uses post-spend current M1 when an M2 Basic Move hits a stationary actor', () => {
     const state = stateAt({ q: 0, r: 1 }, 2, 'E')
     const plan = basicPlan(state, { q: 2, r: 1 })
     const resolved = resolveCellConflicts({
@@ -113,42 +113,40 @@ describe('Cell Conflict / knockback prototype', () => {
 
     expect(resolved.cellConflict).toMatchObject({
       targetActorId: 'dummy-a',
-      impactM: 2,
+      impactM: 1,
       resolved: true,
       atomic: false,
       resolution: 'stepwise-clipped-mirror-v2',
       surfaceGeometry: 'clipped-cell-mirror-v2',
       reflectionContinuation: 'contact-ray-step-budget-v3',
       momentumExchange: {
-        sourceBeforeM: 2,
+        sourceBeforeM: 1,
         targetBeforeM: 0,
-        sourceAfterM: 1,
-        targetAfterM: 2,
+        sourceAfterM: 0,
+        targetAfterM: 1,
       },
     })
     expect(resolved.pushAtomic).toBe(false)
     expect(resolved.traversedCells.at(-1)).toEqual({ q: 2, r: 1 })
     expect(Object.fromEntries(resolved.actorStates.map((actor) => [actor.id, actor.hex]))).toEqual({
-      'dummy-a': { q: 4, r: 1 },
-      'dummy-b': { q: 5, r: 1 },
-      'dummy-c': { q: 6, r: 1 },
+      'dummy-a': { q: 3, r: 1 },
+      'dummy-b': { q: 4, r: 1 },
+      'dummy-c': { q: 5, r: 1 },
     })
     expect(resolved.actorTrajectories['dummy-a']).toEqual([
       { q: 2, r: 1 },
       { q: 3, r: 1 },
-      { q: 4, r: 1 },
     ])
-    expect(resolved.actorTrajectories['dummy-b']).toEqual([{ q: 4, r: 1 }, { q: 5, r: 1 }])
-    expect(resolved.actorTrajectories['dummy-c']).toEqual([{ q: 5, r: 1 }, { q: 6, r: 1 }])
-    expect(momentumLevel(Math.hypot(resolved.actorStates[0].velocity.x, resolved.actorStates[0].velocity.z))).toBe(2)
-    expect(resolved.finalM).toBe(1)
+    expect(resolved.actorTrajectories['dummy-b']).toEqual([{ q: 4, r: 1 }])
+    expect(resolved.actorTrajectories['dummy-c']).toEqual([{ q: 5, r: 1 }])
+    expect(momentumLevel(Math.hypot(resolved.actorStates[0].velocity.x, resolved.actorStates[0].velocity.z))).toBe(1)
+    expect(resolved.finalM).toBe(0)
     expect(resolved.playerPlaybackEnd).toBeLessThan(resolved.actorPlaybackWindows['dummy-a'].start)
   })
 
-  it('uses a real wall-face mirror branch instead of returning along the player-target line', () => {
-    const state = stateAt({ q: -1, r: 0 }, 2, 'E')
+  it('uses a real wall-face mirror branch for a true M2 target instead of depending on stale Basic impact M', () => {
     const obstacles = [{ id: 'wall', hex: { q: 3, r: 0 }, radius: 0.34, kind: 'hard' }]
-    const plan = basicPlan(state, { q: 1, r: 0 }, obstacles)
+    const plan = manualContactPlan({ from: { q: 0, r: 0 }, contact: { q: 1, r: 0 }, level: 2, finalM: 1 })
     const resolved = resolveCellConflicts({
       plan,
       actors: createConflictActors('wall'),

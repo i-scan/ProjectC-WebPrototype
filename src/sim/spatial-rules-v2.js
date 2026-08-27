@@ -203,7 +203,7 @@ function basicOutcomeForRoute(state, route) {
   return { beforeM, storedAxisId, finalM, finalAxisId, basicRule }
 }
 
-function resolveRoute(route, config, obstacles, motionM) {
+function resolveRoute(route, config, obstacles, motionM, capRemainingByMomentum = false) {
   return runCellMotion({
     startHex: route.startHex,
     initialAxisId: route.axisBefore ?? directionIdBetween(route.startHex, route.pathCells[0]) ?? route.axisAfter,
@@ -212,7 +212,7 @@ function resolveRoute(route, config, obstacles, motionM) {
     authoredPathCells: route.pathCells,
     obstacles,
     boardRadius: config.boardRadius,
-    capRemainingByMomentum: false,
+    capRemainingByMomentum,
   })
 }
 
@@ -268,8 +268,11 @@ function planCommon({ state, route, action, spatialMode, resolved, beforeM, fina
 
 function simulateBasicRoute({ state, route, action, spatialMode, config, obstacles }) {
   const outcome = basicOutcomeForRoute(state, route)
-  const resolved = resolveRoute(route, config, obstacles, outcome.beforeM)
-  const finalM = Math.max(0, outcome.finalM - resolved.reflectionCount)
+  // Basic Action spend/build produces the current Momentum for this AT before
+  // collision/impact resolution. The Cell trace must therefore carry the same
+  // current M that the final state and any subsequent Actor impact will use.
+  const resolved = resolveRoute(route, config, obstacles, outcome.finalM, true)
+  const finalM = resolved.momentumAfter
   const finalAxisId = resolved.reflected ? resolved.axisAfter : outcome.finalAxisId
   const intentPoint = axialToWorld(route.targetHex)
   return {

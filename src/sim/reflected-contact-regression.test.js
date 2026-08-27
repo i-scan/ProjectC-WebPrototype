@@ -16,7 +16,7 @@ function stateAt(hex, level, axisId) {
 }
 
 describe('reflected Actor current-M travel regression', () => {
-  it('caps the reflected source by its new M immediately after Actor contact', () => {
+  it('propagates post-spend current M through player impact, wall reflection, and reflected Actor contact', () => {
     const obstacles = [
       { id: 'UT3Hard-3,0', hex: { q: 3, r: 0 }, radius: 0.34, kind: 'hard', wallAxis: 'NS' },
     ]
@@ -25,9 +25,6 @@ describe('reflected Actor current-M travel regression', () => {
       { id: 'dummy-b', label: 'B', hex: { q: 3, r: 1 }, velocity: { x: 0, z: 0 }, axisId: null },
     ]
 
-    // Current reflected-route input uses the first collision Cell as the
-    // clickable landing proxy. The nominal M3 SW route would continue to
-    // (2,1), but its authored N-S wall contact is (3,0).
     const plan = simulateBasicMoveRule({
       spatialMode: 'discrete',
       state: stateAt({ q: 5, r: -2 }, 3, 'SW'),
@@ -48,12 +45,19 @@ describe('reflected Actor current-M travel regression', () => {
       boundaryRestitution: 0.42,
     })
 
+    // M3 Basic spends to current M2 before the player/Actor contact.
     expect(resolved.cellConflict).toMatchObject({
       targetActorId: 'dummy-a',
-      impactM: 3,
+      impactM: 2,
       resolved: true,
+      momentumExchange: {
+        sourceBeforeM: 2,
+        sourceAfterM: 1,
+        targetAfterM: 2,
+      },
     })
 
+    // A reaches the wall at M2, reflects to M1, then transfers that M1 to B.
     const reflectedTransfer = resolved.conflictEvents.find((event) => (
       event.kind === 'momentum-transfer'
       && event.sourceActorId === 'dummy-a'
@@ -61,40 +65,38 @@ describe('reflected Actor current-M travel regression', () => {
       && event.model === 'reflected-actor-current-m-exchange-v1'
     ))
     expect(reflectedTransfer).toMatchObject({
-      sourceBeforeM: 2,
-      sourceAfterM: 1,
-      targetAfterM: 2,
+      sourceBeforeM: 1,
+      sourceAfterM: 0,
+      targetAfterM: 1,
     })
 
     const actorCells = Object.fromEntries(resolved.actorStates.map((actor) => [actor.id, actor.hex]))
     expect(actorCells).toEqual({
-      'dummy-a': { q: 3, r: 2 },
-      'dummy-b': { q: 3, r: 3 },
+      'dummy-a': { q: 3, r: 1 },
+      'dummy-b': { q: 3, r: 2 },
     })
 
     const aPath = resolved.actorTrajectories['dummy-a']
     const bPath = resolved.actorTrajectories['dummy-b']
-    expect(aPath.at(-1)).toEqual({ q: 3, r: 2 })
-    expect(aPath).not.toContainEqual({ q: 3, r: 3 })
-    expect(bPath.at(-1)).toEqual({ q: 3, r: 3 })
+    expect(aPath.at(-1)).toEqual({ q: 3, r: 1 })
+    expect(aPath).not.toContainEqual({ q: 3, r: 2 })
+    expect(bPath).toEqual([
+      { q: 3, r: 1 },
+      { q: 3, r: 2 },
+    ])
 
+    // The wall-cell step is the only charged step for A. The reflected contact
+    // lowers A to M0 during that same Cell entry, so no stale remainder survives.
     const aTrace = resolved.actorMotionTrace['dummy-a']
+    expect(aTrace).toHaveLength(1)
     expect(aTrace[0]).toMatchObject({
       kind: 'wall-cell-step',
       cost: 1,
-      remainingBefore: 3,
-      remainingAfter: 1,
-      momentumAfter: 1,
-    })
-    expect(aTrace[1]).toMatchObject({
-      kind: 'cell-step',
-      cost: 1,
-      remainingBefore: 1,
+      remainingBefore: 2,
       remainingAfter: 0,
-      momentumBefore: 1,
-      momentumAfter: 1,
+      momentumBefore: 2,
+      momentumAfter: 0,
     })
-    expect(aTrace.filter((entry) => entry.cost === 1)).toHaveLength(2)
 
     const aWindow = resolved.actorPlaybackWindows['dummy-a']
     const bWindow = resolved.actorPlaybackWindows['dummy-b']

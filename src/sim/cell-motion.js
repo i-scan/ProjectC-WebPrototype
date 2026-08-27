@@ -163,6 +163,7 @@ export function runCellMotion({
   const applyEntry = ({ to, cost, entryKind, context }) => {
     const remainingBefore = remainingTravel
     const momentumBefore = momentum
+    const eventMomentumBefore = clampM(context?.momentumBefore ?? momentumBefore)
     const from = cloneHex(current)
     const result = onEnterCell
       ? (onEnterCell({
@@ -176,7 +177,8 @@ export function runCellMotion({
     const consume = Math.max(0, Math.min(remainingTravel, Math.round(Number(cost) || 0)))
     remainingTravel -= consume
     spentTravel += consume
-    if (capRemainingByMomentum) remainingTravel = Math.min(remainingTravel, momentum)
+    const momentumChanged = momentum !== eventMomentumBefore
+    if (capRemainingByMomentum && momentumChanged) remainingTravel = Math.min(remainingTravel, momentum)
 
     if (allowed) {
       previousCell = from
@@ -193,7 +195,7 @@ export function runCellMotion({
       cost: consume,
       axisBefore: context?.axisBefore ?? axisId,
       axisAfter: axisId,
-      momentumBefore: context?.momentumBefore ?? momentumBefore,
+      momentumBefore: eventMomentumBefore,
       momentumAfter: momentum,
       remainingBefore,
       remainingAfter: remainingTravel,

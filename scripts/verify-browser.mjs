@@ -164,19 +164,23 @@ try {
   await setAction(client,'drive');const driveReachM2=await waitReach(client,expectedM2);assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.fireAt(-1,0)`)===false,'reverse Drive accepted');const afterReverseDrive=await snapshot(client);assert(!afterReverseDrive.playing&&afterReverseDrive.worldAt===0&&afterReverseDrive.momentum===2,'reverse Drive corrupted state',afterReverseDrive)
   assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.fireAt(1,-1)`),'Discrete Drive landing rejected');const driveTrajectory=await waitTrajectory(client,['0,0','1,0','1,-1']);await idleAt(client,1)
 
-  await setCollisionSurfaces(client,true);await setAtMs(client,900);await setConflictScenario(client,'chain')
-  assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.fireAt(2,1)`),'chain knockback rejected')
+  // Keep the staged M2 chain test, but create that M2 from an M3 Basic Action
+  // whose spend happens before impact. This verifies Current M rather than stale beforeM.
+  await setCollisionSurfaces(client,true);await setAtMs(client,900);await setConflictScenario(client,'chain');await setKinematics(client,'E',3)
+  assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.fireAt(3,1)`),'chain knockback rejected')
   const duringChain=await waitFor('player contact before actor launch',async()=>{const v=await snapshot(client);if(!v.playing||v.playerPlaybackProgress<.99||v.actorPlaybackWindowCount<3)throw new Error(JSON.stringify(v));return v})
   const chainPaths=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.actorTrajectories()`);const chainWindows=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.actorPlaybackWindows()`)
   assert((chainPaths['dummy-a']?.length??0)>=3&&(chainPaths['dummy-b']?.length??0)>=2&&(chainPaths['dummy-c']?.length??0)>=2,'chain paths missing',chainPaths)
   assert(chainWindows['dummy-a'].start>duringChain.playerPlaybackEnd&&chainWindows['dummy-a'].end-chainWindows['dummy-a'].start<.4,'first launch must begin after contact and resolve faster',{duringChain,chainWindows})
   assert(chainWindows['dummy-a'].start<chainWindows['dummy-b'].start&&chainWindows['dummy-b'].start<chainWindows['dummy-c'].start,'chain launch windows must stagger',chainWindows)
   const transferEvents=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.conflicts()`);const primaryTransfer=transferEvents.find(e=>e.kind==='momentum-transfer'&&e.sourceActorId==='player')
-  assert(primaryTransfer&&primaryTransfer.sourceBeforeM===2&&primaryTransfer.targetBeforeM===0&&primaryTransfer.sourceAfterM===1&&primaryTransfer.targetAfterM===2,'M2+M0 exchange wrong',transferEvents)
+  assert(primaryTransfer&&primaryTransfer.sourceBeforeM===2&&primaryTransfer.targetBeforeM===0&&primaryTransfer.sourceAfterM===1&&primaryTransfer.targetAfterM===2,'post-spend Current M2 + M0 exchange wrong',transferEvents)
   const afterChain=await idleAt(client,1);const chainState=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.snapshot()`);const chainCells=Object.fromEntries(chainState.actors.map(a=>[a.id,`${a.hex.q},${a.hex.r}`]));assert(JSON.stringify(chainCells)===JSON.stringify({'dummy-a':'4,1','dummy-b':'5,1','dummy-c':'6,1'}),'chain final Cells wrong',chainCells)
   const actorASpeed=Math.hypot(chainState.actors[0].velocity.x,chainState.actors[0].velocity.z);assert(afterChain.momentum===1&&actorASpeed>=1.2&&actorASpeed<2.2,'Transferred M did not persist',{afterChain,actorASpeed,chainState})
 
-  await setConflictScenario(client,'wall');assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.fireAt(1,0)`),'wall pivot knockback rejected')
+  // Same separation for wall knockback: M3 Basic spends to Current M2, which
+  // then knocks dummy-a at true M2 into the wall.
+  await setConflictScenario(client,'wall');await setKinematics(client,'E',3);assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.fireAt(2,0)`),'wall pivot knockback rejected')
   const wallTrajectories=await waitFor('wall Cell pivot knockback',async()=>{
     const p=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.actorTrajectories()`);const path=p['dummy-a']??[]
     const hasQ2=path.some(point=>Math.abs(point.q-2)<1e-6&&Math.abs(point.r)<1e-6);const hasWallCenter=path.some(point=>Math.abs(point.q-3)<1e-6&&Math.abs(point.r)<1e-6)
@@ -187,22 +191,22 @@ try {
   assert(wallBounce.axisBefore==='E'&&wallBounce.axisAfter==='W'&&wallBounce.geometryKind==='obstacle-wall-cell-pivot'&&wallBounce.wallCellPivot===true&&wallBounce.wallCellTravelCost===1&&wallBounce.reflectionContinuation==='wall-cell-pivot-budget-v1','head-on wall pivot rule wrong',wallBounce)
   const afterWall=await idleAt(client,1);const wallState=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.snapshot()`)
   const wallPath=wallTrajectories['dummy-a'];const wallFinal=wallState.actors[0].hex
-  assert(wallPath[0].q===1&&wallPath[0].r===0&&wallFinal.q===2&&wallFinal.r===0&&wallState.actors[0].axisId==='W','M2 knockback must spend q1→q2 plus q2→wall→q2 and finish at q2 facing W',{wallState,wallTrajectories,wallBounce})
-  assert(Math.abs(afterWall.logicalX-1)<.02&&Math.abs(afterWall.logicalZ)<.02&&afterWall.momentum===1,'player must enter vacated target Cell',afterWall)
+  assert(wallPath[0].q===1&&wallPath[0].r===0&&wallFinal.q===2&&wallFinal.r===0&&wallState.actors[0].axisId==='W','true M2 knockback must spend q1→q2 plus q2→wall→q2 and finish at q2 facing W',{wallState,wallTrajectories,wallBounce})
+  assert(Math.abs(afterWall.logicalX-1)<.02&&Math.abs(afterWall.logicalZ)<.02&&afterWall.momentum===1,'player must enter vacated target Cell with post-impact M1',afterWall)
 
   await setConflictScenario(client,'wall');await setAction(client,'basic-move');await setAtMs(client,250)
   await moveFreeM0(client,0,0,1);await moveFreeM0(client,1,-1,2);await moveFreeM0(client,2,-1,3);await moveFreeM0(client,3,-1,4);await moveFreeM0(client,4,-1,5)
   await setKinematics(client,'SW',3)
   const wallReach=await waitFor('oblique wall collision Cell reach',async()=>{const r=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.reachability()`);const hit=r.find(e=>(e.finalHex??e.targetHex)?.q===3&&(e.finalHex??e.targetHex)?.r===0);if(!hit)throw new Error(JSON.stringify(r));return r})
   assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.fireAt(3,0)`),'oblique SW wall pivot move rejected')
-  const obliqueWallTrajectory=await waitTrajectory(client,['4,-1','3,0','3,1','3,2','3,3'])
+  const obliqueWallTrajectory=await waitTrajectory(client,['4,-1','3,0','3,1','3,2'])
   const afterObliqueWall=await idleAt(client,6)
-  assert(afterObliqueWall.axisId==='SE'&&afterObliqueWall.momentum===1,'NS wall must reflect SW→SE with one Cell charged to the wall crossing',afterObliqueWall)
+  assert(afterObliqueWall.axisId==='SE'&&afterObliqueWall.momentum===1&&Math.abs(afterObliqueWall.logicalX-4)<.02&&Math.abs(afterObliqueWall.logicalZ-1.7320508075688772)<.03,'M3 Basic must spend to M2 before NS wall SW→SE reflection and stop after one extra reflected Cell',afterObliqueWall)
 
   await resetUi(client);await setAtMs(client,300);assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.setSpatialMode('hybrid')`),'Hybrid switch failed');await setAction(client,'drive');await setKinematics(client,'E',1);assert(await evaluate(client,`window.__PROJECTC_PROTOTYPE__.fireAt(0,-2)`),'Hybrid Drive rejected');const hybridSamples=await waitFor('Hybrid samples',async()=>{const s=await evaluate(client,`window.__PROJECTC_PROTOTYPE__.trajectory()`);if(s.length<100)throw new Error(`samples=${s.length}`);return s});await idleAt(client,1)
 
   await mkdir(artifactDir,{recursive:true});const screenshot=await client.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(join(artifactDir,'stepwise-reflection-hold.png'),Buffer.from(screenshot.data,'base64'))
   const evidence={initial,downM2,axisAuto,thermal6,thermal8,thermal4,reachM0,afterEstablish,reachM1,afterM1,reachM2,m2ForwardTrajectory,afterM2,reachM3,m3ForwardTrajectory,afterM3,holdPlaying,afterHold,afterReverseMove,driveReachM2,afterReverseDrive,driveTrajectory,duringChain,chainWindows,primaryTransfer,afterChain,chainCells,wallTrajectories,wallEvents,wallBounce,afterWall,wallReach,obliqueWallTrajectory,afterObliqueWall,hybridSampleCount:hybridSamples.length}
   await writeFile(join(artifactDir,'stepwise-reflection-hold.json'),`${JSON.stringify(evidence,null,2)}\n`)
-  console.log('Verified actor-body unified Axis, 4 AT / 0.5s defaults, boundary continuation, internal wall Cell pivot travel, NS wall SW→SE exit geometry, direct Hold, staged knockback, strict map geometry, and Hybrid continuity.')
+  console.log('Verified post-spend Current M for Basic impact/reflection, internal wall Cell pivot travel, true M2 target wall knockback, staged chain playback, direct Hold, strict map geometry, and Hybrid continuity.')
 } finally { client?.close();chromeProcess?.kill('SIGTERM');previewProcess?.kill('SIGTERM') }
