@@ -52,13 +52,29 @@ Horizontal M>0 的移动 AT = 整个 AT 只结算一次 M-1
 
 这里的 `M-1` 是本移动 AT 对已有 Horizontal Momentum 的一次性结算，不是“支付额外 Momentum 才购买 Range+1”的第二笔成本。禁止按经过的每个 Cell 重复扣 M。
 
+### Current Momentum timing
+
+Basic Action 的 spend / build 结果先形成该 AT 后续规则使用的 **Current M**。逻辑状态仍可在可视播放结束后统一 commit，但本 AT 内发生的墙体反射、Actor 冲撞、Momentum exchange 与后续 knockback 必须使用这个 Current M，禁止回读 action 开始前的 `beforeM`。
+
+例如：
+
+```text
+M3 + Basic Move
+→ Basic Action spend 后 Current M = M2
+→ 若随后撞墙：从 M2 计算反射，而不是 M3
+→ 若随后撞 Actor：Impact M = M2，而不是 M3
+```
+
+若碰撞/反射进一步改变 M，则剩余 travel budget 立即按新的 Current M 截断；普通 Cell-step 在 M 未变化时不得因为这个规则缩短既定路径。
+
 M2 直接示例：
 
 ```text
 E M2 + Basic Move(E adjacent Aim)
 → Range 2
-→ Cell path: E, E
-→ 本 AT 结束 M2 -> M1
+→ Current M = M1，用于本 AT 后续碰撞 / 反射
+→ Cell path: E, E（若途中无碰撞改变 M）
+→ AT commit M1
 → worldAt +1
 ```
 
@@ -198,7 +214,8 @@ Basic Move 的必测用例：
 4. E M2 + NW adjacent Aim -> E,NE path / M1；
 5. direct opposite Aim 不得静默选 U-turn 分支；
 6. Discrete / Hybrid Basic Move 最终逻辑路径一致；
-7. Hybrid Drive 的 `V + ΔV` 与曲线表现不得回归。
+7. M2/M3 Basic 途中碰墙或撞 Actor 时，Impact / reflection 必须使用 post-spend Current M；
+8. Hybrid Drive 的 `V + ΔV` 与曲线表现不得回归。
 
 Pages 发布只有在 build、browser verification、deploy 和 published-commit verification 全部成功后才算完成。
 
@@ -211,7 +228,8 @@ Pages 发布只有在 build、browser verification、deploy 和 published-commit
 - “Basic Move = voluntary displacement + current inertia”；
 - “Basic Move 可以用远端 Cell 只定义方向”；
 - “Basic Move 永远 ΔM 0 / Momentum persistent”；
-- “多 Cell Basic Move 可以绕过 Cell path 直接做连续终点插值”。
+- “多 Cell Basic Move 可以绕过 Cell path 直接做连续终点插值”；
+- “Basic Action 发生碰撞时继续使用 spend 前的 beforeM”。
 
 如果未来用户再次修改规则，先更新本文件与回归契约，再改实现，避免旧测试把错误行为保护成“稳定功能”。
 
