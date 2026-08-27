@@ -19,6 +19,10 @@ function normalizePoint(point) {
   return point ? { ...point, q: normalizeNumber(point.q), r: normalizeNumber(point.r) } : point
 }
 
+function sameHex(a, b) {
+  return Boolean(a && b && a.q === b.q && a.r === b.r)
+}
+
 function normalizeTrace(trace = []) {
   return trace.map((entry) => {
     const next = { ...entry }
@@ -39,7 +43,7 @@ function wallExitCell(event) {
   }
 }
 
-function compatibleEvent(event) {
+function compatibleEvent(event, actorTrajectories) {
   const result = { ...event }
   if (result.kind === 'surface-reflection' && result.wallCellPivot && !result.to) result.to = wallExitCell(result)
   if ((result.kind === 'surface-reflection' || result.kind === 'surface-stop' || result.kind === 'wall-crash') && result.wallCellPivot) {
@@ -47,6 +51,10 @@ function compatibleEvent(event) {
     // is now identified independently by motionTraceRule/travelBudgetRule on
     // the CellMotionTrace itself.
     result.travelBudgetRule = WALL_TRAVEL_BUDGET_RULE
+  }
+  if (result.kind === 'wall-crash' && result.actorId && result.from) {
+    const path = actorTrajectories[result.actorId] ?? []
+    result.partial = path.length > 0 && !sameHex(path[0], result.from)
   }
   for (const key of ['cell', 'from', 'to', 'attemptedCell', 'reflectedCell']) {
     if (result[key]) result[key] = normalizePoint(result[key])
@@ -91,7 +99,7 @@ export function resolveCellConflicts(input) {
   return {
     ...resolved,
     conflictEvents: [
-      ...(resolved.conflictEvents ?? []).map(compatibleEvent),
+      ...(resolved.conflictEvents ?? []).map((event) => compatibleEvent(event, actorTrajectories)),
       ...traceEvents(resolved),
     ],
     motionTrace: normalizeTrace(resolved.motionTrace ?? []),
