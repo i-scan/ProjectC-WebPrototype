@@ -37,6 +37,8 @@ for (const marker of [
   'clipped-cell-mirror-v2',
   'contact-ray-step-budget-v3',
   'wall-cell-pivot-budget-v1',
+  'wall-cell-roundtrip-costs-one-v2',
+  'reflected-actor-current-m-exchange-v1',
   'wall-axis-mesh-v1',
   'wall-pivot-polyline-v1',
   'obstacle-wall-cell-pivot',
@@ -98,4 +100,4 @@ for (const marker of [
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified visible wall axis + pivot polyline, boundary contact-ray budget, internal wall Cell pivot travel, and existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified wall Cell round-trip travel budget, reflected Actor current-M conflict, visible wall axis + pivot polyline, and existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)
