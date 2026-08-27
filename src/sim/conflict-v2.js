@@ -76,9 +76,7 @@ export function exchangeActorMomentum({
 
 export function createConflictActors(kind = 'chain') {
   if (kind === 'wall') {
-    return [
-      { id: 'dummy-a', label: 'A', hex: { q: 1, r: 0 }, velocity: { x: 0, z: 0 }, axisId: null },
-    ]
+    return [{ id: 'dummy-a', label: 'A', hex: { q: 1, r: 0 }, velocity: { x: 0, z: 0 }, axisId: null }]
   }
   return [
     { id: 'dummy-a', label: 'A', hex: { q: 2, r: 1 }, velocity: { x: 0, z: 0 }, axisId: null },
@@ -209,19 +207,18 @@ function resolveStepwiseKnockback({
     if (!motionOrder.has(id)) motionOrder.set(id, nextMotionOrder++)
   }
 
-  const legalReflectionCell = (cell, currentActorId) => {
+  const geometryAllowsReflectionExit = (cell, currentActorId) => {
     if (axialDistance(cell) > boardRadius) return false
     if (obstacleAt(obstacles, cell)) return false
     const currentActor = actorById.get(currentActorId)
     if (reserved.has(axialKey(cell)) && !sameHex(cell, currentActor?.hex)) return false
-    const occupantId = occupancy.get(axialKey(cell))
-    return !occupantId || occupantId === currentActorId
+    return true
   }
 
   const chooseActorMirrorStep = (actor, impact, incomingDirection, previousCell) => {
     if (impact?.wallCellPivot) {
       const cell = cloneHex(impact.exitHex)
-      if (!legalReflectionCell(cell, actor.id)) return null
+      if (!geometryAllowsReflectionExit(cell, actor.id)) return null
       return {
         direction: impact.direction,
         reflected: { ...impact.reflected },
@@ -234,9 +231,15 @@ function resolveStepwiseKnockback({
         reflectionContinuation: WALL_CELL_TRAVEL_RULE,
       }
     }
+
     const options = bestMirrorOptions(incomingDirection.id, impact, actor.hex)
       .map((option) => ({ ...option, cell: stepCell(actor.hex, option.direction) }))
-      .filter((option) => legalReflectionCell(option.cell, actor.id))
+      .filter((option) => {
+        if (axialDistance(option.cell) > boardRadius) return false
+        if (obstacleAt(obstacles, option.cell)) return false
+        if (reserved.has(axialKey(option.cell))) return false
+        return true
+      })
     if (!options.length) return null
     if (impact.surface === 'obstacle' && impact.candidateNormals?.length > 1 && previousCell) {
       const nonRetrace = options.find((option) => !sameHex(option.cell, previousCell))
@@ -261,6 +264,95 @@ function resolveStepwiseKnockback({
 
     markMotionIntent(currentActorId)
     const movementBudget = activeM
+
+    const resolveActorContact = (next, travelCost = 1) => {
+      const sameAsCurrent = sameHex(next, actor.hex)
+      if (reserved.has(axialKey(next)) && !sameAsCurrent) {
+        activeM = 0
+        actor.velocity = { x: 0, z: 0 }
+        actor.axisId = activeDirection.id
+        events.push({
+          kind: 'reserved-cell-stop', actorId: currentActorId,
+          cell: cloneHex(actor.hex), attemptedCell: cloneHex(next),
+          beforeM: clampM(initialPower), afterM: 0,
+        })
+        movedSteps += travelCost
+        return false
+      }
+
+      const occupantId = occupancy.get(axialKey(next))
+      if (occupantId && occupantId !== currentActorId) {
+        const targetActor = actorById.get(occupantId)
+        let childPower
+        let sourceAfterM
+        let transfer
+        let transferModel
+        if (hasReflected) {
+          transfer = exchangeActorMomentum({
+            sourceM: activeM,
+            targetVelocity: targetActor?.velocity,
+            directionId: activeDirection.id,
+          })
+          childPower = transfer.targetAfterM
+          sourceAfterM = transfer.sourceAfterM
+          transferModel = REFLECTED_ACTOR_CONFLICT_RULE
+        } else {
+          childPower = Math.max(1, activeM - 1)
+          sourceAfterM = Math.max(0, activeM - childPower)
+          transfer = {
+            sourceBeforeM: activeM,
+            sourceAfterM,
+            targetBeforeM: momentumLevel(Math.hypot(targetActor?.velocity?.x ?? 0, targetActor?.velocity?.z ?? 0)),
+            targetAfterM: childPower,
+          }
+          transferModel = 'chain-decay-prototype'
+        }
+
+        events.push({
+          kind: 'cell-conflict', sourceActorId: currentActorId, targetActorId: occupantId,
+          power: childPower, cell: cloneHex(next), chained: true, reflectedSource: hasReflected,
+        })
+        events.push({
+          kind: 'momentum-transfer', sourceActorId: currentActorId, targetActorId: occupantId,
+          ...transfer, chained: true, model: transferModel, reflectedSource: hasReflected,
+        })
+
+        if (childPower <= 0) {
+          activeM = sourceAfterM
+          actor.velocity = velocityFor(activeDirection.id, activeM)
+          actor.axisId = activeDirection.id
+          movedSteps += travelCost
+          return false
+        }
+
+        const child = moveActor(occupantId, activeDirection, childPower, depth + 1)
+        activeM = sourceAfterM
+        if (!child.vacated || occupancy.get(axialKey(next)) === occupantId) {
+          actor.velocity = velocityFor(activeDirection.id, activeM)
+          actor.axisId = activeDirection.id
+          events.push({
+            kind: 'cell-conflict-blocked', sourceActorId: currentActorId, targetActorId: occupantId,
+            power: childPower, cell: cloneHex(next), chained: true,
+            partial: movedSteps > 0, reflectedSource: hasReflected,
+          })
+          movedSteps += travelCost
+          return false
+        }
+      }
+
+      const fromCell = cloneHex(actor.hex)
+      if (!sameAsCurrent) {
+        occupancy.delete(axialKey(actor.hex))
+        actor.hex = cloneHex(next)
+        occupancy.set(axialKey(actor.hex), actor.id)
+      }
+      trajectories[actor.id].push(cloneHex(actor.hex))
+      previousCell = fromCell
+      movedSteps += travelCost
+      segmentStart = axialToWorld(actor.hex)
+      return true
+    }
+
     while (movedSteps < movementBudget && activeM > 0 && guard < movementBudget * 5 + 12) {
       guard += 1
       const next = stepCell(actor.hex, activeDirection)
@@ -309,28 +401,21 @@ function resolveStepwiseKnockback({
             travelBudgetRule: WALL_TRAVEL_BUDGET_RULE,
           })
           trajectories[actor.id].push(cloneHex(actor.hex))
+          if (impact.wallCellPivot) movedSteps += impact.wallCellTravelCost ?? 1
           break
         }
 
-        const fromCell = cloneHex(actor.hex)
         activeDirection = mirror.direction
         activeM = bounce.momentum
         hasReflected = true
         trajectories[actor.id].push(fractionalHexForWorldPoint(nudgeFromSurfaceVector(impact.point, mirror.reflected)))
-        occupancy.delete(axialKey(actor.hex))
-        actor.hex = cloneHex(mirror.cell)
-        occupancy.set(axialKey(actor.hex), actor.id)
-        trajectories[actor.id].push(cloneHex(actor.hex))
-        previousCell = fromCell
-        movedSteps += impact.wallCellPivot ? (impact.wallCellTravelCost ?? 1) : 1
-        segmentStart = axialToWorld(actor.hex)
         actor.velocity = velocityFor(activeDirection.id, activeM)
         actor.axisId = activeDirection.id
         events.push({
           kind: 'surface-reflection', actorId: currentActorId,
           obstacleKind: boundary ? 'boundary' : obstacle?.kind ?? 'hard', geometryKind: impact.kind,
-          obstacleId: obstacle?.id ?? null, from: fromCell, contactPoint: { ...impact.point },
-          attemptedCell: cloneHex(next), to: cloneHex(actor.hex), axisBefore, axisAfter: activeDirection.id,
+          obstacleId: obstacle?.id ?? null, from: cloneHex(actor.hex), contactPoint: { ...impact.point },
+          attemptedCell: cloneHex(next), to: cloneHex(mirror.cell), axisBefore, axisAfter: activeDirection.id,
           beforeM, afterM: activeM, restitution: bounce.restitution,
           normal: { ...mirror.normal }, reflectedVector: { ...mirror.reflected }, faceIds: [...(impact.faceIds ?? [])],
           surfaceGeometry: SURFACE_GEOMETRY_RULE, reflectionContinuation: continuationRule,
@@ -338,87 +423,18 @@ function resolveStepwiseKnockback({
           wallCellTravelCost: impact.wallCellTravelCost ?? 0, wallAxis: impact.wallAxis ?? null,
           travelBudgetRule: WALL_TRAVEL_BUDGET_RULE,
         })
+
+        if (impact.wallCellPivot) {
+          const entered = resolveActorContact(mirror.cell, impact.wallCellTravelCost ?? 1)
+          if (!entered && !sameHex(mirror.cell, actor.hex)) break
+          continue
+        }
+
         continue
       }
 
-      if (reserved.has(axialKey(next))) {
-        activeM = 0
-        actor.velocity = { x: 0, z: 0 }
-        actor.axisId = activeDirection.id
-        events.push({
-          kind: 'reserved-cell-stop', actorId: currentActorId,
-          cell: cloneHex(actor.hex), attemptedCell: cloneHex(next),
-          beforeM: clampM(initialPower), afterM: 0,
-        })
-        break
-      }
-
-      const occupantId = occupancy.get(axialKey(next))
-      if (occupantId && occupantId !== currentActorId) {
-        const targetActor = actorById.get(occupantId)
-        let childPower
-        let sourceAfterM
-        let transfer
-        let transferModel
-        if (hasReflected) {
-          transfer = exchangeActorMomentum({
-            sourceM: activeM,
-            targetVelocity: targetActor?.velocity,
-            directionId: activeDirection.id,
-          })
-          childPower = transfer.targetAfterM
-          sourceAfterM = transfer.sourceAfterM
-          transferModel = REFLECTED_ACTOR_CONFLICT_RULE
-        } else {
-          childPower = Math.max(1, activeM - 1)
-          sourceAfterM = Math.max(0, activeM - childPower)
-          transfer = {
-            sourceBeforeM: activeM,
-            sourceAfterM,
-            targetBeforeM: momentumLevel(Math.hypot(targetActor?.velocity?.x ?? 0, targetActor?.velocity?.z ?? 0)),
-            targetAfterM: childPower,
-          }
-          transferModel = 'chain-decay-prototype'
-        }
-
-        events.push({
-          kind: 'cell-conflict', sourceActorId: currentActorId, targetActorId: occupantId,
-          power: childPower, cell: cloneHex(next), chained: true, reflectedSource: hasReflected,
-        })
-        events.push({
-          kind: 'momentum-transfer', sourceActorId: currentActorId, targetActorId: occupantId,
-          ...transfer, chained: true, model: transferModel, reflectedSource: hasReflected,
-        })
-
-        if (childPower <= 0) {
-          activeM = sourceAfterM
-          actor.velocity = velocityFor(activeDirection.id, activeM)
-          actor.axisId = activeDirection.id
-          break
-        }
-
-        const child = moveActor(occupantId, activeDirection, childPower, depth + 1)
-        activeM = sourceAfterM
-        if (!child.vacated || occupancy.get(axialKey(next)) === occupantId) {
-          actor.velocity = velocityFor(activeDirection.id, activeM)
-          actor.axisId = activeDirection.id
-          events.push({
-            kind: 'cell-conflict-blocked', sourceActorId: currentActorId, targetActorId: occupantId,
-            power: childPower, cell: cloneHex(next), chained: true,
-            partial: movedSteps > 0, reflectedSource: hasReflected,
-          })
-          break
-        }
-      }
-
-      const fromCell = cloneHex(actor.hex)
-      occupancy.delete(axialKey(actor.hex))
-      actor.hex = cloneHex(next)
-      occupancy.set(axialKey(actor.hex), actor.id)
-      trajectories[actor.id].push(cloneHex(actor.hex))
-      previousCell = fromCell
-      movedSteps += 1
-      segmentStart = axialToWorld(actor.hex)
+      const entered = resolveActorContact(next, 1)
+      if (!entered) break
     }
 
     actor.velocity = activeM > 0 ? velocityFor(activeDirection.id, activeM) : { x: 0, z: 0 }
