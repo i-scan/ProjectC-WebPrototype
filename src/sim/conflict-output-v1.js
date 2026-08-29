@@ -1,9 +1,9 @@
-export * from './conflict-v4.js'
+export * from './conflict-v5.js'
 
 import {
   WALL_TRAVEL_BUDGET_RULE,
   resolveCellConflicts as resolveCellConflictsCore,
-} from './conflict-v4.js'
+} from './conflict-v5.js'
 import { CELL_MOTION_TRACE_RULE, CELL_TRAVEL_BUDGET_RULE } from './cell-motion.js'
 import { HEX_DIRECTIONS } from './hex.js'
 
@@ -47,9 +47,6 @@ function compatibleEvent(event, actorTrajectories) {
   const result = { ...event }
   if (result.kind === 'surface-reflection' && result.wallCellPivot && !result.to) result.to = wallExitCell(result)
   if ((result.kind === 'surface-reflection' || result.kind === 'surface-stop' || result.kind === 'wall-crash') && result.wallCellPivot) {
-    // Keep the old public event marker while the authoritative distance engine
-    // is now identified independently by motionTraceRule/travelBudgetRule on
-    // the CellMotionTrace itself.
     result.travelBudgetRule = WALL_TRAVEL_BUDGET_RULE
   }
   if (result.kind === 'wall-crash' && result.actorId && result.from) {
