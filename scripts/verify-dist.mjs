@@ -10,8 +10,8 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
-assert(info.schemaVersion === 5, 'build-info schema is not movement-correction v5')
-assert(info.implementation === 'cell-world-spatial-ab-v3', 'build-info implementation mismatch')
+assert(info.schemaVersion === 5, 'build-info schema is not Spatial Inertia v1 schema 5')
+assert(info.implementation === 'spatial-inertia-v1-candidate', 'build-info implementation mismatch')
 assert(info.commit === expectedCommit, `build commit ${info.commit} != ${expectedCommit}`)
 assert(info.status === (expectedCommit === 'local' ? 'local' : 'verified'), 'unexpected build status')
 
