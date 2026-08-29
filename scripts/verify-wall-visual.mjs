@@ -56,7 +56,7 @@ async function evaluate(client, expression) {
 }
 
 const snapshotExpression = `(() => {
-  const root=document.querySelector('.cell-world-prototype[data-implementation="cell-world-spatial-ab-v3"]');
+  const root=document.querySelector('.cell-world-prototype[data-implementation="spatial-inertia-v1-candidate"]');
   const board=root?.querySelector('.cell-world-board');
   return {
     ready:Boolean(root&&board&&board.querySelector('canvas')),
@@ -111,7 +111,7 @@ async function moveM0(client, q, r, worldAt) {
 }
 
 async function compactTrajectory(client) {
-  const trajectory = await evaluate(client, `window.__PROJECTC_PROTOTYPE__.trajectory()`)
+  const trajectory = await evaluate(client, 'window.__PROJECTC_PROTOTYPE__.trajectory()')
   return trajectory.map((sample) => {
     const r = Math.round(sample.position.z / 0.8660254037844386)
     const q = Math.round(sample.position.x - r * 0.5)
@@ -122,9 +122,7 @@ async function compactTrajectory(client) {
 async function waitForWallPolyline(client, label) {
   return waitFor(label, async () => {
     const value = await snapshot(client)
-    if (!value.playing || value.playbackPathMode !== 'wall-pivot-polyline-v1' || value.playbackProgress < 0.20 || value.playbackProgress > 0.82) {
-      throw new Error(JSON.stringify(value))
-    }
+    if (!value.playing || value.playbackPathMode !== 'wall-pivot-polyline-v1' || value.playbackProgress < 0.20 || value.playbackProgress > 0.82) throw new Error(JSON.stringify(value))
     return value
   }, 220, 30)
 }
@@ -172,9 +170,8 @@ try {
   assert(initial.wallReflectionPathContract === 'wall-pivot-polyline-v1', 'wall polyline contract missing', initial)
   assert(Math.abs(Math.abs(initial.hardWallYaw) - Math.PI / 2) < 0.002, 'NS wall mesh is not rotated onto the N-S tangent', initial)
 
-  // N-S authored hard wall: M3 Basic spends to Current M2 first, then the
-  // wall reflection lowers M2 -> M1. The wall-cell round-trip costs one Cell,
-  // leaving exactly one reflected full Cell after the mirrored exit.
+  // N-S Wall: the roundtrip is one Travel, Surface itself keeps M unchanged,
+  // and the one Basic transaction settles M3→M2 without truncating Travel3.
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'wall scenario rejected')
   await waitFor('wall scenario ready', async () => {
     const value = await snapshot(client)
@@ -189,15 +186,15 @@ try {
   await moveM0(client, 4, -1, 5)
   await setKinematics(client, 'SW', 3)
   await setAtMs(client, 1200)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(3,0)`), 'oblique NS wall reflection rejected')
+  assert(await evaluate(client, 'window.__PROJECTC_PROTOTYPE__.fireAt(3,0)'), 'oblique NS wall reflection rejected')
 
   const nsDuringReflection = await waitForWallPolyline(client, 'NS wall pivot polyline playback')
   const nsTrajectory = await compactTrajectory(client)
-  assert(nsTrajectory.join('|') === '4,-1|3,0|3,1|3,2', 'visible NS player reflection path over-travelled beyond Current M', nsTrajectory)
+  assert(nsTrajectory.join('|') === '4,-1|3,0|3,1|3,2|3,3', 'visible NS v1 wall path did not preserve full Travel3', nsTrajectory)
   const nsFinal = await idleAt(client, 6)
-  assert(nsFinal.axisId === 'SE' && nsFinal.momentum === 1, 'NS wall reflection final Axis/M changed', nsFinal)
+  assert(nsFinal.axisId === 'SE' && nsFinal.momentum === 2, 'NS v1 wall final Axis/M changed', nsFinal)
 
-  // E-W visible cyan reflector follows the same Current-M accounting.
+  // E-W visible reflector uses the same surface Redirect semantics.
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'EW setup reset rejected')
   await waitFor('EW setup ready', async () => {
     const value = await snapshot(client)
@@ -211,26 +208,20 @@ try {
   await moveM0(client, 3, -4, 4)
   await setKinematics(client, 'SE', 3)
   await setAtMs(client, 1200)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(3,-3)`), 'oblique EW wall reflection rejected')
+  assert(await evaluate(client, 'window.__PROJECTC_PROTOTYPE__.fireAt(3,-3)'), 'oblique EW wall reflection rejected')
 
   const ewDuringReflection = await waitForWallPolyline(client, 'EW wall pivot polyline playback')
   const ewTrajectory = await compactTrajectory(client)
-  assert(ewTrajectory.join('|') === '3,-4|3,-3|4,-4|5,-5', 'visible EW player reflection path over-travelled beyond Current M', ewTrajectory)
+  assert(ewTrajectory.join('|') === '3,-4|3,-3|4,-4|5,-5|6,-6', 'visible EW v1 wall path did not preserve full Travel3', ewTrajectory)
   const ewFinal = await idleAt(client, 5)
-  assert(ewFinal.axisId === 'NE' && ewFinal.momentum === 1, 'EW wall reflection final Axis/M changed', ewFinal)
+  assert(ewFinal.axisId === 'NE' && ewFinal.momentum === 2, 'EW v1 wall final Axis/M changed', ewFinal)
 
   await mkdir(artifactDir, { recursive: true })
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   await writeFile(join(artifactDir, 'wall-visible-reflection.png'), Buffer.from(screenshot.data, 'base64'))
-  await writeFile(join(artifactDir, 'wall-visible-reflection.json'), `${JSON.stringify({
-    initial,
-    nsDuringReflection,
-    nsTrajectory,
-    ewDuringReflection,
-    ewTrajectory,
-  }, null, 2)}\n`)
+  await writeFile(join(artifactDir, 'wall-visible-reflection.json'), `${JSON.stringify({ initial, nsDuringReflection, nsTrajectory, ewDuringReflection, ewTrajectory }, null, 2)}\n`)
 
-  console.log('Verified visible NS/EW wall-cell pivots use post-spend Current M and stop without the historical extra Cell.')
+  console.log('Verified visible NS/EW Wall pivots in Spatial Inertia v1: one-Travel roundtrip, full declared route, Axis Redirect, no direct Surface Momentum loss.')
 } finally {
   client?.close()
   chromeProcess?.kill('SIGTERM')
