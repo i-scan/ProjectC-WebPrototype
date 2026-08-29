@@ -169,13 +169,14 @@ try {
   assert(actor(value)?.q === 2 && actor(value)?.r === 0 && actor(value)?.m === 0 && actor(value)?.axis === 'E', 'stationary target struck by M1 must move exactly 1 Cell', value)
   value = await waitTargetRow(client, { q: 2, r: 0, m: 0, axis: 'E' })
 
-  // Reset, then adjacent M2 against stationary M0: exactly two target Cells and residual M1.
+  // Reset, then adjacent M2 against stationary M0: Target occupies the first Travel Cell,
+  // while the legal M2 landing Cell is one Cell beyond it. Contact therefore preempts the first Travel.
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'second wall scenario rejected')
   await idle(client, 0, -1, 0)
   await setKinematics(client, 'none', 0)
   await fire(client, 0, 0, 1, 0, 0)
   await setKinematics(client, 'E', 2)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1,0)`), 'adjacent M2 Strike rejected')
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2,0)`), 'adjacent M2 Strike rejected')
   await waitFor('M2 composition preview', async () => {
     const current = await state(client)
     if (!current.composition.includes('Existing M0') || !current.composition.includes('Incoming M2') || !current.composition.includes('→ M2')) throw new Error(JSON.stringify(current))
