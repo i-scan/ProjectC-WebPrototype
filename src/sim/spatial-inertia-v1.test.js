@@ -118,21 +118,21 @@ describe('VAL-012 Spatial Inertia v1', () => {
   })
 
   it('treats Wall as Axis Redirect only and lets a pre-travel wall cancel Generate instead of charging an extra M', () => {
-    const wall = [{ id: 'wall', hex: { q: 1, r: 0 }, radius: 0.34, kind: 'hard' }]
+    const wall = [{ id: 'wall', hex: { q: 0, r: 0 }, kind: 'hard', wallAxis: 'NS' }]
 
-    const m0 = basic(stateAt({ q: 0, r: 0 }, 0, 'E'), { q: 1, r: 0 }, wall)
+    const m0 = basic(stateAt({ q: -1, r: 0 }, 0, 'E'), { q: 0, r: 0 }, wall)
     expect(m0.valid).toBe(false)
 
-    const m1 = basic(stateAt({ q: 0, r: 0 }, 1, 'E'), { q: 1, r: 0 }, wall)
+    const m1 = basic(stateAt({ q: -1, r: 0 }, 1, 'E'), { q: 0, r: 0 }, wall)
     expect(m1.valid).toBe(true)
     expect(m1.finalM).toBe(1)
     expect(m1.actionTransaction).toMatchObject({ fromM: 1, toM: 1, cause: 'Redirect', preemptedBuild: true })
-    expect(m1.collisions[0]).toMatchObject({ beforeM: 1, afterM: 1 })
+    expect(m1.collisions[0]).toMatchObject({ beforeM: 1, afterM: 1, wallCellPivot: true })
 
-    const m2 = basic(stateAt({ q: 0, r: 0 }, 2, 'E'), { q: 1, r: 0 }, wall)
+    const m2 = basic(stateAt({ q: -1, r: 0 }, 2, 'E'), { q: 0, r: 0 }, wall)
     expect(m2.valid).toBe(true)
     expect(m2.finalM).toBe(1)
-    expect(m2.collisions[0]).toMatchObject({ beforeM: 2, afterM: 2 })
+    expect(m2.collisions[0]).toMatchObject({ beforeM: 2, afterM: 2, wallCellPivot: true })
     expect(m2.actionTransaction).toMatchObject({ fromM: 2, toM: 1, cause: 'Use' })
   })
 
