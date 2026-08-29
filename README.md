@@ -1,152 +1,253 @@
-# ProjectC Web Prototype · Inertia A/B Lab
+# ProjectC Web Prototype · Spatial Inertia Lab
 
-本仓库是 ProjectC 的可执行规则实验环境。当前主实验用于验证 `Axis + Momentum + AT + Thermal` 如何形成可学习、可预测的 Hex6 驾驶体验。
+本仓库是 ProjectC 的可执行规则实验环境。
 
-> 重要：2026-08-22 之后曾出现一次 Basic Move 语义倒退，把它错误实现为“自主位移 + 当前惯性”。该解释已经被用户后续明确否定。本仓库当前修复方向以“相邻 Aim + 规则约束 Cell path”为准。
-
-## 当前 Basic Move 契约
+当前状态：
 
 ```text
-Basic Move = 1 AT
-Aim Cell = 当前 Cell 的相邻 Hex
-M0 = Range 1
-M2+ = 首轮候选 Range 2（基础 Range +1）
-已有 Horizontal M = 整个移动 AT 只做一次 M-1
+2026-08-30 Spatial Inertia v1 文档已完成
+→ Program04 先评审
+→ 暂未实施 runtime 规则重构
 ```
 
-`M-1` 是移动 AT 对已有 Momentum 的一次结算，不是为了 Range+1 再支付一次额外 Momentum，也绝不能按经过的 Cell 数重复扣除。
+因此当前网页依然代表 **pre-v1 prototype snapshot**。它的操作手感、CellMotionTrace、Wall / Actor playback 是重要资产，但规则语义不能反向覆盖 ProjectC 最新主规范。
 
-### M0
+当前唯一 Spatial Inertia 规则主源：
 
 ```text
-M0 + adjacent Aim E
-→ Move 1 Cell E
-→ M0
-→ +1 AT
+ProjectC/docs/VAL-012-spatial-inertia-rules-v1.md
 ```
 
-### M2 顺势
+程序交接：
 
 ```text
-E M2 + adjacent Aim E
-→ Range 2
-→ path: E, E
-→ M2 -> M1
-→ +1 AT
+ProjectC/docs/VAL-012-actor-loop-v0-program-handoff.md
 ```
 
-### M2 转向
-
-每经过 1 个 Cell-step，当前 Axis 最多朝 Aim 方向 Redirect 60°。
+原型 Gate：
 
 ```text
-oldAxis = 当前 Axis
-newAxis = oldAxis 朝 Aim 最多 Redirect 60°
-residualM = max(0, M - 1) // 每 AT 只算一次
-
-residualM > 0:
-  实际位移沿 oldAxis
-
-residualM == 0:
-  实际位移沿 newAxis
-
-移动后 Current Axis = newAxis
+ProjectC/docs/VAL-012-actor-loop-v0-prototype-plan.md
 ```
 
-例如：
+---
+
+## 当前网页已经做得好的部分
+
+优先保留：
+
+- click-to-select legal landing；
+- M / Axis HUD；
+- 高 M 的前向 Reachable 约束；
+- 不能任意停在路径中间 Cell；
+- 多 Cell 曲线路径；
+- Wall pivot / reflection 视觉；
+- Actor knockback / causal chain playback；
+- Preview 与 execution 共用 solver；
+- AT / Thermal playback 基础设施；
+- `CellMotionTrace` 逐 Cell 记录方向。
+
+下一轮不是推倒这些体验，而是让它们服从统一规则。
+
+---
+
+## 当前 runtime 与新规则的主要差异
+
+当前 `main` 仍包含：
 
 ```text
-E M2 + adjacent Aim NW
-step 1: Move E, Axis E -> NE
-step 2: Move NE, Axis NE -> NW
-AT end: M1 / Axis NW
+hand-authored Reachable Envelope
+post-spend Current M before first collision
+Wall reflection can reduce M directly
+multiple Actor collision / chain models
+legacy Basic / Drive semantics
 ```
 
-因此 Basic Move 的 Aim 虽然只允许选择相邻格，但一个 AT 的实际路径可能因为 Momentum 跨越多个 Cell。玩家选择的是当下 steering intent，而不是远端终点。
-
-## 180° 转向
-
-直接 `E -> W` 180° Redirect 不允许。ProjectC 的候选规则要求等价的顺/逆时针 U-turn 路线由玩家选择，不能由系统静默决定。
-
-当前 WebPrototype 尚未接入左右分支选择 UI，因此已有 Horizontal M 时，正后方相邻 Aim 暂时返回 invalid，并提示需要 left/right branch。该行为属于 `prototype-snapshot`，不是最终交互结论。
-
-## Impulse actions
-
-Basic Move 与冲量卡不是同一个输入模型。
-
-Drive / Heavy Drive / Hard Turn 仍使用：
+新规则要求：
 
 ```text
-V_after = clamp(V_before + normalize(Aim) * Force, MaxSpeed)
+MovementMode = Initiative / Forced
+ContactBehavior = Strike / Pierce / ...
+Action declare 不预先结算 M
+first Travel / priority Contact 决定 transaction timing
+Wall = Redirect only
+Forced Move 有一次 Forced Use
+Chain 递归使用同一 Transfer
+M4 transient overload
+Terrain travel modifier extension
 ```
 
-这些冲量动作允许远端 Aim Cell 仅用于定义方向。Counter 保留反向窗口；Coast 保留当前 Velocity。
+当前 runtime 尚未完成这些修改。
 
-Hybrid 模式可以用连续曲线表现冲量转向，但最终 Velocity 必须与上述向量合成一致。
+---
 
-## Discrete / Hybrid
+## Spatial Inertia v1 快速摘要
 
-两种模式共用同一个 board、AT 和 action input。
+### Momentum
 
-对 Basic Move：
+```text
+M = discrete momentum magnitude
+Stable Actor M = M0~M3
+Transient Overload = M4
+```
 
-- 逻辑 Cell path 必须一致；
-- 最终 Cell / M / Axis 规则结果必须一致；
-- 表现插值可以不同，但不得绕过逐 Cell 路径。
+Horizontal state：
 
-对 Impulse：
+```text
+M0 NoAxis
+→ M0 Axis
+→ M1
+→ M2
+→ M3
+```
 
-- Discrete 用 Cell-step 表现；
-- Hybrid 保留连续 Position / Velocity 与曲线转向表现。
+Basic Move 自然 Build 到 M2；M3 需要 Drive / Build Inertia Action 等显式方式。
 
-## Thermal / Timebase
+Default travel：
 
-- 逻辑时间统一使用 AT；
-- 默认视觉播放 `1 AT = 800 ms`；
-- Timebase 滑杆只改变播放速度，不改变 solver 结果；
-- Thermal Pendulum 与 movement playback 共用 AT 进度；
-- 页面切后台时 playback 会暂停，避免视觉时间与逻辑时间漂移。
+```text
+M0 Move1
+M1 Move1
+M2 Move2
+M3 Move3
+```
 
-## 当前 UI
+M1：
 
-`#hex-prototype` / 默认页面包含：
+```text
+same Axis → Generate M2
+±60° → Redirect / M1
+±120° → real Travel2 / Resist / M0 / new Axis
+```
+
+---
+
+## Initiative / Forced
+
+底层只分两种移动来源：
+
+```text
+Initiative Move
+Forced Move
+```
+
+Basic Move / Drive / 各种卡牌都是 Action，不是新的 movement type。
+
+Forced Move 默认 Contact=Strike，并在第一次 Travel / 第一格 occupied attempt 时：
+
+```text
+Forced Use M→M-1 once
+```
+
+因此连续 knockback chain 会自然衰减。
+
+---
+
+## Contact
+
+Actor Contact 不自动等于 Collision。
+
+### Strike
+
+```text
+Source current M
+→ Incoming Target
+→ Source M0
+```
+
+Target 腾空 → Source 进入 Contact Cell；未腾空 → Source 返回 Pre-contact Cell。
+
+### Pierce
+
+```text
+no M transfer
+no Target knockback
+Source keeps M
+continue route
+```
+
+Multi-cell Body 通过 footprint / exit legality 处理。
+
+---
+
+## Wall
+
+目标规则：
+
+```text
+Wall = Redirect Axis only
+Wall roundtrip = one Travel
+Wall itself does not M-1
+```
+
+M0 Initiative 不允许提交向 Wall 的移动，也不浪费 AT。
+
+当前网页尚未按此规则重构。
+
+---
+
+## Incoming / M4
+
+Down：
+
+```text
+Down M 1:1 cancel Incoming Horizontal M
+```
+
+Horizontal existing + incoming：待 A/B：
+
+```text
+True Vector Composition
+Hex Angle Lookup
+```
+
+M4：
+
+```text
+system transient overload
+first Forced Use M4→M3
+stable Ready cap M3
+```
+
+UI 候选：三个 M 点全部变红。
+
+---
+
+## Terrain / Ice
+
+当前一般地面优先。
+
+Resolver 需要预留：
+
+```text
+travelCost / travelModifier per Cell
+```
+
+未来 Ice 可以让同样的 M 兑现更长 Initiative / Forced Travel，而不是简单增加 M。
+
+---
+
+## 当前 Debug / Runtime
+
+页面仍包含：
 
 - Inertia Driving Lab；
 - Hex6 Cell World；
 - Discrete / Hybrid A/B；
-- Basic Move + Momentum/Impulse actions；
-- Axis HUD 与 M dots；
+- Momentum / Impulse actions；
+- Axis HUD / M dots；
 - Thermal Pendulum；
 - Cell Inspector；
-- Collision / restitution / board radius debug；
-- 可调 real-time / AT；
+- Collision / board radius / playback debug；
 - Undo / Reset。
 
-`#thermal-lab` 与 `#graphics-lab` 当前保留独立入口。
+浏览器 Debug API 仍以当前 runtime 为准；在 Spatial v1 实施前，不应把现有 API 输出视为新规则证据。
 
-## Debug API
+---
 
-浏览器验证使用：
+## 回归命令
 
-```js
-window.__PROJECTC_PROTOTYPE__.setAction('basic-move')
-window.__PROJECTC_PROTOTYPE__.setVelocity(1.7, 0) // E M2 preset equivalent
-window.__PROJECTC_PROTOTYPE__.fireAt(1, 0)       // adjacent E Aim
-window.__PROJECTC_PROTOTYPE__.trajectory()
-window.__PROJECTC_PROTOTYPE__.snapshot()
-```
-
-修正后的关键契约：
-
-```js
-setAction('basic-move')
-fireAt(2, 0) // false: remote Basic Aim
-
-setVelocity(1.7, 0)
-fireAt(1, 0) // true: M2 Range2, then M1
-```
-
-## 回归验证
+真正开始 runtime 修改后继续使用：
 
 ```bash
 pnpm test
@@ -155,41 +256,37 @@ pnpm verify:dist
 pnpm verify:browser
 ```
 
-Movement gate 至少覆盖：
+但程序04必须先识别并更新保护旧错误语义的 tests，再用新门禁判断实现是否正确。
 
-1. M0 adjacent Basic Move = Move1 / M0 / +1AT；
-2. remote Basic Aim 被拒绝且不推进 AT；
-3. E M2 + E Aim = Range2 / E,E / M1；
-4. E M2 + NW Aim = E,NE path / M1；
-5. 180° Aim 不静默选择转向分支；
-6. Basic Move 在 Discrete / Hybrid 得到同一逻辑 Cell path；
-7. Hybrid Drive 仍保持曲线表现与 `V + ΔV` 最终速度；
-8. Thermal / AT playback 与 viewport 稳定性不回归。
+---
 
 ## GitHub Pages
 
-`main` push 会触发：
+`main` push 当前仍会运行现有自动化发布链。
+
+文档更新不代表网页 runtime 已变化。
+
+只有完成：
 
 ```text
-unit tests
-→ production build
-→ dist verification
-→ headless Chrome browser verification
+rule implementation
+→ tests
+→ build
+→ browser verification
 → Pages deploy
 → published commit verification
-→ pages/verified-deployment status
 ```
 
-只有以上链路全部成功，才可以认为网页端已经发布到对应 commit。
+之后，才能说网页已经落实 Spatial Inertia v1。
 
-## 规则边界
+---
 
-本仓库是 prototype reference implementation，不自动把实验值冻结成正式平衡方案。尤其：
+## 当前任务
 
-- `M2+ -> Range2` 当前是首轮候选；
-- canonical M speed 只是当前 runtime 表示方式；
-- 180° steering branch UI 尚未完成；
-- Collision 对 Basic Move 的最终规则仍可能继续调整；
-- ProjectC design / validation 与用户最新明确修正优先于历史实现。
+现在请先做程序04评审，不直接改 runtime：
 
-如发现文档、测试与最新规则冲突，应先修正回归契约，而不是让旧测试把错误实现保护成“稳定功能”。
+1. 读 ProjectC Spatial Inertia v1；
+2. 对照 `cell-motion.js / spatial-rules-v2.js / conflict-v4.js`；
+3. 标出实现冲突和循环依赖；
+4. 给出最小风险改造顺序；
+5. 确认后再进入代码实施。
