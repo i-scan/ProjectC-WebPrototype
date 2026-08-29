@@ -11,7 +11,7 @@ revisionUrl.searchParams.set('revision', commit)
 await mkdir('public', { recursive: true })
 await writeFile('public/build-info.json', `${JSON.stringify({
   schemaVersion: 5,
-  implementation: 'cell-world-spatial-ab-v3',
+  implementation: 'spatial-inertia-v1-candidate',
   commit,
   shortCommit: commit === 'local' ? 'local' : commit.slice(0, 8),
   branch,
