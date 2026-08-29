@@ -26,8 +26,8 @@ function basicPlan(state, aimHex, obstacles = []) {
   })
 }
 
-describe('Basic Action current-M travel accounting', () => {
-  it('uses post-spend M1 for an M2 Basic Move wall impact and stops after the one wall Cell cost', () => {
+describe('Spatial Inertia v1 travel transaction accounting', () => {
+  it('lets an M2 wall roundtrip consume one Travel, then commits Use M2→M1 without truncating the declared route', () => {
     const wall = nsWallAt(0, 0)
     const plan = basicPlan(stateAt({ q: -1, r: 0 }, 'E', 2), { q: 0, r: 0 }, [wall])
 
@@ -35,28 +35,9 @@ describe('Basic Action current-M travel accounting', () => {
     expect(plan.motionTrace[0]).toMatchObject({
       kind: 'wall-cell-step',
       cost: 1,
-      momentumBefore: 1,
-      momentumAfter: 0,
-      remainingBefore: 2,
-      remainingAfter: 0,
-    })
-    expect(plan.reflectedMovedSteps).toBe(1)
-    expect(plan.remainingTravel).toBe(0)
-    expect(plan.finalM).toBe(0)
-    expect(plan.finalState.position).toEqual(axialToWorld({ q: -1, r: 0 }))
-  })
-
-  it('uses post-spend M2 for an M3 Basic Move wall impact and leaves only one reflected Cell', () => {
-    const wall = nsWallAt(0, 0)
-    const plan = basicPlan(stateAt({ q: -1, r: 0 }, 'E', 3), { q: 0, r: 0 }, [wall])
-
-    expect(plan.valid).toBe(true)
-    expect(plan.motionTrace[0]).toMatchObject({
-      kind: 'wall-cell-step',
-      cost: 1,
       momentumBefore: 2,
       momentumAfter: 1,
-      remainingBefore: 3,
+      remainingBefore: 2,
       remainingAfter: 1,
     })
     expect(plan.motionTrace.filter((entry) => entry.cost === 1)).toHaveLength(2)
@@ -64,9 +45,31 @@ describe('Basic Action current-M travel accounting', () => {
     expect(plan.remainingTravel).toBe(0)
     expect(plan.finalM).toBe(1)
     expect(plan.finalState.position).toEqual(axialToWorld({ q: -2, r: 0 }))
+    expect(plan.collisions[0]).toMatchObject({ beforeM: 2, afterM: 2 })
   })
 
-  it('uses current M1, not pre-spend M2, when a Basic Move hits a stationary Actor', () => {
+  it('lets an M3 wall roundtrip preserve the full Travel3 route while the one Action transaction settles M3→M2', () => {
+    const wall = nsWallAt(0, 0)
+    const plan = basicPlan(stateAt({ q: -1, r: 0 }, 'E', 3), { q: 0, r: 0 }, [wall])
+
+    expect(plan.valid).toBe(true)
+    expect(plan.motionTrace[0]).toMatchObject({
+      kind: 'wall-cell-step',
+      cost: 1,
+      momentumBefore: 3,
+      momentumAfter: 2,
+      remainingBefore: 3,
+      remainingAfter: 2,
+    })
+    expect(plan.motionTrace.filter((entry) => entry.cost === 1)).toHaveLength(3)
+    expect(plan.reflectedMovedSteps).toBe(3)
+    expect(plan.remainingTravel).toBe(0)
+    expect(plan.finalM).toBe(2)
+    expect(plan.finalState.position).toEqual(axialToWorld({ q: -3, r: 0 }))
+    expect(plan.collisions[0]).toMatchObject({ beforeM: 3, afterM: 3 })
+  })
+
+  it('uses M1 after one successful Travel when an M2 Basic Move later hits a stationary Actor', () => {
     const plan = basicPlan(stateAt({ q: 0, r: 1 }, 'E', 2), { q: 2, r: 1 })
     expect(plan.motionTrace.every((entry) => entry.momentumAfter === 1)).toBe(true)
 
@@ -94,7 +97,7 @@ describe('Basic Action current-M travel accounting', () => {
     expect(resolved.actorStates[0].hex).toEqual({ q: 3, r: 1 })
   })
 
-  it('uses current M2, not pre-spend M3, so an M3 Basic hit knocks a stationary Actor two Cells', () => {
+  it('uses M2 after prior Travel when an M3 Basic Move hits a stationary Actor on its third Cell', () => {
     const plan = basicPlan(stateAt({ q: 0, r: 0 }, 'E', 3), { q: 3, r: 0 })
     const resolved = resolveCellConflicts({
       plan,
@@ -105,7 +108,7 @@ describe('Basic Action current-M travel accounting', () => {
 
     expect(resolved.cellConflict).toMatchObject({
       impactM: 2,
-      momentumExchange: { sourceBeforeM: 2, targetAfterM: 2 },
+      momentumExchange: { sourceBeforeM: 2, sourceAfterM: 0, targetAfterM: 2 },
     })
     expect(resolved.actorTrajectories.target).toEqual([
       { q: 3, r: 0 },

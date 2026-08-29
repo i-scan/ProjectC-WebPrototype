@@ -44,14 +44,14 @@ jobs:
         env:
           EXPECTED_COMMIT: ${{ github.sha }}
         run: pnpm verify:dist
-      - name: Verify Axis, Hold, Momentum, and reflection in Chrome
+      - name: Verify Spatial Inertia v1 in Chrome
         run: pnpm verify:browser
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stepwise-reflection-hold-evidence-${{ github.sha }}
-          path: artifacts/stepwise-reflection-hold.*
+          name: spatial-inertia-v1-evidence-${{ github.sha }}
+          path: artifacts/wall-visible-reflection.*
           if-no-files-found: warn
           retention-days: 30
       - uses: actions/configure-pages@v5
@@ -99,6 +99,6 @@ jobs:
               context: 'pages/verified-deployment',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               description: ok
-                ? 'Actor-body Axis / Hold / stepwise reflection verified online'
+                ? 'Spatial Inertia v1 candidate verified online'
                 : `Pages verification failed: build=${buildResult}, deploy=${deployResult}`
             })

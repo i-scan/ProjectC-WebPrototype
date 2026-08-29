@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { axialKey, axialToWorld, directionVector } from './hex.js'
 import { momentumSpeed } from './solver.js'
 import {
+  DRIVE_BUILD_RULE,
   basicMoveReachability,
   discreteActionReachability,
   simulateBasicMoveRule,
@@ -110,26 +111,26 @@ describe('destination-driven Basic Move envelope', () => {
     expect(ne).toEqual(new Set(['0,-1', '1,-2', '2,-2', '2,-1', '1,0']))
   })
 
-  it('preserves low-M natural build but spends one M when forward travel uses M2/M3 range', () => {
+  it('preserves low-M startup while resolving inertia only after successful Travel', () => {
     const establish = move(stateAt({ q: 0, r: 0 }), { q: 1, r: 0 })
-    expect(establish.basicRule).toBe('establish-axis')
+    expect(establish.actionTransaction).toMatchObject({ behavior: 'Establish Axis', fromM: 0, toM: 0 })
     expect(establish.finalState.axisId).toBe('E')
     expect(establish.finalM).toBe(0)
 
     const m0ToM1 = move(stateAt({ q: 0, r: 0 }, 'E', 0), { q: 1, r: 0 })
-    expect(m0ToM1.basicRule).toBe('same-axis-build')
+    expect(m0ToM1.actionTransaction).toMatchObject({ cause: 'Generate', fromM: 0, toM: 1 })
     expect(m0ToM1.finalM).toBe(1)
 
     const m1ToM2 = move(stateAt({ q: 0, r: 0 }, 'E', 1), { q: 1, r: 0 })
-    expect(m1ToM2.basicRule).toBe('same-axis-build')
+    expect(m1ToM2.actionTransaction).toMatchObject({ cause: 'Generate', fromM: 1, toM: 2 })
     expect(m1ToM2.finalM).toBe(2)
 
     const m2Spend = move(stateAt({ q: 0, r: 0 }, 'E', 2), { q: 2, r: 0 })
-    expect(m2Spend.basicRule).toBe('forward-range-spend')
+    expect(m2Spend.actionTransaction).toMatchObject({ cause: 'Use', fromM: 2, toM: 1 })
     expect(m2Spend.finalM).toBe(1)
 
     const m3Spend = move(stateAt({ q: 0, r: 0 }, 'E', 3), { q: 3, r: 0 })
-    expect(m3Spend.basicRule).toBe('forward-range-spend')
+    expect(m3Spend.actionTransaction).toMatchObject({ cause: 'Use', fromM: 3, toM: 2 })
     expect(m3Spend.finalM).toBe(2)
   })
 
@@ -144,7 +145,7 @@ describe('destination-driven Basic Move envelope', () => {
   })
 })
 
-describe('discrete Drive uses the same Cell landing contract', () => {
+describe('Drive shares the landing contract but changes the inertia transaction', () => {
   it('exposes the same M2 landing Cells as Basic Move', () => {
     const state = stateAt({ q: 0, r: 0 }, 'E', 2)
     const moveReach = basicMoveReachability({ state, spatialMode: 'discrete', obstacles: [] })
@@ -154,7 +155,7 @@ describe('discrete Drive uses the same Cell landing contract', () => {
     expect(driveReach).toEqual(moveReach)
   })
 
-  it('moves to the clicked Cell through the authored curve instead of a straight resultant line', () => {
+  it('moves to the clicked Cell through the authored curve and builds M only after Travel', () => {
     const state = stateAt({ q: 0, r: 0 }, 'E', 2)
     const plan = simulatePrototypeSpatial({
       state,
@@ -164,7 +165,8 @@ describe('discrete Drive uses the same Cell landing contract', () => {
       obstacles: [],
     })
     expect(plan.valid).toBe(true)
-    expect(plan.driveRule).toBe('cell-target-curved-composition')
+    expect(plan.driveBuildRule).toBe(DRIVE_BUILD_RULE)
+    expect(plan.actionTransaction).toMatchObject({ fromM: 2, toM: 3, prototypeCandidate: true })
     expect(plan.traversedCells).toEqual([
       { q: 0, r: 0 },
       { q: 1, r: 0 },

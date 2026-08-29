@@ -10,8 +10,8 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
-assert(info.schemaVersion === 5, 'build-info schema is not movement-correction v5')
-assert(info.implementation === 'cell-world-spatial-ab-v3', 'build-info implementation mismatch')
+assert(info.schemaVersion === 5, 'build-info schema is not Spatial Inertia v1 schema 5')
+assert(info.implementation === 'spatial-inertia-v1-candidate', 'build-info implementation mismatch')
 assert(info.commit === expectedCommit, `build commit ${info.commit} != ${expectedCommit}`)
 assert(info.status === (expectedCommit === 'local' ? 'local' : 'verified'), 'unexpected build status')
 
@@ -25,27 +25,36 @@ for (const match of scriptMatches) {
 }
 
 for (const marker of [
-  'cell-world-spatial-ab-v3',
+  'spatial-inertia-v1-candidate',
   'Inertia Driving Playground',
+  'Spatial Inertia v1 Candidate',
   'Basic Move',
   'Hold',
   '原地等待 · M-1',
-  'Basic Command + Momentum Cards',
-  'Spatial Model A/B',
+  'Initiative Actions',
+  'Spatial Presentation A/B',
+  'Incoming Composition A/B',
   'Cell Inspector',
-  'reachable-cell-target-v4',
-  'connected-envelope-m-spend-v4',
-  'cell-target-curved-composition',
-  'clipped-mirror-multi-bounce-v2',
+  'reachable-landing-cell-v1',
+  'initiative-first-travel-transaction-v1',
+  'val-012-spatial-inertia-v1-candidate',
+  'first-successful-travel-transaction-v1',
+  'drive-build-inertia-prototype-candidate-v1',
+  'contact-strike-direct-transfer-v1',
+  'forced-use-on-first-travel-v1',
+  'incoming-momentum-composition-ab-v1',
+  'true-vector',
+  'hex-lookup',
+  'hex-angle-lookup-prototype-candidate-v1',
+  'spatial-inertia-v1-contact-resolution',
+  'forced-move-cell-motion-v1',
   'clipped-cell-mirror-v2',
   'contact-ray-step-budget-v3',
   'wall-cell-pivot-budget-v1',
   'wall-cell-roundtrip-costs-one-v2',
-  'reflected-actor-current-m-exchange-v1',
   'cell-motion-trace-v1',
   'authoritative-cell-travel-budget-v1',
   'single-cell-entry-resolution-v1',
-  'cell-conflict-consumes-motion-trace-v1',
   'motion-trace-event-v1',
   'motion-trace-debug-bridge-v1',
   'wall-axis-mesh-v1',
@@ -53,7 +62,6 @@ for (const marker of [
   'obstacle-wall-cell-pivot',
   'wallCellTravelCost',
   'boundary-corner-chamfer',
-  'stepwise-clipped-mirror-v2',
   'reserved-cell-stop',
   'actor-body-screen-arrow-v5',
   'actor-axis-hud',
@@ -64,11 +72,10 @@ for (const marker of [
   'yellow-dashed-path-v2',
   'contact-staggered-fast-v3',
   'surface-reflection',
-  'surface-stop',
   'Landing Cell Input',
-  'forward-range-spend',
-  'equal-mass-1d',
-  'M Exchange',
+  'M Transfer',
+  'setIncomingCompositionMode',
+  'data-incoming-composition-controls',
   'setAxisDisplay',
   'data-down-axis-controls',
   'actorPlaybackWindows',
@@ -93,6 +100,15 @@ for (const obsolete of [
   'connected-envelope-v3',
   'physical-multi-bounce-v1',
   'exchange → preflight → animate → commit',
+  'clipped-mirror-multi-bounce-v2',
+  'reflected-actor-current-m-exchange-v1',
+  'cell-conflict-consumes-motion-trace-v1',
+  'stepwise-clipped-mirror-v2',
+  'forward-range-spend',
+  'equal-mass-1d',
+  'chain-decay-prototype',
+  'connected-envelope-m-spend-v4',
+  'cell-target-curved-composition',
 ]) assert(!script.includes(obsolete), `obsolete runtime marker still bundled: ${obsolete}`)
 
 const styleMatch = html.match(/<link[^>]+href="([^"]+\.css)"/)
@@ -109,4 +125,4 @@ for (const marker of [
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified authoritative Cell motion trace + travel budget, wall/Actor reflection rules, and existing Axis/Hold runtime for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified Spatial Inertia v1 initiative transactions, Strike/Forced Move, Incoming A/B, surface Redirect, and existing Axis/Thermal runtime for ${info.branch}@${info.shortCommit}.`)

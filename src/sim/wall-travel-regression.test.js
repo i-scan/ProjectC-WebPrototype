@@ -3,7 +3,7 @@ import { axialToWorld, directionVector } from './hex.js'
 import { momentumSpeed } from './solver.js'
 import { simulateBasicMoveRule } from './spatial-rules.js'
 import {
-  REFLECTED_ACTOR_CONFLICT_RULE,
+  STRIKE_RULE,
   WALL_TRAVEL_BUDGET_RULE,
   resolveCellConflicts,
 } from './conflict.js'
@@ -54,10 +54,10 @@ function manualPlan(from, contact, axisId, level, finalM = Math.max(0, level - 1
 
 describe('wall travel budget regression', () => {
   it.each([
-    [1, 1, { q: -1, r: 0 }],
-    [2, 1, { q: -1, r: 0 }],
-    [3, 2, { q: -2, r: 0 }],
-  ])('uses current-M travel after Basic spend for player M%d wall reflection', (level, expectedMovedSteps, expectedHex) => {
+    [1, 1, { q: -1, r: 0 }, 1],
+    [2, 2, { q: -2, r: 0 }, 1],
+    [3, 3, { q: -3, r: 0 }, 2],
+  ])('uses one wall roundtrip Travel and no direct Momentum loss for player M%d', (level, expectedMovedSteps, expectedHex, expectedFinalM) => {
     const wall = nsWallAt(0, 0)
     const plan = simulateBasicMoveRule({
       state: stateAt({ q: -1, r: 0 }, 'E', level),
@@ -71,13 +71,16 @@ describe('wall travel budget regression', () => {
       wallCellPivot: true,
       wallCellTravelCost: 1,
       contactCell: { q: 0, r: 0 },
+      beforeM: level,
+      afterM: level,
     })
     expect(plan.reflectedMovementBudget).toBe(level)
     expect(plan.reflectedMovedSteps).toBe(expectedMovedSteps)
     expect(plan.finalState.position).toEqual(axialToWorld(expectedHex))
+    expect(plan.finalM).toBe(expectedFinalM)
   })
 
-  it('makes an M1 knocked target bounce to its original Cell when a wall is directly behind it', () => {
+  it('makes an M1 Forced target complete the wall roundtrip but fail to vacate its original Cell after Forced Use', () => {
     const wall = nsWallAt(2, 0)
     const plan = manualPlan({ q: 0, r: 0 }, { q: 1, r: 0 }, 'E', 1, 1)
     const resolved = resolveCellConflicts({
@@ -89,14 +92,14 @@ describe('wall travel budget regression', () => {
 
     expect(resolved.actorStates[0].hex).toEqual({ q: 1, r: 0 })
     expect(resolved.traversedCells).toEqual([{ q: 0, r: 0 }])
-    expect(resolved.cellConflict).toMatchObject({ resolved: false })
+    expect(resolved.cellConflict).toMatchObject({ resolved: false, transferRefunded: false })
     expect(resolved.actorTrajectories.a[0]).toEqual({ q: 1, r: 0 })
     expect(resolved.actorTrajectories.a.at(-1)).toEqual({ q: 1, r: 0 })
     expect(resolved.conflictEvents.some((event) => event.kind === 'surface-reflection' && event.wallCellTravelCost === 1)).toBe(true)
     expect(resolved.conflictEvents.some((event) => event.travelBudgetRule === WALL_TRAVEL_BUDGET_RULE)).toBe(true)
   })
 
-  it('resolves an occupied first reflection-exit Cell as a new actor collision using reflected current M', () => {
+  it('resolves an occupied reflection-exit Cell as Strike after the target performs its one Forced Use', () => {
     const wall = nsWallAt(0, 0)
     const plan = manualPlan({ q: 2, r: -2 }, { q: 1, r: -1 }, 'SW', 2, 1)
     const resolved = resolveCellConflicts({
@@ -107,8 +110,6 @@ describe('wall travel budget regression', () => {
       ],
       obstacles: [wall],
       boardRadius: 7,
-      surfaceRestitution: 0.58,
-      boundaryRestitution: 0.42,
     })
 
     const reflectedTransfer = resolved.conflictEvents.find((event) => (
@@ -117,9 +118,9 @@ describe('wall travel budget regression', () => {
       && event.targetActorId === 'b'
     ))
     expect(reflectedTransfer).toMatchObject({
-      model: REFLECTED_ACTOR_CONFLICT_RULE,
-      reflectedSource: true,
+      model: STRIKE_RULE,
       sourceBeforeM: 1,
+      sourceAfterM: 0,
       targetBeforeM: 0,
       targetAfterM: 1,
     })
@@ -127,8 +128,8 @@ describe('wall travel budget regression', () => {
     const byId = Object.fromEntries(resolved.actorStates.map((actor) => [actor.id, actor]))
     expect(byId.a.hex).toEqual({ q: 0, r: 1 })
     expect(byId.b.hex).toEqual({ q: 0, r: 2 })
-    expect(resolved.actorTrajectories.a).toContainEqual({ q: 0, r: 0 })
-    expect(resolved.actorTrajectories.a).toContainEqual({ q: 0, r: 1 })
+    expect(resolved.actorTrajectories.a.at(-1)).toEqual({ q: 0, r: 1 })
     expect(resolved.actorTrajectories.b).toEqual([{ q: 0, r: 1 }, { q: 0, r: 2 }])
+    expect(resolved.conflictEvents.some((event) => event.kind === 'momentum-event' && event.actorId === 'a' && event.cause === 'Forced Use')).toBe(true)
   })
 })

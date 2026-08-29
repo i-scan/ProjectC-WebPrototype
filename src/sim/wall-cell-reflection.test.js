@@ -100,7 +100,7 @@ describe('internal wall Cell pivot reflection', () => {
     })
   })
 
-  it('uses post-spend current M2 for an M3 Basic wall crossing and leaves only one full reflected Cell', () => {
+  it('counts an M3 Basic wall roundtrip as one Travel, redirects Axis, and preserves the full Travel3 route', () => {
     const plan = simulateBasicMoveRule({
       state: stateAt({ q: -1, r: 0 }, 'E', 3),
       aimPoint: axialToWorld({ q: 0, r: 0 }),
@@ -112,26 +112,28 @@ describe('internal wall Cell pivot reflection', () => {
     expect(plan.inputTargetHex).toEqual({ q: 0, r: 0 })
     expect(plan.reflectionContinuation).toBe(WALL_CELL_TRAVEL_RULE)
     expect(plan.reflectedMovementBudget).toBe(3)
-    expect(plan.reflectedMovedSteps).toBe(2)
+    expect(plan.reflectedMovedSteps).toBe(3)
     expect(plan.collisions[0]).toMatchObject({
       geometryKind: 'obstacle-wall-cell-pivot',
       contactCell: { q: 0, r: 0 },
       attemptedCell: { q: 0, r: 0 },
       axisBefore: 'E',
       axisAfter: 'W',
-      beforeM: 2,
-      afterM: 1,
+      beforeM: 3,
+      afterM: 3,
       wallCellPivot: true,
       wallCellTravelCost: 1,
       wallAxis: 'NS',
     })
+    expect(plan.actionTransaction).toMatchObject({ fromM: 3, toM: 2, cause: 'Use' })
     expect(plan.traversedCells).toEqual([
       { q: -1, r: 0 },
       { q: -1, r: 0 },
       { q: -2, r: 0 },
+      { q: -3, r: 0 },
     ])
-    expect(plan.finalState.position).toEqual(axialToWorld({ q: -2, r: 0 }))
-    expect(plan.finalM).toBe(1)
+    expect(plan.finalState.position).toEqual(axialToWorld({ q: -3, r: 0 }))
+    expect(plan.finalM).toBe(2)
     expect(plan.axisAfter).toBe('W')
   })
 

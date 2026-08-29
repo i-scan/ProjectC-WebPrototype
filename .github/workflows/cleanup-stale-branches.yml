@@ -1,0 +1,86 @@
+name: Cleanup stale prototype branches
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cleanup-stale-prototype-branches
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main with write credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Delete reviewed stale branches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # These refs were reviewed on 2026-08-30. They are either historical
+          # PR heads already incorporated into main (usually by squash merge),
+          # or explicitly superseded experiments such as PR #69. Backup refs
+          # are intentionally absent from this list and must never be deleted.
+          branches=(
+            'feat/cell-conflict-knockback'
+            'fix/axis-down-m3-momentum-transfer'
+            'fix/basic-move-adjacent-inertia-path'
+            'fix/browser-axis-readiness'
+            'fix/browser-thermal-midpoint-bound'
+            'fix/browser-wait-for-board'
+            'fix/clipped-boundary-reflection-preview'
+            'fix/current-m-travel-accounting'
+            'fix/deployment-foundation-verifier'
+            'fix/discrete-axis-preview-thermal-pan'
+            'fix/ew-wall-pivot-symmetry'
+            'fix/foundation-rules-before-conflict-test'
+            'fix/map-canvas-height'
+            'fix/map-host-inline-override'
+            'fix/obstacle-surface-geometry'
+            'fix/player-boundary-physical-reflection'
+            'fix/reachable-curves-axis-knockback-ui'
+            'fix/reflected-travel-budget-playback'
+            'fix/reflection-budget-and-rebound-path'
+            'fix/reflection-staged-knockback-hold-timebase'
+            'fix/visible-wall-reflection'
+            'fix/wall-cell-pivot-budget'
+            'fix/wall-travel-budget-and-reflected-actor-conflict'
+            'refactor/cell-motion-trace'
+            'revert/pr63-wall-surface'
+            'test/reflected-contact-current-m-regression'
+            'feat/spatial-inertia-v1'
+          )
+
+          failures=()
+          deleted=0
+          for branch in "${branches[@]}"; do
+            if ! git ls-remote --exit-code --heads origin "refs/heads/${branch}" >/dev/null 2>&1; then
+              echo "skip missing: ${branch}"
+              continue
+            fi
+
+            echo "delete: ${branch}"
+            if git push origin --delete "${branch}"; then
+              deleted=$((deleted + 1))
+            else
+              failures+=("${branch}")
+            fi
+          done
+
+          echo "deleted ${deleted} stale branch(es)"
+          if (( ${#failures[@]} > 0 )); then
+            printf 'failed to delete: %s\n' "${failures[*]}"
+            exit 1
+          fi
+
+          echo 'Preserved backup/pre-rebuild-2026-08-22 and backup/pre-spatial-inertia-v1-2026-08-30.'

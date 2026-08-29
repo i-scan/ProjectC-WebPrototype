@@ -4,16 +4,17 @@
 
 本仓库是 ProjectC 的 Cell World / Spatial Inertia 可执行验证环境。
 
-当前阶段不是继续堆 runtime 补丁，而是：
+2026-08-30 起，活动 runtime 迁移目标为：
 
 ```text
-ProjectC Spatial Inertia v1 rules
-→ Program04 review
-→ implementation plan
-→ runtime refactor
+ProjectC Spatial Inertia v1
+→ shared Initiative / Forced movement grammar
+→ transaction timing
+→ ContactBehavior
+→ CellMotionTrace
 ```
 
-2026-08-30 之前的 WebPrototype runtime 仍是重要实验资产，但不再自动等于当前规则。
+此前 WebPrototype 的 landing-cell input、Reachable envelope、曲线、Wall pivot、Actor causal playback 等属于要保留的实验资产；旧 Momentum / Collision 解释不是权威规则。
 
 ---
 
@@ -26,7 +27,7 @@ ProjectC Spatial Inertia v1 rules
 3. ProjectC `docs/VAL-012-actor-loop-v0-program-handoff.md`；
 4. ProjectC `docs/VAL-012-actor-loop-v0-prototype-plan.md`；
 5. 本仓库 `README.md`；
-6. `src/sim/cell-motion.js`、`src/sim/spatial-rules-v2.js`、`src/sim/conflict-v4.js` 与对应测试。
+6. `src/sim/spatial-inertia-v1.js`、`src/sim/cell-motion.js`、`src/sim/conflict-v5.js` 与对应测试。
 
 冲突时：
 
@@ -34,30 +35,15 @@ ProjectC Spatial Inertia v1 rules
 最新用户明确修正
 > ProjectC spatial-inertia-rules-v1
 > current program handoff
-> prototype runtime / old tests
+> current v1 tests
+> pre-v1 runtime / old tests
 ```
 
-禁止使用旧回归测试反向证明旧规则正确。
+禁止使用旧回归测试反向恢复已经否定的旧规则。
 
 ---
 
-## Review-before-code rule
-
-当前用户要求先把文档交由程序04评审。
-
-因此在本轮评审明确通过前：
-
-- 不修改 runtime 规则；
-- 不为了让新文档“看起来通过”而改测试；
-- 可以阅读代码、列差异、提出实现方案；
-- 可以指出主规范中的循环依赖 / 不可实现边界；
-- 不自动恢复旧 Adjacent Aim / post-spend Current M 规则。
-
-程序04确认后再按仓库分支策略实施代码变更。
-
----
-
-## Current canonical vocabulary
+## Canonical vocabulary
 
 ### Momentum
 
@@ -76,7 +62,7 @@ Initiative Move
 Forced Move
 ```
 
-Basic Move、Drive、某张 Pierce 卡都是 Action，不是新的 MovementMode。
+Basic Move、Drive、Pierce card 等是 Action，不是新的 MovementMode。
 
 ### ContactBehavior
 
@@ -104,7 +90,7 @@ Convert
 Release
 ```
 
-每次 M 变化必须能输出 `fromM / toM / cause`。
+每次 M 变化必须可输出 `fromM / toM / cause`。Thermal 应读取 Cause，而不是从 `M 增/减` 反推行为语义。
 
 ---
 
@@ -112,7 +98,7 @@ Release
 
 ```text
 M0 NoAxis
-→ initiative Move1
+→ Initiative Move1
 → M0 Axis
 
 M0 Axis + same-axis Move1
@@ -123,14 +109,14 @@ M1 + same-axis Move1
 → Generate
 → M2
 
-M2
-→ Basic Move cannot naturally Build M3
+Basic M2
+→ cannot naturally Build M3
 
 M3
 → requires Drive / Build Inertia / explicit rule
 ```
 
-Default travel scale：
+Default Initiative Travel：
 
 ```text
 M0 Move1
@@ -146,62 +132,83 @@ M1 special：
 ±120° → real Travel2 / Resist / M0 / new Axis
 ```
 
+因此绝对禁止重新引入“remaining travel 永远 <= Current M”的全局假设；M1 ±120° 本身就是反例。
+
 M0 Axis 不自然衰退。
 
 ---
 
-## Action transaction timing
+## Initiative transaction timing
 
-**当前 runtime 的 post-spend-first 规则已经不是目标规则。**
-
-新主规范：
+**Action Declare 不立即结算 M。**
 
 ```text
 Declare Action
-→ no immediate M change
+→ keep current M
 → resolve first spatial event
 ```
 
-一般第一次成功 Travel 后，只执行一次 Initiative Action Transaction。
-
-例如：
+通常第一次成功 Travel 后，只执行一次 Initiative Action Transaction。
 
 ```text
 M3 → empty Cell
+→ successful Travel
 → Use M3→M2
 → remaining route
 ```
 
-但：
+但 priority Contact 可以抢占尚未提交的 transaction：
 
 ```text
 M3 → adjacent Strike Target
-→ Strike uses M3 before any normal Build / Use / Resist
+→ no successful Travel yet
+→ Strike uses M3
+→ pending Basic transaction is preempted
 ```
 
-如果 Strike 抢占了尚未发生的 Action Transaction，后续不补算原 transaction。
+若先通过空 Cell：
 
-实现时需要显式 transaction state，不能靠 finalM 猜。
+```text
+M3 → empty Cell
+→ transaction commits M3→M2
+→ later Strike uses M2
+```
+
+实现必须显式记录 transaction state；禁止再用最终 `finalM` 猜当前事件应该读哪个 M。
+
+Generate / Build 同样只有在要求的真实 Travel 完成后才成立。
 
 ---
 
-## Wall
+## Wall / Boundary
 
-目标规则：
+基础 Surface 语义：
 
 ```text
-Wall = Redirect Axis only
-Wall does not directly reduce M
-Wall roundtrip = one Travel
+Surface = Redirect Axis
+Surface itself does not directly reduce M
 ```
 
-Initiative M0：Wall target 不可提交，不耗 AT。
+Internal Wall Cell：
 
-Build 已在撞墙前通过真实 Travel 成功，则保留 Build；紧邻 Wall 在 Build 前改变运动方向，则未发生的 Generate / Build 不成立，改为 Redirect。
+```text
+pre-wall Cell
+→ wall pivot
+→ reflected exit
+= one successful Travel
+```
 
-Forced wall roundtrip 属于有效 Travel，因此第一次发生时执行 `Forced Use`。
+Wall pivot 不是合法 landing Cell。
 
-Reflected Exit 非法时返回 Pre-wall Cell；Damage / Stun / Crash 不是 Wall Redirect 的默认副作用。
+M0 Initiative：主动向 Wall / Surface 的提交不可成立，不耗 AT。
+
+如果 Generate / Build 前就被紧邻 Surface 改变运动方向，则未发生的 Build 不成立，可降级为 Redirect；若 Build 已在前一个真实 Travel 成功，则之后碰墙不退款。
+
+Forced wall roundtrip 在第一次发生时属于有效 Travel，因此执行一次 Forced Use。
+
+Reflected exit 非法 / 被占用时按 Contact 与 exit legality 处理；Damage / Stun / Crash 不是默认 Surface Momentum 规则。
+
+Boundary 默认服从相同“Redirect only / no direct M loss”语法。
 
 ---
 
@@ -216,11 +223,13 @@ Source current M
 → keep contact Axis
 ```
 
-Target vacates Contact Cell：Source 进入该 Cell。
+Target vacates Contact Cell：Source 可以进入该 Cell。
 
-Target does not vacate：Source 回 Pre-contact Cell；Transfer 不退款。
+Target does not vacate：Source 返回 pre-contact Cell；Transfer 不退款。
 
-默认 Strike 在 Contact Cell 停止 Source movement；特殊 Action 可覆盖。
+默认 Strike 在 Contact 停止 Source movement；特殊 Action 可显式覆盖。
+
+**禁止把 equal-mass restitution helper 当作正式 Strike。** `exchangeActorMomentum()` 可以保留做数值对照，但 v1 Contact resolver 不应调用它作为默认规则。
 
 ### Pierce
 
@@ -233,33 +242,46 @@ continue route
 
 Multi-cell Body 使用 footprint / exit legality；强制越过整个 Body 属于特殊技能能力。
 
-不要为 Pierce 新建另一套 Move resolver。
+Pierce 必须接入同一个 Contact resolver，禁止创建第二套 Move / collision solver。
 
 ---
 
 ## Forced Move
 
-Forced 默认 Contact=Strike。
+Forced 默认 ContactBehavior = Strike。
 
-它也兑现 M：
-
-```text
-first Travel / first occupied travel attempt
-→ Forced Use M→M-1 once
-```
-
-第一格就是 Actor 时 baseline：
+第一次有效 Travel，或第一格 occupied travel attempt：
 
 ```text
-先 Forced Use
-再 Strike Transfer
+Forced Use M→M-1 once
 ```
 
-因此 M1 默认不能连续推动两个紧邻 M0 Target。
+occupied first Cell 的顺序：
 
-Chain 递归使用同一规则，不再保留独立 `chain-decay-prototype` 作为最终语义。
+```text
+Forced Use
+→ Contact / Strike Transfer
+```
+
+因此 chain decay 必须自然来自递归执行同一套规则：
+
+```text
+Incoming M3
+→ Forced Use M2
+→ Transfer M2
+→ next Incoming M2
+→ Forced Use M1
+→ Transfer M1
+→ next Incoming M1
+→ Forced Use M0
+→ stop
+```
+
+禁止恢复独立 `chain-decay-prototype`。
 
 Forced Move 完成后保留最终 M / Axis，不自动归零。
+
+Surface reflection 不额外扣 M。
 
 ---
 
@@ -271,20 +293,39 @@ Down：
 Down M 1:1 cancel Incoming Horizontal M
 ```
 
-Existing Horizontal：程序需预留 A/B：
+Existing Horizontal 必须保留 A/B：
 
 ```text
 True Vector Composition
 Hex Angle Lookup
 ```
 
-不得在评审阶段先把其中一种写死。
+当前 `Hex Angle Lookup` 的具体表属于 `prototype-candidate`，不是 ProjectC 已冻结规则。不得因为代码存在就回写成唯一正式模型。
+
+---
+
+## Drive candidate
+
+ProjectC 主规范确认：M3 需要 Drive / Build Inertia / explicit rule，但没有冻结当前测试 Drive 的最终数值。
+
+WebPrototype 当前候选：
+
+```text
+Drive = Build Inertia +1M
+stable cap M3
+commit after first successful Travel
+no retroactive expansion of the already declared route
+```
+
+例如 M2 Drive 仍提交 M2 的 Travel2 route；第一次成功 Travel 后变 M3，但本 Action 不因此临时扩展为 Travel3。
+
+所有相关代码 / UI / tests 必须保留 `prototype-candidate` 标记，直到用户 / 策划明确冻结。
 
 ---
 
 ## M4 Overload
 
-Solver 不应再假设系统绝对 maxM=3。
+Solver 体系不能假设系统绝对 maxM=3。
 
 候选：
 
@@ -296,65 +337,92 @@ first Forced Use: M4→M3
 Ready stable cap = M3
 ```
 
-UI 候选：三个 Momentum dots 全红。
+当前 runtime 已允许 Incoming composition 产生 M4，并保留 Forced Move 逻辑接口；Ready settle 时点、UI 和底层 trace 完整 M4 debug 显示仍是待闭环项。
 
-可保留 Clamp M3 为对照实验。
+不得为了省事直接在 Incoming composition 入口 clamp 到 M3。
 
 ---
 
 ## Terrain extension
 
-一般地面优先，但 Motion Resolver 需预留：
+Motion Resolver 需要继续演进到支持：
 
 ```text
 travelCost / travelModifier per Cell
 ```
 
-用于未来 Ice / low-friction 延长 Initiative inertia travel 与 Forced knockback。
+用于未来 Ice / low-friction 延长 Initiative / Forced Travel。
 
-不要通过 `M+1` 把地形效果硬编码进 Momentum 本体。
+不要通过 `M+1` 把 Terrain effect 硬编码进 Momentum 本体。
+
+实际 Ice 数值尚未冻结，不允许程序自行决定。
 
 ---
 
 ## State / presentation boundary
 
-当前 runtime 仍可能使用：
+当前承载仍可能使用：
 
 ```text
 Position + Velocity + axisId + worldAt
 ```
 
-这只是承载方式，不代表正式规则必须继续用连续 Velocity 保存全部 M。
+但 Spatial v1 gameplay authority 应逐步收束到离散 `M + Axis + Cell`。连续 Velocity 可以继续承担旧 Action / Hybrid presentation 兼容，不得覆盖已计算出的 v1 逻辑结果。
 
-表现层原则仍冻结：
+表现层原则：
 
 - Three.js 不自行重算规则；
 - React 不维护另一套路径；
 - Preview / Commit 使用同一 solver；
+- Basic / Drive 的 Discrete / Hybrid 必须共享同一逻辑 Cell path / final M / final Axis；
 - playback 不改变逻辑结果；
-- 现有优秀曲线、墙体视觉和 causal playback 优先保留。
+- 现有曲线、墙体视觉和 causal playback 优先保留。
 
 ---
 
-## Current implementation debt to review
+## Active implementation
 
-当前 `main` 仍包含以下旧语义，程序04需要评审后再改：
+当前 v1 runtime 入口：
 
-1. hand-authored reachable envelopes；
-2. action-start post-spend Current M；
-3. Wall reflection 直接改变 M；
-4. multiple actor collision models；
-5. chain-decay prototype；
-6. M2/M3 Build / Use 与新主规范不一致；
-7. old tests 仍可能保护旧 Adjacent Aim / Current-M timing。
+```text
+src/sim/spatial-rules.js
+→ spatial-inertia-v1.js
 
-这些是待改项，不是当前权威规则。
+src/sim/conflict.js
+→ conflict-output-v1.js
+→ conflict-v5.js
+```
+
+`spatial-rules-v2.js / conflict-v4.js` 属于 pre-v1 historical implementation，不得作为新规则依据。
+
+已迁移：
+
+- landing envelope / low-M startup；
+- Initiative transaction timing；
+- M1 ±60 / ±120；
+- Basic M2/M3 transaction baseline；
+- Wall / Boundary Redirect only；
+- Strike direct Transfer；
+- Forced Use recursive chain；
+- Incoming True Vector / Hex Lookup calculation entry；
+- transient M4 representation；
+- Basic / Drive shared logical path across Discrete / Hybrid。
+
+仍属扩展 / 未闭环：
+
+- Drive 最终数值；
+- Incoming A/B winner / Hex table；
+- Pierce live Action；
+- M4 Ready settle / UI；
+- Terrain travel modifier；
+- full discrete-M authoritative state migration；
+- Heavy Drive / Hard Turn 等旧实验 Action 的 v1 语义。
 
 ---
 
-## Regression principles after review
+## Regression gates
 
-真正开始代码实现后，至少保持：
+Movement / Contact 修改至少必须通过：
 
 ```text
 pnpm test
@@ -363,24 +431,35 @@ pnpm verify:dist
 pnpm verify:browser
 ```
 
-但必须先更新错误的测试契约，再要求新实现通过。
-
-必须保护的体验：
+必须保护：
 
 - click-to-select legal landing；
 - clear reachable UI；
 - high-M cannot stop on arbitrary path Cell；
+- M1 ±120 real Travel2；
+- first Travel transaction timing；
+- adjacent Strike preemption；
+- wall roundtrip cost1 / no direct wall M loss；
+- Strike Source→M0 / Transfer no refund；
+- Forced Use chain；
 - curved playback；
 - Axis HUD / M dots；
-- wall reflection visuals；
 - actor causal playback；
 - Preview / execution same solver。
+
+旧 tests 如果保护以下语义，必须更新而不是恢复实现：
+
+- post-spend-before-first-contact；
+- Wall M-1 / restitution→M；
+- equal-mass default Strike；
+- separate chain decay；
+- Basic natural M2→M3。
 
 ---
 
 ## Documentation discipline
 
-当前禁止恢复：
+禁止恢复：
 
 - `Basic Move = voluntary move + current velocity`；
 - `M2+ always Range2`；
@@ -390,4 +469,6 @@ pnpm verify:browser
 - `chain decay must be a separate hardcoded rule`；
 - `Hot Side automatically lets Basic Move build M3`。
 
-若程序04认为新主规范存在问题，先在评审中指出并回写 ProjectC 文档，再改 runtime。
+候选规则必须明确标记 candidate，不得因为 WebPrototype 实现了就自动升级为 ProjectC canonical rule。
+
+Pages 只有在 unit / build / dist / real Chrome / deploy / published commit 全部成功后才算完成发布。
