@@ -25,17 +25,18 @@ for (const match of scriptMatches) {
 }
 
 for (const marker of [
-  'cell-world-spatial-ab-v3',
+  'spatial-inertia-v1-candidate',
   'Inertia Driving Playground',
+  'Spatial Inertia v1 Candidate',
   'Basic Move',
   'Hold',
   '原地等待 · M-1',
-  'Basic Command + Momentum Cards',
-  'Spatial Model A/B',
+  'Initiative Actions',
+  'Spatial Presentation A/B',
+  'Incoming Composition A/B',
   'Cell Inspector',
-  'reachable-cell-target-v4',
-  'connected-envelope-m-spend-v4',
-  'cell-target-curved-composition',
+  'reachable-landing-cell-v1',
+  'initiative-first-travel-transaction-v1',
   'val-012-spatial-inertia-v1-candidate',
   'first-successful-travel-transaction-v1',
   'drive-build-inertia-prototype-candidate-v1',
@@ -72,7 +73,9 @@ for (const marker of [
   'contact-staggered-fast-v3',
   'surface-reflection',
   'Landing Cell Input',
-  'M Exchange',
+  'M Transfer',
+  'setIncomingCompositionMode',
+  'data-incoming-composition-controls',
   'setAxisDisplay',
   'data-down-axis-controls',
   'actorPlaybackWindows',
@@ -104,6 +107,8 @@ for (const obsolete of [
   'forward-range-spend',
   'equal-mass-1d',
   'chain-decay-prototype',
+  'connected-envelope-m-spend-v4',
+  'cell-target-curved-composition',
 ]) assert(!script.includes(obsolete), `obsolete runtime marker still bundled: ${obsolete}`)
 
 const styleMatch = html.match(/<link[^>]+href="([^"]+\.css)"/)
@@ -120,4 +125,4 @@ for (const marker of [
   '[data-action-id=basic-move]',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified Spatial Inertia v1 initiative transactions, Strike/Forced Move, surface Redirect, and existing Axis/Thermal runtime for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified Spatial Inertia v1 initiative transactions, Strike/Forced Move, Incoming A/B, surface Redirect, and existing Axis/Thermal runtime for ${info.branch}@${info.shortCommit}.`)
