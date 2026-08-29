@@ -60,14 +60,14 @@ function adjacentContactPlan(level) {
   }
 }
 
-function stationaryTarget() {
+function targetWith(level = 0, axisId = level > 0 ? 'E' : null) {
   return [{
     id: 'dummy',
     label: 'A',
     hex: { q: 1, r: 0 },
-    velocity: { x: 0, z: 0 },
-    axisId: null,
-    momentumLevel: 0,
+    velocity: level > 0 && axisId ? velocityFor(level, axisId) : { x: 0, z: 0 },
+    axisId,
+    momentumLevel: level,
   }]
 }
 
@@ -75,7 +75,7 @@ describe('adjacent Strike forced displacement', () => {
   it('M1 -> stationary M0 target moves exactly 1 Cell and settles M0', () => {
     const resolved = resolveCellConflicts({
       plan: adjacentContactPlan(1),
-      actors: stationaryTarget(),
+      actors: targetWith(0),
       obstacles: [],
       boardRadius: 7,
     })
@@ -95,7 +95,7 @@ describe('adjacent Strike forced displacement', () => {
   it('M2 -> stationary M0 target moves exactly 2 Cells and settles M1', () => {
     const resolved = resolveCellConflicts({
       plan: adjacentContactPlan(2),
-      actors: stationaryTarget(),
+      actors: targetWith(0),
       obstacles: [],
       boardRadius: 7,
     })
@@ -109,6 +109,58 @@ describe('adjacent Strike forced displacement', () => {
     expect(resolved.actorStates[0]).toMatchObject({
       hex: { q: 3, r: 0 },
       momentumLevel: 1,
+      axisId: 'E',
+    })
+  })
+
+  it('existing E M1 + incoming E M1 composes to M2 and therefore travels 2 Cells', () => {
+    const resolved = resolveCellConflicts({
+      plan: adjacentContactPlan(1),
+      actors: targetWith(1, 'E'),
+      obstacles: [],
+      boardRadius: 7,
+    })
+
+    expect(resolved.cellConflict?.momentumExchange).toMatchObject({
+      sourceBeforeM: 1,
+      targetBeforeM: 1,
+      targetAfterM: 2,
+    })
+    expect(resolved.actorTrajectories.dummy).toEqual([
+      { q: 1, r: 0 },
+      { q: 2, r: 0 },
+      { q: 3, r: 0 },
+    ])
+    expect(resolved.actorStates[0]).toMatchObject({
+      hex: { q: 3, r: 0 },
+      momentumLevel: 1,
+      axisId: 'E',
+    })
+  })
+
+  it('existing E M2 + incoming E M2 composes to transient M4 and therefore travels 4 Cells', () => {
+    const resolved = resolveCellConflicts({
+      plan: adjacentContactPlan(2),
+      actors: targetWith(2, 'E'),
+      obstacles: [],
+      boardRadius: 7,
+    })
+
+    expect(resolved.cellConflict?.momentumExchange).toMatchObject({
+      sourceBeforeM: 2,
+      targetBeforeM: 2,
+      targetAfterM: 4,
+    })
+    expect(resolved.actorTrajectories.dummy).toEqual([
+      { q: 1, r: 0 },
+      { q: 2, r: 0 },
+      { q: 3, r: 0 },
+      { q: 4, r: 0 },
+      { q: 5, r: 0 },
+    ])
+    expect(resolved.actorStates[0]).toMatchObject({
+      hex: { q: 5, r: 0 },
+      momentumLevel: 3,
       axisId: 'E',
     })
   })
