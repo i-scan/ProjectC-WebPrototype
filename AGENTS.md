@@ -2,202 +2,359 @@
 
 ## Active scope
 
-本仓库当前用于 ProjectC 的 Cell World / inertia 驾驶规则实验。它是可执行验证环境，不自动等同于最终正式游戏规则。
+本仓库是 ProjectC 的 Cell World / Spatial Inertia 可执行验证环境。
 
-当前活动拓扑为 Hex6。`Inertia Driving Lab` 同时保留：
+当前阶段不是继续堆 runtime 补丁，而是：
 
-- Basic Move 的离散 Axis / Momentum 驾驶验证；
-- Drive / Heavy Drive / Counter / Hard Turn 等连续 `Velocity + ΔV` 冲量实验；
-- Discrete / Hybrid 表现 A/B；
-- Thermal 与统一 AT 播放；
-- Collision / Cell World / Axis HUD 的视觉验证。
+```text
+ProjectC Spatial Inertia v1 rules
+→ Program04 review
+→ implementation plan
+→ runtime refactor
+```
 
-不要把不同实验分支的语义混成一套规则。
+2026-08-30 之前的 WebPrototype runtime 仍是重要实验资产，但不再自动等于当前规则。
 
 ---
 
 ## Required reading
 
-涉及 Actor Loop、Basic Move、Momentum、Axis、AT、Thermal、路径或 steering 时，至少读取：
+涉及 Momentum、Axis、Move、Wall、Collision、Knockback、Contact、Reachability 或 Travel 时，必须按顺序读取：
 
 1. 本文件；
-2. `README.md`；
-3. `src/sim/solver.js` 与对应测试；
-4. ProjectC 仓库 `docs/VAL-012-actor-loop-v0-program-handoff.md`；
-5. ProjectC 当前 design / validation 中与该实验有关的最新条目。
+2. ProjectC `docs/VAL-012-spatial-inertia-rules-v1.md`；
+3. ProjectC `docs/VAL-012-actor-loop-v0-program-handoff.md`；
+4. ProjectC `docs/VAL-012-actor-loop-v0-prototype-plan.md`；
+5. 本仓库 `README.md`；
+6. `src/sim/cell-motion.js`、`src/sim/spatial-rules-v2.js`、`src/sim/conflict-v4.js` 与对应测试。
 
-若用户在对话中给出比仓库文档更新的明确修正，以最新用户修正为准，并同步仓库文档与回归测试，禁止继续依赖旧实现自证正确。
+冲突时：
+
+```text
+最新用户明确修正
+> ProjectC spatial-inertia-rules-v1
+> current program handoff
+> prototype runtime / old tests
+```
+
+禁止使用旧回归测试反向证明旧规则正确。
 
 ---
 
-## Basic Move authoritative correction
+## Review-before-code rule
 
-当前 Basic Move 不再使用以下旧解释：
+当前用户要求先把文档交由程序04评审。
+
+因此在本轮评审明确通过前：
+
+- 不修改 runtime 规则；
+- 不为了让新文档“看起来通过”而改测试；
+- 可以阅读代码、列差异、提出实现方案；
+- 可以指出主规范中的循环依赖 / 不可实现边界；
+- 不自动恢复旧 Adjacent Aim / post-spend Current M 规则。
+
+程序04确认后再按仓库分支策略实施代码变更。
+
+---
+
+## Current canonical vocabulary
+
+### Momentum
 
 ```text
-Voluntary Move 1 + Current Velocity
+M = discrete momentum magnitude
+Stable Actor M = M0~M3
+Transient Overload = M4
 ```
 
-也不允许把远端 Cell 当作 Basic Move 的方向输入。
+### MovementMode
 
-当前候选规则：
+底层只分：
 
 ```text
-Basic Move = 1 AT
-Aim Cell = 必须与 Actor 当前 Cell 相邻
-M0 = Range 1
-M2+ = 首轮候选 Range 2（即基础 Range +1）
-Horizontal M>0 的移动 AT = 整个 AT 只结算一次 M-1
+Initiative Move
+Forced Move
 ```
 
-这里的 `M-1` 是本移动 AT 对已有 Horizontal Momentum 的一次性结算，不是“支付额外 Momentum 才购买 Range+1”的第二笔成本。禁止按经过的每个 Cell 重复扣 M。
+Basic Move、Drive、某张 Pierce 卡都是 Action，不是新的 MovementMode。
 
-### Current Momentum timing
+### ContactBehavior
 
-Basic Action 的 spend / build 结果先形成该 AT 后续规则使用的 **Current M**。逻辑状态仍可在可视播放结束后统一 commit，但本 AT 内发生的墙体反射、Actor 冲撞、Momentum exchange 与后续 knockback 必须使用这个 Current M，禁止回读 action 开始前的 `beforeM`。
+```text
+Strike
+Pierce
+future: Grab / Throw / Special
+```
+
+Actor Contact 不自动等于 Momentum Collision。
+
+### Momentum Event Cause
+
+至少：
+
+```text
+Generate
+Use
+Redirect
+Resist
+Forced Use
+Transfer
+Passive Dissipation
+Convert
+Release
+```
+
+每次 M 变化必须能输出 `fromM / toM / cause`。
+
+---
+
+## Horizontal baseline
+
+```text
+M0 NoAxis
+→ initiative Move1
+→ M0 Axis
+
+M0 Axis + same-axis Move1
+→ Generate
+→ M1
+
+M1 + same-axis Move1
+→ Generate
+→ M2
+
+M2
+→ Basic Move cannot naturally Build M3
+
+M3
+→ requires Drive / Build Inertia / explicit rule
+```
+
+Default travel scale：
+
+```text
+M0 Move1
+M1 Move1
+M2 Move2
+M3 Move3
+```
+
+M1 special：
+
+```text
+±60°  → Move1 / Redirect / M1
+±120° → real Travel2 / Resist / M0 / new Axis
+```
+
+M0 Axis 不自然衰退。
+
+---
+
+## Action transaction timing
+
+**当前 runtime 的 post-spend-first 规则已经不是目标规则。**
+
+新主规范：
+
+```text
+Declare Action
+→ no immediate M change
+→ resolve first spatial event
+```
+
+一般第一次成功 Travel 后，只执行一次 Initiative Action Transaction。
 
 例如：
 
 ```text
-M3 + Basic Move
-→ Basic Action spend 后 Current M = M2
-→ 若随后撞墙：从 M2 计算反射，而不是 M3
-→ 若随后撞 Actor：Impact M = M2，而不是 M3
+M3 → empty Cell
+→ Use M3→M2
+→ remaining route
 ```
 
-若碰撞/反射进一步改变 M，则剩余 travel budget 立即按新的 Current M 截断；普通 Cell-step 在 M 未变化时不得因为这个规则缩短既定路径。
-
-M2 直接示例：
+但：
 
 ```text
-E M2 + Basic Move(E adjacent Aim)
-→ Range 2
-→ Current M = M1，用于本 AT 后续碰撞 / 反射
-→ Cell path: E, E（若途中无碰撞改变 M）
-→ AT commit M1
-→ worldAt +1
+M3 → adjacent Strike Target
+→ Strike uses M3 before any normal Build / Use / Resist
 ```
 
-M0 示例：
+如果 Strike 抢占了尚未发生的 Action Transaction，后续不补算原 transaction。
 
-```text
-M0 + Basic Move(E adjacent Aim)
-→ Range 1
-→ Move E 1 Cell
-→ 仍为 M0
-→ worldAt +1
-```
+实现时需要显式 transaction state，不能靠 finalM 猜。
 
 ---
 
-## Basic Move steering / path
+## Wall
 
-Aim Cell 是相邻 steering intent，不是远端目的地。
-
-当已有 Horizontal Axis 时，每经过一个 Cell-step，Axis 最多朝 Aim 方向 Redirect 60°。
-
-当前实现遵守：
+目标规则：
 
 ```text
-oldAxis = 当前 Axis
-newAxis = oldAxis 朝 Aim 最多 Redirect 60°
-residualM = max(0, M - 1) // 整个 AT 只算一次
-
-if residualM > 0:
-    Actual Move Direction = oldAxis
-else:
-    Actual Move Direction = newAxis
-
-移动后：Current Axis = newAxis
+Wall = Redirect Axis only
+Wall does not directly reduce M
+Wall roundtrip = one Travel
 ```
 
-因此 M2 的一个 2-Cell AT 可以产生受惯性约束的折线路径，而不能从起点直接 Tween 到一个任意远端目标。
+Initiative M0：Wall target 不可提交，不耗 AT。
 
-示例：
+Build 已在撞墙前通过真实 Travel 成功，则保留 Build；紧邻 Wall 在 Build 前改变运动方向，则未发生的 Generate / Build 不成立，改为 Redirect。
 
-```text
-E M2 + Aim NW（Aim Cell 仍然只是起点相邻 NW）
-→ step 1: 实际沿 E；Axis E -> NE
-→ step 2: 实际沿 NE；Axis NE -> NW
-→ 最终 M1 / Axis NW
-```
+Forced wall roundtrip 属于有效 Travel，因此第一次发生时执行 `Forced Use`。
 
-Discrete 与 Hybrid 对 Basic Move 必须共享同一逻辑 Cell path；它们可以在视觉插值上不同，但不得得到不同的最终 Cell / M / Axis 规则结果。
+Reflected Exit 非法时返回 Pre-wall Cell；Damage / Stun / Crash 不是 Wall Redirect 的默认副作用。
 
 ---
 
-## 180-degree steering
+## Contact
 
-不允许直接 `E -> W` 180° Redirect。
-
-ProjectC handoff 要求等价的顺/逆时针 U-turn 路线由玩家选择，而不是系统静默替玩家决定。
-
-当前 WebPrototype 尚未完成左右分支选择 UI，因此当前临时行为是：
+### Strike
 
 ```text
-已有 Horizontal M + 正后方相邻 Aim
-→ plan invalid
-→ 明确提示需要 left/right steering branch
+Source current M
+→ Incoming Target
+→ Source M0
+→ keep contact Axis
 ```
 
-这是 `prototype-snapshot`，不是最终确认的交互方案。后续实现左右分支时必须补充 UI 与浏览器回归测试。
+Target vacates Contact Cell：Source 进入该 Cell。
+
+Target does not vacate：Source 回 Pre-contact Cell；Transfer 不退款。
+
+默认 Strike 在 Contact Cell 停止 Source movement；特殊 Action 可覆盖。
+
+### Pierce
+
+```text
+no Momentum Transfer
+no Target knockback
+keep Source M
+continue route
+```
+
+Multi-cell Body 使用 footprint / exit legality；强制越过整个 Body 属于特殊技能能力。
+
+不要为 Pierce 新建另一套 Move resolver。
 
 ---
 
-## Impulse actions remain separate
+## Forced Move
 
-不要因为修正 Basic Move 而破坏冲量卡实验。
+Forced 默认 Contact=Strike。
 
-Drive / Heavy Drive / Hard Turn 仍使用：
+它也兑现 M：
 
 ```text
-V_after = clamp(V_before + normalize(Aim) * Force, MaxSpeed)
+first Travel / first occupied travel attempt
+→ Forced Use M→M-1 once
 ```
 
-它们允许远端 Aim Cell 用来定义向量方向；这与 Basic Move 的“相邻 Aim”是两套不同输入契约。
+第一格就是 Actor 时 baseline：
 
-Counter 保留专用反向窗口；Coast 保留当前 Velocity。
+```text
+先 Forced Use
+再 Strike Transfer
+```
 
-Hybrid 的曲线只负责呈现连续转向过程，最终 Velocity 必须仍与向量合成结果一致。
+因此 M1 默认不能连续推动两个紧邻 M0 Target。
+
+Chain 递归使用同一规则，不再保留独立 `chain-decay-prototype` 作为最终语义。
+
+Forced Move 完成后保留最终 M / Axis，不自动归零。
+
+---
+
+## Incoming composition
+
+Down：
+
+```text
+Down M 1:1 cancel Incoming Horizontal M
+```
+
+Existing Horizontal：程序需预留 A/B：
+
+```text
+True Vector Composition
+Hex Angle Lookup
+```
+
+不得在评审阶段先把其中一种写死。
+
+---
+
+## M4 Overload
+
+Solver 不应再假设系统绝对 maxM=3。
+
+候选：
+
+```text
+Stable M <= 3
+Transient Overload = M4
+M4 forced travel baseline = 4
+first Forced Use: M4→M3
+Ready stable cap = M3
+```
+
+UI 候选：三个 Momentum dots 全红。
+
+可保留 Clamp M3 为对照实验。
+
+---
+
+## Terrain extension
+
+一般地面优先，但 Motion Resolver 需预留：
+
+```text
+travelCost / travelModifier per Cell
+```
+
+用于未来 Ice / low-friction 延长 Initiative inertia travel 与 Forced knockback。
+
+不要通过 `M+1` 把地形效果硬编码进 Momentum 本体。
 
 ---
 
 ## State / presentation boundary
 
-当前运行时仍以以下状态支持现有 A/B：
+当前 runtime 仍可能使用：
 
 ```text
-Position(x,z) + Velocity(x,z) + worldAt
+Position + Velocity + axisId + worldAt
 ```
 
-Momentum level 暂由速度区间映射到 M0~M3；Basic Move 结算后使用 canonical M speed 表示新的 M。
+这只是承载方式，不代表正式规则必须继续用连续 Velocity 保存全部 M。
 
-这只是当前 WebPrototype 的承载方式，不代表正式设计已经决定用连续 Velocity 保存所有 Axis / M 状态。
+表现层原则仍冻结：
 
-表现层不得自行修改规则结果：
-
-- Three.js 只消费 solver samples / state；
-- React 不重新计算另一套路径；
-- Preview 与 click execution 必须调用同一 solver；
-- Thermal 的真实时间播放不能改变 AT 逻辑结果。
-
----
-
-## UI invariants
-
-- Basic Move 只能提交相邻 Aim；远端 `fireAt` 必须返回 false。
-- Basic Move 跨多 Cell 时按 solver 输出的 Cell path 播放，不得直接按远端目标直线插值。
-- Axis HUD 与 Momentum dots 必须反映结算后的 M / 方向。
-- `Undo`、`Reset`、Timebase、Thermal Pendulum 在 playback 期间继续保持原有稳定性。
-- 不重新加入独立 `Apply` 按钮；当前交互仍为 click-to-resolve。
-
-如果 UI 文案与 solver 冲突，以 solver + 当前 validation 为故障信号，必须同步修正文案，不能用文案覆盖规则。
+- Three.js 不自行重算规则；
+- React 不维护另一套路径；
+- Preview / Commit 使用同一 solver；
+- playback 不改变逻辑结果；
+- 现有优秀曲线、墙体视觉和 causal playback 优先保留。
 
 ---
 
-## Regression gates
+## Current implementation debt to review
 
-影响 movement 的提交至少验证：
+当前 `main` 仍包含以下旧语义，程序04需要评审后再改：
+
+1. hand-authored reachable envelopes；
+2. action-start post-spend Current M；
+3. Wall reflection 直接改变 M；
+4. multiple actor collision models；
+5. chain-decay prototype；
+6. M2/M3 Build / Use 与新主规范不一致；
+7. old tests 仍可能保护旧 Adjacent Aim / Current-M timing。
+
+这些是待改项，不是当前权威规则。
+
+---
+
+## Regression principles after review
+
+真正开始代码实现后，至少保持：
 
 ```text
 pnpm test
@@ -206,42 +363,31 @@ pnpm verify:dist
 pnpm verify:browser
 ```
 
-Basic Move 的必测用例：
+但必须先更新错误的测试契约，再要求新实现通过。
 
-1. M0 + adjacent Aim -> Move1 / M0 / +1AT；
-2. remote Basic Aim -> invalid，且不改变 worldAt；
-3. E M2 + E adjacent Aim -> Range2 / E,E / M1 / +1AT；
-4. E M2 + NW adjacent Aim -> E,NE path / M1；
-5. direct opposite Aim 不得静默选 U-turn 分支；
-6. Discrete / Hybrid Basic Move 最终逻辑路径一致；
-7. M2/M3 Basic 途中碰墙或撞 Actor 时，Impact / reflection 必须使用 post-spend Current M；
-8. Hybrid Drive 的 `V + ΔV` 与曲线表现不得回归。
+必须保护的体验：
 
-Pages 发布只有在 build、browser verification、deploy 和 published-commit verification 全部成功后才算完成。
+- click-to-select legal landing；
+- clear reachable UI；
+- high-M cannot stop on arbitrary path Cell；
+- curved playback；
+- Axis HUD / M dots；
+- wall reflection visuals；
+- actor causal playback；
+- Preview / execution same solver。
 
 ---
 
 ## Documentation discipline
 
-禁止再次写入或恢复这些已否定表述：
+当前禁止恢复：
 
-- “Basic Move = voluntary displacement + current inertia”；
-- “Basic Move 可以用远端 Cell 只定义方向”；
-- “Basic Move 永远 ΔM 0 / Momentum persistent”；
-- “多 Cell Basic Move 可以绕过 Cell path 直接做连续终点插值”；
-- “Basic Action 发生碰撞时继续使用 spend 前的 beforeM”。
+- `Basic Move = voluntary move + current velocity`；
+- `M2+ always Range2`；
+- `Action always pre-spends M before first contact`；
+- `Wall itself always M-1`；
+- `all Actor Contact = Collision`；
+- `chain decay must be a separate hardcoded rule`；
+- `Hot Side automatically lets Basic Move build M3`。
 
-如果未来用户再次修改规则，先更新本文件与回归契约，再改实现，避免旧测试把错误行为保护成“稳定功能”。
-
----
-
-## Completion report
-
-完成 movement 任务后回复必须说明：
-
-- 修改文件；
-- Basic Move / Impulse 哪些玩法行为发生变化；
-- 哪些仍是 `prototype-snapshot`；
-- 单元测试 / build / browser gate 结果；
-- Pages 是否部署并验证到具体 commit；
-- 是否需要回写 ProjectC validation / design 文档。
+若程序04认为新主规范存在问题，先在评审中指出并回写 ProjectC 文档，再改 runtime。
