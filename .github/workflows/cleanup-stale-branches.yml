@@ -29,8 +29,8 @@ jobs:
 
           # These refs were reviewed on 2026-08-30. They are either historical
           # PR heads already incorporated into main (usually by squash merge),
-          # or explicitly superseded experiments such as PR #69. Backup refs
-          # are intentionally absent from this list and must never be deleted.
+          # or explicitly superseded experiments. Backup refs are intentionally
+          # absent from this list and must never be deleted.
           branches=(
             'feat/cell-conflict-knockback'
             'fix/axis-down-m3-momentum-transfer'
@@ -59,6 +59,7 @@ jobs:
             'revert/pr63-wall-surface'
             'test/reflected-contact-current-m-regression'
             'feat/spatial-inertia-v1'
+            'fix/target-momentum-visibility-knockback-distance'
           )
 
           failures=()
