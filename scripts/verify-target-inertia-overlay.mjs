@@ -107,6 +107,15 @@ async function setCollisionSurfaces(client, enabled) {
 function actor(value, id = 'dummy-a') { return value.actors.find((entry) => entry.id === id) }
 function row(value, id = 'dummy-a') { return value.rows.find((entry) => entry.id === id) }
 
+async function waitTargetRow(client, { id = 'dummy-a', q, r, m, axis }) {
+  return waitFor(`target overlay ${id} ${q},${r} M${m} ${axis}`, async () => {
+    const value = await state(client)
+    const entry = row(value, id)
+    if (!entry || entry.m !== m || entry.axis !== axis || !entry.text.includes(`Cell ${q},${r}`)) throw new Error(JSON.stringify(value))
+    return value
+  })
+}
+
 let previewProcess, chromeProcess, client
 try {
   previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4184', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -158,7 +167,7 @@ try {
   })
   value = await idle(client, 2, 1, 0)
   assert(actor(value)?.q === 2 && actor(value)?.r === 0 && actor(value)?.m === 0 && actor(value)?.axis === 'E', 'stationary target struck by M1 must move exactly 1 Cell', value)
-  assert(row(value)?.m === 0 && row(value)?.axis === 'E', 'overlay did not update post-M1 target state', value)
+  value = await waitTargetRow(client, { q: 2, r: 0, m: 0, axis: 'E' })
 
   // Reset, then adjacent M2 against stationary M0: exactly two target Cells and residual M1.
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'second wall scenario rejected')
@@ -174,7 +183,7 @@ try {
   })
   value = await idle(client, 2, 1, 0)
   assert(actor(value)?.q === 3 && actor(value)?.r === 0 && actor(value)?.m === 1 && actor(value)?.axis === 'E', 'stationary target struck by M2 must move exactly 2 Cells and retain M1', value)
-  assert(row(value)?.m === 1 && row(value)?.axis === 'E', 'overlay did not expose residual M1 after M2 Forced Move', value)
+  value = await waitTargetRow(client, { q: 3, r: 0, m: 1, axis: 'E' })
 
   // Move next to that same target without resetting it, then strike with M1.
   // Existing E M1 + Incoming E M1 -> composed M2, so the observed 2-Cell displacement is intentional composition, not doubled Strike distance.
@@ -191,6 +200,7 @@ try {
   })
   value = await idle(client, 4, 3, 0)
   assert(actor(value)?.q === 5 && actor(value)?.r === 0 && actor(value)?.m === 1, 'Existing M1 + Incoming M1 must compose to a 2-Cell Forced Move', value)
+  await waitTargetRow(client, { q: 5, r: 0, m: 1, axis: 'E' })
 
   console.log('Verified Target inertia UI and adjacent Strike distances in Chrome: M1->M0 travels 1, M2->M0 travels 2, and persisted E M1 + incoming E M1 composes to M2 / 2 Travel.')
 } finally {
