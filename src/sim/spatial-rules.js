@@ -1,1 +1,1 @@
-export * from './spatial-rules-v2.js'
+export * from './spatial-inertia-v1.js'
