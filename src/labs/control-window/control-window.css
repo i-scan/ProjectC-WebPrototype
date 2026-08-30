@@ -1,0 +1,92 @@
+.control-window-lab .control-window-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid rgba(117, 148, 175, 0.28);
+  border-radius: 12px;
+  background: rgba(24, 42, 61, 0.76);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.control-window-lab .control-window-status strong {
+  color: #d9e8f3;
+  letter-spacing: 0.06em;
+  font-size: 0.78rem;
+}
+
+.control-window-lab .control-window-status span {
+  color: #8fa9bc;
+  font-size: 0.76rem;
+  text-align: right;
+}
+
+.control-window-lab .control-window-status.is-open {
+  border-color: rgba(114, 221, 255, 0.5);
+  background: linear-gradient(90deg, rgba(30, 72, 91, 0.72), rgba(24, 42, 61, 0.82));
+}
+
+.control-window-lab .control-window-status.is-open strong {
+  color: #aeeeff;
+}
+
+.control-window-lab .control-window-card {
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.control-window-lab .control-window-card.is-open {
+  border-color: rgba(114, 221, 255, 0.44);
+  box-shadow: 0 0 0 1px rgba(114, 221, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.control-window-lab .cw-intervention-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin: 10px 0;
+}
+
+.control-window-lab .cw-intervention-grid button {
+  min-height: 40px;
+  border-radius: 9px;
+  border: 1px solid rgba(116, 151, 178, 0.32);
+  background: rgba(19, 36, 52, 0.88);
+  color: #c5d7e4;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+}
+
+.control-window-lab .cw-intervention-grid button:first-child {
+  border-color: rgba(114, 221, 255, 0.56);
+  background: rgba(35, 88, 108, 0.62);
+  color: #c7f5ff;
+}
+
+.control-window-lab .cw-action-row .action-card {
+  min-width: 210px;
+}
+
+.control-window-lab .cw-action-row .action-card p {
+  min-height: 54px;
+}
+
+.control-window-lab .board-frame {
+  min-height: 440px;
+}
+
+.control-window-lab .board-frame .cell-world-board {
+  min-height: 440px;
+}
+
+@media (max-width: 1180px) {
+  .control-window-lab .control-window-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .control-window-lab .control-window-status span {
+    text-align: left;
+  }
+}

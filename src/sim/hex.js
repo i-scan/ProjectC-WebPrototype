@@ -70,6 +70,13 @@ export function isInsideBoard(point, radius) {
   return axialDistance(worldToAxial(point)) <= radius
 }
 
+export function directionIdBetween(from, to) {
+  if (!from || !to) return null
+  const dq = to.q - from.q
+  const dr = to.r - from.r
+  return HEX_DIRECTIONS.find((entry) => entry.q === dq && entry.r === dr)?.id ?? null
+}
+
 export function directionVector(directionId) {
   const direction = HEX_DIRECTIONS.find((entry) => entry.id === directionId) ?? HEX_DIRECTIONS[0]
   const origin = axialToWorld({ q: 0, r: 0 })
