@@ -82,6 +82,19 @@ function createDummyActor() {
   )
   head.position.y = 0.67
   group.add(base, body, head)
+
+  const momentumDots = []
+  for (let index = 0; index < 3; index += 1) {
+    const dot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.052, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0x334151, transparent: true, opacity: 0.52, depthTest: false }),
+    )
+    dot.position.set((index - 1) * 0.14, 0.96, 0)
+    dot.renderOrder = 50
+    group.add(dot)
+    momentumDots.push(dot)
+  }
+  group.userData.momentumDots = momentumDots
   group.traverse((child) => { if (child instanceof THREE.Mesh) child.castShadow = true })
   return group
 }
@@ -137,6 +150,10 @@ function createActorAxisHud() {
   defs.appendChild(marker)
   svg.appendChild(defs)
 
+  const targetLayer = svgElement('g', { 'data-axis-hud-kind': 'targets' })
+  svg.appendChild(targetLayer)
+  const targetEntries = new Map()
+
   const makeAxisLine = (kind) => {
     const group = svgElement('g', { 'data-axis-hud-kind': kind })
     const line = svgElement('line', {
@@ -150,6 +167,37 @@ function createActorAxisHud() {
     return { group, line }
   }
 
+  const ensureTarget = (actorId) => {
+    const existing = targetEntries.get(actorId)
+    if (existing) return existing
+    const group = svgElement('g', {
+      'data-target-axis-actor-id': actorId,
+      'data-target-m': '0',
+      'data-target-axis': 'none',
+      'data-target-momentum-dots': '3',
+      'data-target-momentum-active': '0',
+    })
+    const line = svgElement('line', {
+      stroke: '#f2c85a', 'stroke-width': AXIS_HUD_STROKE_PX, 'stroke-linecap': 'round',
+      'marker-end': 'url(#projectc-actor-axis-arrow-head)',
+    })
+    line.style.filter = 'drop-shadow(0 0 3px rgba(242,200,90,.66))'
+    group.appendChild(line)
+    targetLayer.appendChild(group)
+    group.style.display = 'none'
+    const entry = { group, line }
+    targetEntries.set(actorId, entry)
+    return entry
+  }
+
+  const pruneTargets = (activeIds) => {
+    for (const [actorId, entry] of targetEntries) {
+      if (activeIds.has(actorId)) continue
+      entry.group.remove()
+      targetEntries.delete(actorId)
+    }
+  }
+
   const horizontal = makeAxisLine('horizontal')
   const down = makeAxisLine('down')
   return {
@@ -158,6 +206,8 @@ function createActorAxisHud() {
     horizontalLine: horizontal.line,
     down: down.group,
     downLine: down.line,
+    ensureTarget,
+    pruneTargets,
   }
 }
 
@@ -227,6 +277,29 @@ function updateActorAxisHud(hud, camera, width, height, visualState, spatialMode
   const target = projectedPoint(targetWorld, camera, width, height)
   setScreenArrow(hud.horizontalLine, source, target.x - source.x, target.y - source.y)
   return directionId
+}
+
+function updateTargetAxisHud(hud, camera, width, height, actorId, position, visualY, axisId, level) {
+  if (!hud || !camera || width < 1 || height < 1) return 'none'
+  const entry = hud.ensureTarget(actorId)
+  const normalizedLevel = Math.max(0, Math.round(Number(level) || 0))
+  entry.group.dataset.targetM = String(normalizedLevel)
+  entry.group.dataset.targetAxis = axisId || 'none'
+  entry.group.dataset.targetMomentumActive = String(Math.min(3, normalizedLevel))
+
+  if (!axisId) {
+    entry.group.style.display = 'none'
+    return 'none'
+  }
+
+  entry.group.style.display = ''
+  const sourceWorld = new THREE.Vector3(position.x, visualY + 0.34, position.z)
+  const source = projectedPoint(sourceWorld, camera, width, height)
+  const direction = directionVector(axisId)
+  const targetWorld = sourceWorld.clone().add(new THREE.Vector3(direction.x, 0, direction.z))
+  const target = projectedPoint(targetWorld, camera, width, height)
+  setScreenArrow(entry.line, source, target.x - source.x, target.y - source.y)
+  return axisId
 }
 
 function sampleRecord(samples, progress) {
@@ -458,6 +531,9 @@ export function Board3D({
 
     host.dataset.axisStyle = 'actor-body-screen-arrow-v5'
     host.dataset.actorAxisPersistent = 'true'
+    host.dataset.targetBodyInertiaHud = 'actor-body-m-axis-v1'
+    host.dataset.targetMomentumStyle = 'actor-momentum-dots-v1'
+    host.dataset.targetAxisStyle = 'actor-body-screen-arrow-v5'
     host.dataset.axisLengthPx = String(AXIS_HUD_LENGTH_PX)
     host.dataset.axisStrokePx = String(AXIS_HUD_STROKE_PX)
     host.dataset.axisSupportsDown = 'true'
@@ -719,16 +795,19 @@ export function Board3D({
       host.dataset.visualMomentum = String(overrideLevel ?? actualLevel)
       host.dataset.atVisualMs = String(atVisualMsRef.current)
 
+      const finalActorById = new Map((activePlayback?.finalState?.actors ?? []).map((actor) => [actor.id, actor]))
+      const targetHudIds = new Set()
       for (const actor of actorsRef.current) {
         const object = dummyObjectsRef.current.get(actor.id)
         if (!object) continue
         let position = axialToWorld(actor.hex)
         let y = 0.1
+        let actorProgress = 0
         if (activePlayback) {
           const points = playbackCacheRef.current.actorPoints.get(actor.id)
           if (points?.length > 1) {
             const window = activePlayback.actorPlaybackWindows?.[actor.id]
-            const actorProgress = window
+            actorProgress = window
               ? clamp((progress - window.start) / Math.max(0.02, window.end - window.start), 0, 1)
               : progress
             const animated = samplePoint(points, actorProgress)
@@ -737,7 +816,19 @@ export function Board3D({
           }
         }
         object.position.set(position.x, y, position.z)
+
+        const finalActor = finalActorById.get(actor.id)
+        const displayActor = activePlayback && actorProgress > 0.01 && finalActor ? finalActor : actor
+        const displayM = Number.isFinite(displayActor?.momentumLevel)
+          ? Math.max(0, Math.round(displayActor.momentumLevel))
+          : momentumLevel(Math.hypot(displayActor?.velocity?.x ?? 0, displayActor?.velocity?.z ?? 0))
+        const displayAxis = displayActor?.axisId ?? nearestAxisId(displayActor?.velocity)
+        updateMomentumDots(object, displayM)
+        updateTargetAxisHud(axisHudRef.current, camera, viewportWidth, viewportHeight, actor.id, position, y, displayAxis, displayM)
+        targetHudIds.add(actor.id)
       }
+      axisHudRef.current?.pruneTargets(targetHudIds)
+      host.dataset.targetHudActorCount = String(targetHudIds.size)
 
       renderer.render(scene, camera)
       frame = requestAnimationFrame(render)
@@ -869,7 +960,11 @@ export function Board3D({
     for (const actor of actors) {
       const object = createDummyActor()
       const center = axialToWorld(actor.hex)
+      const level = Number.isFinite(actor?.momentumLevel)
+        ? Math.max(0, Math.round(actor.momentumLevel))
+        : momentumLevel(Math.hypot(actor?.velocity?.x ?? 0, actor?.velocity?.z ?? 0))
       object.position.set(center.x, 0.1, center.z)
+      updateMomentumDots(object, level)
       group.add(object)
       dummyObjectsRef.current.set(actor.id, object)
     }
