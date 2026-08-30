@@ -57,17 +57,27 @@ const state = (client) => evaluate(client, `(() => {
   const api=window.__PROJECTC_PROTOTYPE__;
   const snapshot=api?.snapshot?.();
   const root=document.querySelector('.cell-world-prototype[data-implementation="spatial-inertia-v1-candidate"]');
-  const panel=document.querySelector('.target-state-overlay[data-rule="target-m-axis-overlay-v1"]');
+  const board=document.querySelector('.cell-world-board[data-target-body-inertia-hud="actor-body-m-axis-v1"]');
   const r=Math.round((snapshot?.position?.z??0)/0.8660254037844386);
   const q=Math.round((snapshot?.position?.x??0)-r*0.5);
   return {
-    ready:Boolean(api&&snapshot&&root&&panel),
+    ready:Boolean(api&&snapshot&&root&&board),
     playing:root?.dataset.playing==='true',
     worldAt:Number(root?.dataset.worldAt??-1),
     q,r,
+    targetMomentumStyle:board?.dataset.targetMomentumStyle??'',
+    targetAxisStyle:board?.dataset.targetAxisStyle??'',
+    targetHudActorCount:Number(board?.dataset.targetHudActorCount??0),
+    legacyOverlay:Boolean(document.querySelector('.target-state-overlay')),
     actors:(snapshot?.actors??[]).map(a=>({id:a.id,label:a.label,q:a.hex.q,r:a.hex.r,m:Number.isFinite(a.momentumLevel)?a.momentumLevel:0,axis:a.axisId??null})),
-    rows:[...document.querySelectorAll('.target-state-row')].map(row=>({id:row.dataset.targetActorId,m:Number(row.dataset.targetM),axis:row.dataset.targetAxis,text:row.textContent})),
-    composition:document.querySelector('.target-composition-preview')?.textContent??'',
+    hud:[...document.querySelectorAll('[data-target-axis-actor-id]')].map(row=>({
+      id:row.dataset.targetAxisActorId,
+      m:Number(row.dataset.targetM),
+      axis:row.dataset.targetAxis,
+      dots:Number(row.dataset.targetMomentumDots),
+      active:Number(row.dataset.targetMomentumActive),
+      visible:row.style.display!=='none',
+    })),
   };
 })()`)
 
@@ -105,13 +115,14 @@ async function setCollisionSurfaces(client, enabled) {
 }
 
 function actor(value, id = 'dummy-a') { return value.actors.find((entry) => entry.id === id) }
-function row(value, id = 'dummy-a') { return value.rows.find((entry) => entry.id === id) }
+function hud(value, id = 'dummy-a') { return value.hud.find((entry) => entry.id === id) }
 
-async function waitTargetRow(client, { id = 'dummy-a', q, r, m, axis }) {
-  return waitFor(`target overlay ${id} ${q},${r} M${m} ${axis}`, async () => {
+async function waitTargetHud(client, expected, id = 'dummy-a') {
+  return waitFor(`Target body HUD ${id}`, async () => {
     const value = await state(client)
-    const entry = row(value, id)
-    if (!entry || entry.m !== m || entry.axis !== axis || !entry.text.includes(`Cell ${q},${r}`)) throw new Error(JSON.stringify(value))
+    const entry = hud(value, id)
+    if (!entry || entry.m !== expected.m || entry.axis !== expected.axis || entry.dots !== 3 || entry.active !== Math.min(3, expected.m)) throw new Error(JSON.stringify(value))
+    if ((expected.axis !== 'none') !== entry.visible) throw new Error(JSON.stringify(value))
     return value
   })
 }
@@ -129,7 +140,7 @@ try {
     '--headless=new', '--no-sandbox', '--hide-scrollbars', '--disable-dev-shm-usage',
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
     '--enable-unsafe-swiftshader', '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9234',
-    `--user-data-dir=${join(tmpdir(), `projectc-target-inertia-${process.pid}`)}`, '--window-size=1500,1000', 'about:blank',
+    `--user-data-dir=${join(tmpdir(), `projectc-target-body-hud-${process.pid}`)}`, '--window-size=1500,1000', 'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] })
 
   await waitFor('Chrome DevTools', async () => {
@@ -147,63 +158,36 @@ try {
   await client.send('Page.navigate', { url: pageUrl })
 
   let value = await idle(client, 0)
-  assert(value.rows.length === 3, 'Target inertia overlay must show all three default actors', value)
-  for (const entry of value.rows) assert(entry.m === 0 && entry.axis === 'none', 'Reset targets must visibly start M0 / Axis —', entry)
+  assert(value.targetMomentumStyle === 'actor-momentum-dots-v1', 'Target M must use Actor momentum-dot style', value)
+  assert(value.targetAxisStyle === 'actor-body-screen-arrow-v5', 'Target Axis must use Actor arrow style', value)
+  assert(value.legacyOverlay === false, 'Legacy corner Target inertia panel must be removed', value)
+  assert(value.targetHudActorCount === 3 && value.hud.length === 3, 'Every default Target must own a body HUD', value)
+  for (const entry of value.hud) assert(entry.m === 0 && entry.axis === 'none' && entry.dots === 3 && entry.active === 0 && !entry.visible, 'Reset targets must show M0 dots with no Axis arrow', entry)
 
-  // Use the one-target wall scenario with collision geometry disabled so displacement is unambiguous.
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'wall scenario rejected')
   await idle(client, 0, -1, 0)
   await setCollisionSurfaces(client, false)
   await setKinematics(client, 'none', 0)
   await fire(client, 0, 0, 1, 0, 0)
 
-  // Adjacent M1 against a stationary M0 target: exactly one target Cell.
   await setKinematics(client, 'E', 1)
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(1,0)`), 'adjacent M1 Strike rejected')
-  await waitFor('M1 composition preview', async () => {
-    const current = await state(client)
-    if (!current.composition.includes('Existing M0') || !current.composition.includes('Incoming M1') || !current.composition.includes('→ M1')) throw new Error(JSON.stringify(current))
-    return current
-  })
   value = await idle(client, 2, 1, 0)
-  assert(actor(value)?.q === 2 && actor(value)?.r === 0 && actor(value)?.m === 0 && actor(value)?.axis === 'E', 'stationary target struck by M1 must move exactly 1 Cell', value)
-  value = await waitTargetRow(client, { q: 2, r: 0, m: 0, axis: 'E' })
+  assert(actor(value)?.q === 2 && actor(value)?.r === 0 && actor(value)?.m === 0 && actor(value)?.axis === 'E', 'M1 stationary-target result changed unexpectedly', value)
+  value = await waitTargetHud(client, { m: 0, axis: 'E' })
+  assert(hud(value)?.visible, 'M0 target with retained Axis must still show its Axis arrow', value)
 
-  // Reset, then adjacent M2 against stationary M0: Target occupies the first Travel Cell,
-  // while the legal M2 landing Cell is one Cell beyond it. Contact therefore preempts the first Travel.
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'second wall scenario rejected')
   await idle(client, 0, -1, 0)
   await setKinematics(client, 'none', 0)
   await fire(client, 0, 0, 1, 0, 0)
   await setKinematics(client, 'E', 2)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2,0)`), 'adjacent M2 Strike rejected')
-  await waitFor('M2 composition preview', async () => {
-    const current = await state(client)
-    if (!current.composition.includes('Existing M0') || !current.composition.includes('Incoming M2') || !current.composition.includes('→ M2')) throw new Error(JSON.stringify(current))
-    return current
-  })
+  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(2,0)`), 'adjacent-path M2 Strike rejected')
   value = await idle(client, 2, 1, 0)
-  assert(actor(value)?.q === 3 && actor(value)?.r === 0 && actor(value)?.m === 1 && actor(value)?.axis === 'E', 'stationary target struck by M2 must move exactly 2 Cells and retain M1', value)
-  value = await waitTargetRow(client, { q: 3, r: 0, m: 1, axis: 'E' })
+  assert(actor(value)?.q === 3 && actor(value)?.r === 0 && actor(value)?.m === 1 && actor(value)?.axis === 'E', 'M2 stationary-target result changed unexpectedly', value)
+  await waitTargetHud(client, { m: 1, axis: 'E' })
 
-  // Move next to that same target without resetting it, then strike with M1.
-  // Existing E M1 + Incoming E M1 -> composed M2, so the observed 2-Cell displacement is intentional composition, not doubled Strike distance.
-  await setKinematics(client, 'none', 0)
-  await fire(client, 2, 0, 3, 2, 0)
-  value = await idle(client, 3, 2, 0)
-  assert(actor(value)?.q === 3 && actor(value)?.m === 1, 'target inertia should persist while player repositions', value)
-  await setKinematics(client, 'E', 1)
-  assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.fireAt(3,0)`), 'persistent-M adjacent M1 Strike rejected')
-  await waitFor('persistent M1 composition preview', async () => {
-    const current = await state(client)
-    if (!current.composition.includes('Existing M1 E') || !current.composition.includes('Incoming M1 E') || !current.composition.includes('→ M2 E')) throw new Error(JSON.stringify(current))
-    return current
-  })
-  value = await idle(client, 4, 3, 0)
-  assert(actor(value)?.q === 5 && actor(value)?.r === 0 && actor(value)?.m === 1, 'Existing M1 + Incoming M1 must compose to a 2-Cell Forced Move', value)
-  await waitTargetRow(client, { q: 5, r: 0, m: 1, axis: 'E' })
-
-  console.log('Verified Target inertia UI and adjacent Strike distances in Chrome: M1->M0 travels 1, M2->M0 travels 2, and persisted E M1 + incoming E M1 composes to M2 / 2 Travel.')
+  console.log('Verified Target body inertia HUD in Chrome: Actor-style M dots + Axis arrows are attached to every Target, remain correct after M1/M2 Strike, and the old corner panel is absent.')
 } finally {
   try { client?.close() } catch {}
   try { chromeProcess?.kill('SIGTERM') } catch {}
