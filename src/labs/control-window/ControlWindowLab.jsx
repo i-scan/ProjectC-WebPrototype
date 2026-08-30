@@ -1,35 +1,38 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Board3D } from '../../ui/Board3D.jsx'
 import { HEX_DIRECTIONS, axialKey, directionIdBetween, worldToAxial } from '../../sim/hex.js'
-import { createCellWorld } from '../../sim/world.js'
+import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
 import { AT_VISUAL_MS } from '../../sim/solver.js'
 import {
+  CONTROL_WINDOW_COLLISION_RULE,
   CONTROL_WINDOW_COMPOSITION,
   CONTROL_WINDOW_DEFAULT_THRESHOLD,
   CONTROL_WINDOW_RULE,
   CONTROL_WINDOW_TIMEBASE,
+  CONTROL_WINDOW_WANDER_RULE,
   actionPlan,
   controlWindowChoices,
+  createControlWindowEnemies,
   localInterventionPlan,
   makeControlWindowState,
   persistentToWindowPlan,
-  phaseForState,
   stateMomentum,
 } from './control-window-rules.js'
 
 const BOARD_RADIUS = 6
+const INITIAL_WANDER_SEED = 17
 const ACTIONS = [
   {
     id: 'move',
     label: 'Move',
     tag: 'BASE',
-    description: 'M1 control vector participates in Hex Lookup. Card profile always resolves at most 1 Cell in this AT.',
+    description: 'Inject M1 through Hex Lookup. The active step moves 1 Cell and normally Uses 1M; any unresolved M above the Control threshold then auto-resolves inside the same 1 AT packet.',
   },
   {
     id: 'drive',
     label: 'Drive',
     tag: 'DRIVE',
-    description: 'M1 control vector participates in Hex Lookup. Card profile resolves Travel = effective M in this AT.',
+    description: 'Inject M1 through Hex Lookup. Drive moves its active 1 Cell without spending the composed M; remaining M above the Control threshold auto-resolves inside the same 1 AT packet.',
   },
 ]
 
@@ -39,6 +42,10 @@ function directionCells(hex) {
     id: entry.id,
     rule: 'control-vector-direction',
   }))
+}
+
+function actorCellList(actors = []) {
+  return actors.map((actor) => `${actor.label ?? actor.id}: ${actor.hex.q},${actor.hex.r} · M${actor.momentumLevel ?? 0} / ${actor.axisId ?? 'none'}`).join(' · ')
 }
 
 function playbackFromPlan(plan, id, durationMs) {
@@ -54,12 +61,15 @@ function playbackFromPlan(plan, id, durationMs) {
     summary: plan.summary,
     spatialMode: 'discrete',
     destinationDriven: true,
-    actorTrajectories: {},
-    actorPlaybackWindows: {},
-    playerPlaybackEnd: 1,
-    conflictEvents: [],
+    actorTrajectories: plan.actorTrajectories ?? {},
+    actorPlaybackWindows: plan.actorPlaybackWindows ?? {},
+    actorStates: plan.actorStates ?? [],
+    playerPlaybackEnd: plan.playerPlaybackEnd ?? 1,
+    conflictEvents: plan.conflictEvents ?? [],
     controlWindowPlanKind: plan.kind,
     atCost: plan.atCost,
+    wanderSeedAfter: plan.wanderSeedAfter,
+    cellConflict: plan.cellConflict ?? null,
   }
 }
 
@@ -69,9 +79,12 @@ function initialState(momentum = 3) {
 
 export function ControlWindowLab() {
   const [state, setState] = useState(() => initialState(3))
+  const [actors, setActors] = useState(() => createControlWindowEnemies())
   const [threshold, setThreshold] = useState(CONTROL_WINDOW_DEFAULT_THRESHOLD)
   const [actionId, setActionId] = useState('move')
   const [windowOpen, setWindowOpen] = useState(false)
+  const [wanderEnabled, setWanderEnabled] = useState(true)
+  const [wanderSeed, setWanderSeed] = useState(INITIAL_WANDER_SEED)
   const [hoverHex, setHoverHex] = useState(null)
   const [selectedAimHex, setSelectedAimHex] = useState(null)
   const [playback, setPlayback] = useState(null)
@@ -84,7 +97,7 @@ export function ControlWindowLab() {
   const completionRef = useRef(null)
 
   const cells = useMemo(() => createCellWorld(BOARD_RADIUS), [])
-  const obstacles = useMemo(() => [], [])
+  const obstacles = useMemo(() => collisionObstaclesFromCells(cells), [cells])
   const momentum = stateMomentum(state)
   const currentHex = worldToAxial(state.position)
   const phase = playback ? 'RESOLVING' : windowOpen ? (momentum === 0 ? 'READY' : 'CONTROL WINDOW') : 'PERSISTENT'
@@ -95,17 +108,30 @@ export function ControlWindowLab() {
     if (!windowOpen || playback || !hoverHex || !reachableKeys.has(axialKey(hoverHex))) return null
     const aimAxis = directionIdBetween(currentHex, hoverHex)
     if (!aimAxis) return null
-    return actionPlan({ state, actionId, aimAxis })
-  }, [windowOpen, playback, hoverHex, reachableKeys, currentHex.q, currentHex.r, state, actionId])
+    return actionPlan({
+      state,
+      actionId,
+      aimAxis,
+      threshold,
+      obstacles,
+      actors,
+      boardRadius: BOARD_RADIUS,
+      wanderEnabled: false,
+      wanderSeed,
+    })
+  }, [windowOpen, playback, hoverHex, reachableKeys, currentHex.q, currentHex.r, state, actionId, threshold, obstacles, actors, wanderSeed])
 
   const saveHistory = () => {
     setHistory((entries) => [...entries, {
       state: structuredClone(state),
+      actors: structuredClone(actors),
       threshold,
       actionId,
       windowOpen,
+      wanderEnabled,
+      wanderSeed,
       lastEvent,
-    }].slice(-40))
+    }].slice(-50))
   }
 
   const beginPlayback = (plan, onComplete, durationMs = atVisualMs) => {
@@ -125,27 +151,17 @@ export function ControlWindowLab() {
       : `Control Window open at M${stateMomentum(nextState)} / ${nextState.axisId ?? 'none'}.`)
   }
 
-  const continuePersistentIfNeeded = (nextState) => {
-    const nextPhase = phaseForState(nextState, threshold)
-    if (nextPhase !== 'persistent') {
-      openAtState(nextState)
-      return
-    }
-    setWindowOpen(false)
-    const plan = persistentToWindowPlan({ state: nextState, threshold })
-    window.setTimeout(() => {
-      beginPlayback(plan, (resolved) => openAtState(resolved), Math.max(320, atVisualMs * 0.9))
-    }, 45)
-  }
-
   useEffect(() => {
     if (!playback) return undefined
     const remainingMs = Math.max(0, playback.durationMs - (performance.now() - playback.startedAt))
     const timer = window.setTimeout(() => {
       const finalState = playback.finalState
+      const finalActors = playback.actorStates ?? finalState?.actors ?? actors
       const completion = completionRef.current
       completionRef.current = null
       setState(finalState)
+      setActors(finalActors)
+      if (Number.isFinite(playback.wanderSeedAfter)) setWanderSeed(playback.wanderSeedAfter)
       setPlayback(null)
       if (completion) window.setTimeout(() => completion(finalState), 0)
     }, remainingMs)
@@ -154,7 +170,15 @@ export function ControlWindowLab() {
 
   const runPersistent = () => {
     if (playback) return false
-    const plan = persistentToWindowPlan({ state, threshold })
+    const plan = persistentToWindowPlan({
+      state,
+      threshold,
+      obstacles,
+      actors,
+      boardRadius: BOARD_RADIUS,
+      wanderEnabled,
+      wanderSeed,
+    })
     if (plan.atCost === 0) {
       openAtState(state)
       return true
@@ -171,31 +195,59 @@ export function ControlWindowLab() {
       return true
     }
     saveHistory()
-    const plan = localInterventionPlan({ state, targetM })
-    return beginPlayback(plan, (resolved) => openAtState(resolved), Math.max(260, atVisualMs * 0.6))
+    const plan = localInterventionPlan({
+      state,
+      targetM,
+      threshold,
+      obstacles,
+      actors,
+      boardRadius: BOARD_RADIUS,
+      wanderSeed,
+    })
+    return beginPlayback(plan, (resolved) => openAtState(resolved), Math.max(260, atVisualMs * 0.62))
   }
 
   const noIntervention = () => {
     if (!windowOpen || playback) return false
     if (momentum <= 0) return true
     saveHistory()
-    const plan = localInterventionPlan({ state, targetM: 0 })
+    const plan = localInterventionPlan({
+      state,
+      targetM: 0,
+      threshold,
+      obstacles,
+      actors,
+      boardRadius: BOARD_RADIUS,
+      wanderSeed,
+    })
     return beginPlayback(plan, (resolved) => {
       setWindowOpen(true)
-      setLastEvent(`No intervention · unresolved M completed locally to M0 · world still ${resolved.worldAt.toFixed(1)} AT.`)
-    }, Math.max(300, atVisualMs * 0.7))
+      setLastEvent(plan.cellConflict
+        ? `No intervention was preempted by Contact with ${plan.cellConflict.targetActorId}.`
+        : `No intervention · unresolved M completed locally to M${stateMomentum(resolved)} · world still ${resolved.worldAt.toFixed(1)} AT.`)
+    }, Math.max(300, atVisualMs * 0.72))
   }
 
   const executeAction = (hex) => {
     if (!windowOpen || playback || !hex || !reachableKeys.has(axialKey(hex))) return false
     const aimAxis = directionIdBetween(currentHex, hex)
     if (!aimAxis) return false
-    const plan = actionPlan({ state, actionId, aimAxis })
+    const plan = actionPlan({
+      state,
+      actionId,
+      aimAxis,
+      threshold,
+      obstacles,
+      actors,
+      boardRadius: BOARD_RADIUS,
+      wanderEnabled,
+      wanderSeed,
+    })
     if (!plan.valid) return false
     saveHistory()
     setSelectedAimHex({ ...hex })
     setWindowOpen(false)
-    return beginPlayback(plan, (resolved) => continuePersistentIfNeeded(resolved))
+    return beginPlayback(plan, (resolved) => openAtState(resolved))
   }
 
   const setPreset = (level) => {
@@ -220,14 +272,26 @@ export function ControlWindowLab() {
     return true
   }
 
+  const resetEnemies = () => {
+    if (playback) return false
+    saveHistory()
+    setActors(createControlWindowEnemies())
+    setWanderSeed(INITIAL_WANDER_SEED)
+    setLastEvent('Two wandering targets reset to their test positions.')
+    return true
+  }
+
   const undo = () => {
     if (playback || history.length === 0) return false
     const previous = history.at(-1)
     setHistory((entries) => entries.slice(0, -1))
     setState(previous.state)
+    setActors(previous.actors)
     setThreshold(previous.threshold)
     setActionId(previous.actionId)
     setWindowOpen(previous.windowOpen)
+    setWanderEnabled(previous.wanderEnabled)
+    setWanderSeed(previous.wanderSeed)
     setLastEvent(previous.lastEvent)
     setHoverHex(null)
     setSelectedAimHex(null)
@@ -237,9 +301,12 @@ export function ControlWindowLab() {
   const reset = () => {
     if (playback) return false
     setState(initialState(3))
+    setActors(createControlWindowEnemies())
     setThreshold(1)
     setActionId('move')
     setWindowOpen(false)
+    setWanderEnabled(true)
+    setWanderSeed(INITIAL_WANDER_SEED)
     setHistory([])
     setHoverHex(null)
     setSelectedAimHex(null)
@@ -258,8 +325,13 @@ export function ControlWindowLab() {
         threshold,
         actionId,
         windowOpen,
+        wanderEnabled,
+        enemyCount: actors.length,
+        wallCount: obstacles.length,
+        actors: structuredClone(actors),
         hex: worldToAxial(state.position),
         playback: Boolean(playback),
+        lastConflict: playback?.cellConflict ?? null,
       }),
       setPreset,
       setThreshold: changeThreshold,
@@ -270,6 +342,12 @@ export function ControlWindowLab() {
         setActionId(id)
         return true
       },
+      setWander: (value) => {
+        if (playback) return false
+        setWanderEnabled(Boolean(value))
+        return true
+      },
+      resetEnemies,
       fireAt: (q, r) => executeAction({ q, r }),
       reset,
     }
@@ -285,6 +363,8 @@ export function ControlWindowLab() {
       data-implementation={CONTROL_WINDOW_RULE}
       data-control-window-composition={CONTROL_WINDOW_COMPOSITION}
       data-control-window-timebase={CONTROL_WINDOW_TIMEBASE}
+      data-control-window-collision={CONTROL_WINDOW_COLLISION_RULE}
+      data-control-window-wander={CONTROL_WINDOW_WANDER_RULE}
       data-control-threshold={`M${threshold}`}
       data-world-at={state.worldAt}
       data-momentum={momentum}
@@ -292,6 +372,9 @@ export function ControlWindowLab() {
       data-phase={phase}
       data-playing={Boolean(playback)}
       data-spatial-mode="discrete"
+      data-cw-enemy-count={actors.length}
+      data-cw-wall-count={obstacles.length}
+      data-cw-wander={wanderEnabled ? 'on' : 'off'}
     >
       <header className="prototype-header">
         <div className="brand">
@@ -315,7 +398,7 @@ export function ControlWindowLab() {
           </section>
 
           <section className="panel-card">
-            <div className="section-heading"><h3>Current Contract</h3><span>candidate</span></div>
+            <div className="section-heading"><h3>Current Contract</h3><span>candidate v2</span></div>
             <dl className="state-list">
               <div><dt>Cell</dt><dd>{currentHex.q},{currentHex.r}</dd></div>
               <div><dt>Horizontal M</dt><dd>M{momentum}</dd></div>
@@ -333,9 +416,11 @@ export function ControlWindowLab() {
               <dl className="state-list compact">
                 <div><dt>Hex Lookup</dt><dd>M{previewPlan.beforeM}+M1 → M{previewPlan.effectiveM}</dd></div>
                 <div><dt>Axis</dt><dd>{previewPlan.axisBefore ?? 'none'} → {previewPlan.axisAfter ?? 'none'}</dd></div>
-                <div><dt>Travel</dt><dd>{previewPlan.travelSteps} Cell / 1 AT</dd></div>
+                <div><dt>Active / Auto</dt><dd>{previewPlan.activeSteps ?? 0} / {previewPlan.autoSteps ?? 0} Cell</dd></div>
+                <div><dt>Resolved Travel</dt><dd>{previewPlan.travelSteps} Cell / 1 AT</dd></div>
                 <div><dt>Residual</dt><dd>M{previewPlan.finalM}</dd></div>
-                <div><dt>Profile</dt><dd>{previewPlan.actionProfile}</dd></div>
+                <div><dt>Wall</dt><dd>{previewPlan.collisions?.length ? `${previewPlan.collisions.length} reflection/contact` : '—'}</dd></div>
+                <div><dt>Contact</dt><dd>{previewPlan.cellConflict ? `${previewPlan.cellConflict.targetActorId} · impact M${previewPlan.cellConflict.impactM}` : '—'}</dd></div>
               </dl>
             )}
           </section>
@@ -363,7 +448,7 @@ export function ControlWindowLab() {
             <Board3D
               cells={cells}
               obstacles={obstacles}
-              actors={[]}
+              actors={actors}
               reachableCells={reachableCells}
               state={state}
               previewPlan={previewPlan}
@@ -384,16 +469,17 @@ export function ControlWindowLab() {
               onClickHex={executeAction}
             />
             <div className="board-legend">
-              <span><i className="trajectory" />Blue route = selected Action profile</span>
+              <span><i className="trajectory" />Blue route = Action + auto motion packet</span>
               <span><i className="terrain" />Bright Cells = six Control-vector directions</span>
-              <span><i className="momentum-axis" />Actor-body M / Axis presentation is shared</span>
+              <span><i className="momentum-axis" />Yellow Axis / purple M = player + targets</span>
+              <span>Walls reflect unresolved motion</span>
             </div>
             {playback && <div className="playback-badge">{playback.controlWindowPlanKind} · +{playback.atCost} AT · {(playback.durationMs / 1000).toFixed(2)} s</div>}
           </div>
 
           <section className="action-hand">
             <div className="hand-heading">
-              <div><h2>Control Actions</h2><p>Card input is M1 + chosen Hex Axis. Hex Lookup is shared; card profile decides how much motion this 1 AT resolves.</p></div>
+              <div><h2>Control Actions</h2><p>Both cards inject M1 through Hex Lookup. The card profile decides what the active step does before unresolved motion auto-resolves to the next Window.</p></div>
               <span>{action.label}</span>
             </div>
             <div className="action-row cw-action-row">
@@ -408,7 +494,7 @@ export function ControlWindowLab() {
                 >
                   <header><strong>{entry.label}</strong><em>{entry.tag}</em></header>
                   <p>{entry.description}</p>
-                  <span>{entry.id === 'move' ? 'Fixed Travel 1 · 1 AT' : 'Travel = effective M · 1 AT'}</span>
+                  <span>{entry.id === 'move' ? 'Active Travel 1 · Use 1M · 1 AT packet' : 'Active Travel 1 · preserve composed M · 1 AT packet'}</span>
                 </button>
               ))}
             </div>
@@ -420,7 +506,7 @@ export function ControlWindowLab() {
             <div className="section-heading"><h3>Control Window</h3><span>{windowOpen ? 'OPEN' : 'waiting'}</span></div>
             {windowOpen ? (
               <>
-                <p className="actor-sub">Choose the actual intervention point while World Time stays frozen. Reaching a later point resolves only this Actor and costs +0 AT.</p>
+                <p className="actor-sub">Choose the actual intervention point while World Time stays frozen. Reaching a later point resolves only this Actor and costs +0 AT; Wall / Contact can preempt the chosen point.</p>
                 <div className="cw-intervention-grid">
                   {choices.map((level) => (
                     <button type="button" key={level} data-intervention-m={level} disabled={Boolean(playback)} onClick={() => chooseIntervention(level)}>
@@ -428,7 +514,7 @@ export function ControlWindowLab() {
                     </button>
                   ))}
                 </div>
-                <button type="button" className="wide-button" disabled={Boolean(playback) || momentum === 0} onClick={noIntervention}>No Intervention → resolve to M0</button>
+                <button type="button" className="wide-button" disabled={Boolean(playback) || momentum === 0} onClick={noIntervention}>No Intervention → resolve toward M0</button>
               </>
             ) : (
               <button type="button" className="active wide-button" disabled={Boolean(playback)} data-run-persistent onClick={runPersistent}>
@@ -440,8 +526,18 @@ export function ControlWindowLab() {
           <section className="panel-card spatial-ab-card">
             <div className="section-heading"><h3>Control Capability</h3><span>A/B</span></div>
             <div className="ab-explain">
-              <button type="button" data-control-threshold="1" className={threshold === 1 ? 'chosen' : ''} disabled={Boolean(playback)} onClick={() => changeThreshold(1)}><b>M≤1</b><span>Default: M3 resolves two Cells before the first Window</span></button>
-              <button type="button" data-control-threshold="2" className={threshold === 2 ? 'chosen' : ''} disabled={Boolean(playback)} onClick={() => changeThreshold(2)}><b>M≤2</b><span>Enhanced Control: M3 resolves one Cell before the first Window</span></button>
+              <button type="button" data-control-threshold="1" className={threshold === 1 ? 'chosen' : ''} disabled={Boolean(playback)} onClick={() => changeThreshold(1)}><b>M≤1</b><span>Default: M3 resolves two passive Cells before the first Window</span></button>
+              <button type="button" data-control-threshold="2" className={threshold === 2 ? 'chosen' : ''} disabled={Boolean(playback)} onClick={() => changeThreshold(2)}><b>M≤2</b><span>Enhanced Control: M3 resolves one passive Cell before the first Window</span></button>
+            </div>
+          </section>
+
+          <section className="panel-card" data-cw-enemy-panel>
+            <div className="section-heading"><h3>Wandering Targets</h3><span>{wanderEnabled ? 'LIVE' : 'FROZEN'}</span></div>
+            <p className="actor-sub">Two targets take one deterministic-random adjacent step whenever World Time advances by 1 AT. Window-local +0 AT motion does not move them. Targets struck this AT skip their wander step.</p>
+            <p className="cw-enemy-readout">{actorCellList(actors)}</p>
+            <div className="quick-grid">
+              <button type="button" className={wanderEnabled ? 'active' : ''} disabled={Boolean(playback)} onClick={() => setWanderEnabled((value) => !value)}>Wander {wanderEnabled ? 'ON' : 'OFF'}</button>
+              <button type="button" disabled={Boolean(playback)} onClick={resetEnemies}>Reset Targets</button>
             </div>
           </section>
 
@@ -464,10 +560,12 @@ export function ControlWindowLab() {
 
           <section className="panel-card">
             <div className="section-heading"><h3>Isolation Contract</h3><span>safe to delete</span></div>
-            <p className="actor-sub">This lab owns its state machine and rule file. Existing Spatial Inertia v1 / Conflict authority is not modified.</p>
+            <p className="actor-sub">This lab owns its action packet, wall/contact integration, target wander, and rule file. Existing Spatial Inertia v1 authority is not modified.</p>
             <dl className="state-list compact">
               <div><dt>Rule</dt><dd>{CONTROL_WINDOW_RULE}</dd></div>
               <div><dt>Composition</dt><dd>{CONTROL_WINDOW_COMPOSITION}</dd></div>
+              <div><dt>Collision</dt><dd>{CONTROL_WINDOW_COLLISION_RULE}</dd></div>
+              <div><dt>Wander</dt><dd>{CONTROL_WINDOW_WANDER_RULE}</dd></div>
               <div><dt>Window Time</dt><dd>+0 AT</dd></div>
             </dl>
           </section>
