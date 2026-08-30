@@ -55,11 +55,15 @@ try {
 
   assert(result.status === 0, `Chrome Control Window smoke failed: ${result.stderr || result.stdout}`)
   const dom = result.stdout
-  assert(dom.includes('data-implementation="control-window-motion-commitment-v1-candidate"'), 'Control Window implementation marker missing')
+  assert(dom.includes('data-implementation="control-window-motion-commitment-v2-candidate"'), 'Control Window v2 implementation marker missing')
   assert(dom.includes('Control Window Lab'), 'Control Window Lab title/tab missing')
   assert(dom.includes('data-control-threshold="M1"'), 'Default M1 Control threshold marker missing')
   assert(dom.includes('data-cw-action="move"') && dom.includes('data-cw-action="drive"'), 'Move / Drive cards missing')
   assert(dom.includes('data-run-persistent'), 'Persistent Motion resolver control missing')
+  assert(dom.includes('data-cw-enemy-count="2"'), 'Two wandering targets are not mounted')
+  assert(dom.includes('data-cw-wall-count="') && !dom.includes('data-cw-wall-count="0"'), 'Authored wall obstacles are not connected')
+  assert(dom.includes('data-cw-wander="on"'), 'Target wander should default ON')
+  assert(dom.includes('control-window-strike-forced-move-v1'), 'Control Window collision rule marker missing')
   assert(dom.includes('isolated from Spatial Inertia v1'), 'Isolation marker text missing')
 
   console.log('Control Window Lab browser smoke verified.')
