@@ -1,14 +1,17 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './ui/App.jsx'
+import { ControlWindowLab } from './labs/control-window/ControlWindowLab.jsx'
 import './styles.css'
 import './ui/cell-world.css'
 import './ui/movement-corrections.css'
+import './labs/control-window/control-window.css'
 
 const BUILD_COMMIT = __BUILD_COMMIT__
 const BUILD_BRANCH = __BUILD_BRANCH__
 
 function viewFromHash() {
+  if (window.location.hash === '#control-window-lab') return 'control-window'
   if (window.location.hash === '#thermal-lab') return 'thermal'
   if (window.location.hash === '#graphics-lab') return 'graphics'
   return 'inertia'
@@ -34,7 +37,13 @@ function Root() {
   }, [])
 
   const navigate = (next) => {
-    window.location.hash = next === 'thermal' ? 'thermal-lab' : next === 'graphics' ? 'graphics-lab' : 'hex-prototype'
+    window.location.hash = next === 'control-window'
+      ? 'control-window-lab'
+      : next === 'thermal'
+        ? 'thermal-lab'
+        : next === 'graphics'
+          ? 'graphics-lab'
+          : 'hex-prototype'
   }
 
   return (
@@ -49,11 +58,13 @@ function Root() {
         </div>
         <nav aria-label="Prototype views">
           <button type="button" className={view === 'inertia' ? 'selected' : ''} onClick={() => navigate('inertia')}>Inertia Driving Lab</button>
+          <button type="button" className={view === 'control-window' ? 'selected' : ''} onClick={() => navigate('control-window')}>Control Window Lab</button>
           <button type="button" className={view === 'thermal' ? 'selected' : ''} onClick={() => navigate('thermal')}>Thermal Clock Lab</button>
           <button type="button" className={view === 'graphics' ? 'selected' : ''} onClick={() => navigate('graphics')}>图形性能实验室</button>
         </nav>
       </div>
       {view === 'inertia' && <App />}
+      {view === 'control-window' && <ControlWindowLab />}
       {view === 'thermal' && (
         <PlaceholderLab eyebrow="ProjectC · reserved test space" title="Thermal Clock Lab">
           当前热力钟摆已经恢复到 Inertia Driving Lab 左栏；这里保留为后续独立热力机制实验空间。
