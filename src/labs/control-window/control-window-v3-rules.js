@@ -16,6 +16,7 @@ export const CONTROL_WINDOW_COMPOSITION = 'hex-lookup-control-v1'
 export const CONTROL_WINDOW_TIMEBASE = 'window-internal-motion-zero-at-v1'
 export const CONTROL_WINDOW_COLLISION_RULE = 'control-window-bidirectional-strike-v2'
 export const CONTROL_WINDOW_WANDER_RULE = 'two-actor-wander-contact-v2'
+export const CONTROL_WINDOW_PATH_CONTACT_RULE = 'same-at-swept-cell-contact-v1'
 export const CONTROL_WINDOW_DEFAULT_THRESHOLD = 1
 export const CONTROL_WINDOW_MAX_M = 3
 export const CONTROL_WINDOW_MIN_RADIUS = 4
@@ -265,6 +266,12 @@ function resolveMotionPacket({
   let playerHex = cloneHex(initialPlayerHex)
   let entryIndex = 0
   const playerSamples = []
+  const playerSweptCells = [{
+    hex: cloneHex(initialPlayerHex),
+    momentum: logicalM,
+    axisId: playerAxis,
+    stepIndex: 0,
+  }]
 
   const noteActorMotion = (actorId, motion, hit = true) => {
     mergeTrajectory(actorTrajectories[actorId], trajectoryFromTimeline(motion?.timeline ?? []))
@@ -397,6 +404,7 @@ function resolveMotionPacket({
     capRemainingByMomentum: true,
     reflectionMomentum: ({ momentum }) => ({ momentum, restitution: null }),
     onEnterCell: ({ from, to, axisId: entryAxis }) => {
+      const contactM = logicalM
       const targetActorId = occupancy.get(axialKey(to))
       if (targetActorId) {
         const impactM = logicalM
@@ -427,6 +435,14 @@ function resolveMotionPacket({
           : { allowed: false, stop: true, momentum: 0, reason: 'target-did-not-vacate' }
       }
 
+      playerSweptCells.push({
+        hex: cloneHex(to),
+        from: cloneHex(from),
+        momentum: contactM,
+        axisId: entryAxis,
+        stepIndex: playerSweptCells.length,
+      })
+
       if (decayMode === 'action') {
         if (entryIndex === 0) {
           const consume = actionId === 'move' && !extra.alignedM0Move ? 1 : 0
@@ -447,6 +463,16 @@ function resolveMotionPacket({
   playerAxis = primaryMotion.axisAfter ?? playerAxis
   appendSamples(playerSamples, samplesFromMotion(primaryMotion, startM, logicalM, playerAxis))
   appendSurfaceEvents('player', primaryMotion, conflictEvents)
+
+  const sweptPlayerRecordFor = (hex) => playerSweptCells.find((record) => sameHex(record.hex, hex)) ?? null
+  const rewindPlayerToSweptRecord = (record) => {
+    if (!record) return
+    playerHex = cloneHex(record.hex)
+    logicalM = clampActorM(record.momentum)
+    playerAxis = record.axisId ?? playerAxis
+    const sampleIndex = playerSamples.findIndex((sample) => sameHex(worldToAxial(sample.position), record.hex))
+    if (sampleIndex >= 0) playerSamples.splice(sampleIndex + 1)
+  }
 
   const forcePlayer = (incomingM, incomingAxis) => {
     const power = clampActorM(incomingM)
@@ -535,7 +561,26 @@ function resolveMotionPacket({
       }
       if (!chosen) continue
 
-      if (sameHex(chosen.candidate, playerHex)) {
+      const sweptRecord = !playerConflict && !incomingPlayerConflict
+        ? sweptPlayerRecordFor(chosen.candidate)
+        : null
+      const directPlayerContact = sameHex(chosen.candidate, playerHex)
+      const sweptPlayerContact = Boolean(sweptRecord && !directPlayerContact)
+
+      if (directPlayerContact || sweptPlayerContact) {
+        if (sweptPlayerContact) {
+          rewindPlayerToSweptRecord(sweptRecord)
+          conflictEvents.push({
+            kind: 'swept-cell-contact',
+            sourceActorId: actor.id,
+            targetActorId: 'player',
+            cell: cloneHex(chosen.candidate),
+            playerStepIndex: sweptRecord.stepIndex,
+            playerMAtContact: logicalM,
+            playerAxisAtContact: playerAxis,
+            rule: CONTROL_WINDOW_PATH_CONTACT_RULE,
+          })
+        }
         const incomingM = 1
         const playerBeforeM = logicalM
         const playerBeforeAxis = playerAxis
@@ -572,6 +617,9 @@ function resolveMotionPacket({
           resolved,
           directionId: chosen.direction.id,
           composition,
+          sweptCellContact: sweptPlayerContact,
+          contactCell: cloneHex(chosen.candidate),
+          pathContactRule: sweptPlayerContact ? CONTROL_WINDOW_PATH_CONTACT_RULE : null,
         }
         conflictEvents.push({
           kind: resolved ? 'cell-conflict' : 'cell-conflict-blocked',
@@ -583,6 +631,8 @@ function resolveMotionPacket({
           chained: false,
           contactBehavior: 'Strike',
           enemyInitiated: true,
+          sweptCellContact: sweptPlayerContact,
+          pathContactRule: sweptPlayerContact ? CONTROL_WINDOW_PATH_CONTACT_RULE : null,
         })
 
         actor.axisId = chosen.direction.id
@@ -627,7 +677,7 @@ function resolveMotionPacket({
   let resolvedSummary = summary
   if (primaryMotion.collisions?.length) resolvedSummary += ` · Wall reflection ${primaryMotion.reflectionCount || 0}`
   if (playerConflict) resolvedSummary += ` · Strike ${playerConflict.targetActorId} @ M${playerConflict.impactM}`
-  if (incomingPlayerConflict) resolvedSummary += ` · ${incomingPlayerConflict.sourceActorId} struck player @ M1`
+  if (incomingPlayerConflict) resolvedSummary += ` · ${incomingPlayerConflict.sourceActorId} struck player @ M1${incomingPlayerConflict.sweptCellContact ? ' · swept Cell' : ''}`
 
   return {
     valid: true,
@@ -654,6 +704,7 @@ function resolveMotionPacket({
     summary: resolvedSummary,
     controlWindowRule: CONTROL_WINDOW_RULE,
     collisionRule: CONTROL_WINDOW_COLLISION_RULE,
+    pathContactRule: CONTROL_WINDOW_PATH_CONTACT_RULE,
     wanderRule: CONTROL_WINDOW_WANDER_RULE,
     wanderSeedAfter: nextWanderSeed,
     threshold: clampM(threshold),
