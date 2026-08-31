@@ -1,0 +1,363 @@
+name: Apply Control Window collision VFX
+
+on:
+  push:
+    branches:
+      - fix/control-window-collision-vfx
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout patch branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/control-window-collision-vfx
+          token: ${{ github.token }}
+
+      - name: Patch isolated collision feedback
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          board_path = Path('src/ui/Board3D.jsx')
+          board = board_path.read_text()
+
+          anchor = '''function createRingMarker(color, radius = 0.42) {
+            const ring = new THREE.Mesh(
+              new THREE.TorusGeometry(radius, 0.035, 8, 32),
+              new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.96, depthTest: false, depthWrite: false }),
+            )
+            ring.rotation.x = Math.PI / 2
+            ring.position.y = 0.2
+            ring.renderOrder = 75
+            return ring
+          }
+'''
+          addition = anchor + '''
+          function collisionDebugFxSpecs(events = []) {
+            const specs = []
+            for (const event of events) {
+              if (event?.kind === 'cell-conflict' && event.cell) {
+                specs.push({ label: 'CONTACT', color: 0xff9855, hex: event.cell })
+              } else if (event?.kind === 'cell-conflict-blocked' && event.cell) {
+                specs.push({ label: 'BLOCKED', color: 0xffd86a, hex: event.cell })
+              } else if (event?.kind === 'surface-reflection') {
+                const hex = event.attemptedCell ?? event.from
+                if (hex) specs.push({ label: 'REFLECT', color: 0x62dff2, hex })
+              }
+            }
+            return specs
+          }
+
+          function createDebugFxLabel(text, color) {
+            const canvas = document.createElement('canvas')
+            canvas.width = 256
+            canvas.height = 72
+            const context = canvas.getContext('2d')
+            if (!context) return null
+            const colorCss = `#${color.toString(16).padStart(6, '0')}`
+            context.clearRect(0, 0, canvas.width, canvas.height)
+            context.fillStyle = 'rgba(7, 15, 24, 0.82)'
+            context.fillRect(30, 8, 196, 54)
+            context.strokeStyle = colorCss
+            context.lineWidth = 4
+            context.strokeRect(30, 8, 196, 54)
+            context.fillStyle = '#ffffff'
+            context.font = '700 28px system-ui, sans-serif'
+            context.textAlign = 'center'
+            context.textBaseline = 'middle'
+            context.fillText(text, 128, 36)
+            const texture = new THREE.CanvasTexture(canvas)
+            texture.colorSpace = THREE.SRGBColorSpace
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 1, depthTest: false, depthWrite: false })
+            const sprite = new THREE.Sprite(material)
+            sprite.position.y = 1.06
+            sprite.scale.set(1.42, 0.4, 1)
+            sprite.renderOrder = 96
+            sprite.userData.debugFxTexture = texture
+            return sprite
+          }
+
+          function createCollisionDebugMarker(spec, index, count) {
+            const group = new THREE.Group()
+            const center = axialToWorld(spec.hex)
+            group.position.set(center.x, 0.02, center.z)
+            group.renderOrder = 90
+
+            const discMaterial = new THREE.MeshBasicMaterial({
+              color: spec.color, transparent: true, opacity: 0.36, depthTest: false, depthWrite: false,
+            })
+            const disc = new THREE.Mesh(new THREE.CylinderGeometry(HEX_RADIUS * 0.62, HEX_RADIUS * 0.62, 0.028, 6), discMaterial)
+            disc.position.y = 0.18
+            disc.renderOrder = 90
+            group.add(disc)
+
+            const ringMaterial = new THREE.MeshBasicMaterial({
+              color: spec.color, transparent: true, opacity: 0.98, depthTest: false, depthWrite: false,
+            })
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(HEX_RADIUS * 0.68, 0.045, 8, 32), ringMaterial)
+            ring.rotation.x = Math.PI / 2
+            ring.position.y = 0.24
+            ring.renderOrder = 92
+            group.add(ring)
+
+            const flashMaterial = new THREE.MeshBasicMaterial({
+              color: 0xffffff, transparent: true, opacity: 0.92, depthTest: false, depthWrite: false,
+            })
+            const flash = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), flashMaterial)
+            flash.position.y = 0.48
+            flash.renderOrder = 94
+            group.add(flash)
+
+            const label = createDebugFxLabel(spec.label, spec.color)
+            if (label) group.add(label)
+
+            const centerTime = count <= 1 ? 0.5 : 0.3 + (index / Math.max(1, count - 1)) * 0.45
+            group.userData.debugFxCenter = centerTime
+            group.userData.debugFxMaterials = [discMaterial, ringMaterial, flashMaterial, ...(label ? [label.material] : [])]
+            group.userData.debugFxBaseOpacities = group.userData.debugFxMaterials.map((material) => material.opacity)
+            group.userData.debugFxLabel = spec.label
+            group.userData.debugFxHex = { ...spec.hex }
+            group.visible = false
+            return group
+          }
+
+          function clearCollisionDebugFx(group) {
+            if (!group) return
+            for (const child of [...group.children]) {
+              child.traverse((entry) => entry.userData?.debugFxTexture?.dispose?.())
+              group.remove(child)
+              disposeObject(child)
+            }
+          }
+
+          function updateCollisionDebugFx(group, progress) {
+            if (!group) return
+            for (const marker of group.children) {
+              const center = marker.userData.debugFxCenter ?? 0.5
+              const intensity = clamp(1 - Math.abs(progress - center) / 0.18, 0, 1)
+              marker.visible = intensity > 0.01
+              if (!marker.visible) continue
+              const pulse = 0.72 + intensity * 0.9
+              marker.scale.setScalar(pulse)
+              const materials = marker.userData.debugFxMaterials ?? []
+              const base = marker.userData.debugFxBaseOpacities ?? []
+              materials.forEach((material, materialIndex) => {
+                material.opacity = (base[materialIndex] ?? 1) * intensity
+              })
+            }
+          }
+'''
+          assert anchor in board, 'createRingMarker anchor missing'
+          board = board.replace(anchor, addition, 1)
+
+          old = '''  showWeather,
+            showThermal,
+            onHoverHex,
+'''
+          new = '''  showWeather,
+            showThermal,
+            showDebugCollisionFx = false,
+            onHoverHex,
+'''
+          assert old in board, 'Board3D prop anchor missing'
+          board = board.replace(old, new, 1)
+
+          old = '''  const previewGroupRef = useRef(null)
+            const orbitRef = useRef({ ...DEFAULT_CAMERA })
+'''
+          new = '''  const previewGroupRef = useRef(null)
+            const collisionFxGroupRef = useRef(null)
+            const orbitRef = useRef({ ...DEFAULT_CAMERA })
+'''
+          assert old in board, 'collision fx ref anchor missing'
+          board = board.replace(old, new, 1)
+
+          old = '''  const axisDisplayOverrideRef = useRef(axisDisplayOverride)
+            const playbackCacheRef = useRef({ id: null, playerPoints: [], actorPoints: new Map() })
+'''
+          new = '''  const axisDisplayOverrideRef = useRef(axisDisplayOverride)
+            const showDebugCollisionFxRef = useRef(showDebugCollisionFx)
+            const playbackCacheRef = useRef({ id: null, playerPoints: [], actorPoints: new Map() })
+'''
+          assert old in board, 'debug fx ref state anchor missing'
+          board = board.replace(old, new, 1)
+
+          old = '''  axisDisplayOverrideRef.current = axisDisplayOverride
+
+            useEffect(() => {
+'''
+          new = '''  axisDisplayOverrideRef.current = axisDisplayOverride
+            showDebugCollisionFxRef.current = showDebugCollisionFx
+
+            useEffect(() => {
+'''
+          assert old in board, 'debug fx current anchor missing'
+          board = board.replace(old, new, 1)
+
+          old = '''    const dummyGroup = new THREE.Group()
+              const player = createPlayerActor()
+'''
+          new = '''    const dummyGroup = new THREE.Group()
+              const collisionFxGroup = new THREE.Group()
+              const player = createPlayerActor()
+'''
+          assert old in board, 'scene group creation anchor missing'
+          board = board.replace(old, new, 1)
+
+          old = '''    scene.add(sun, boardGroup, interaction, dummyGroup, player)
+'''
+          new = '''    scene.add(sun, boardGroup, interaction, dummyGroup, collisionFxGroup, player)
+'''
+          assert old in board, 'scene add anchor missing'
+          board = board.replace(old, new, 1)
+
+          old = '''    dummyGroupRef.current = dummyGroup
+              playerRef.current = player
+'''
+          new = '''    dummyGroupRef.current = dummyGroup
+              collisionFxGroupRef.current = collisionFxGroup
+              playerRef.current = player
+'''
+          assert old in board, 'scene ref anchor missing'
+          board = board.replace(old, new, 1)
+
+          old = '''        if (playbackCacheRef.current.id !== activePlayback.id) {
+                  const actorPoints = new Map()
+'''
+          new = '''        if (playbackCacheRef.current.id !== activePlayback.id) {
+                  const actorPoints = new Map()
+'''
+          assert old in board, 'playback cache anchor missing'
+          # no text change yet; keep anchor for following insert
+
+          anchor2 = '''          playbackCacheRef.current = {
+                    id: activePlayback.id,
+                    playerPoints: planPathPoints(activePlayback, 0.18),
+                    actorPoints,
+                  }
+                }
+'''
+          insert2 = '''          playbackCacheRef.current = {
+                    id: activePlayback.id,
+                    playerPoints: planPathPoints(activePlayback, 0.18),
+                    actorPoints,
+                  }
+                  clearCollisionDebugFx(collisionFxGroupRef.current)
+                  const fxSpecs = showDebugCollisionFxRef.current
+                    ? collisionDebugFxSpecs(activePlayback.conflictEvents ?? [])
+                    : []
+                  fxSpecs.forEach((spec, index) => collisionFxGroupRef.current?.add(createCollisionDebugMarker(spec, index, fxSpecs.length)))
+                  host.dataset.collisionFxEventCount = String(fxSpecs.length)
+                }
+'''
+          assert anchor2 in board, 'playback cache body anchor missing'
+          board = board.replace(anchor2, insert2, 1)
+
+          old = '''        host.dataset.playbackId = String(activePlayback.id)
+              } else {
+                playbackCacheRef.current = { id: null, playerPoints: [], actorPoints: new Map() }
+'''
+          new = '''        host.dataset.playbackId = String(activePlayback.id)
+                updateCollisionDebugFx(collisionFxGroupRef.current, progress)
+              } else {
+                if (playbackCacheRef.current.id !== null) clearCollisionDebugFx(collisionFxGroupRef.current)
+                playbackCacheRef.current = { id: null, playerPoints: [], actorPoints: new Map() }
+'''
+          assert old in board, 'render update anchor missing'
+          board = board.replace(old, new, 1)
+
+          old = '''        host.dataset.playbackPathMode = 'smooth'
+                delete host.dataset.playbackId
+              }
+'''
+          new = '''        host.dataset.playbackPathMode = 'smooth'
+                host.dataset.collisionFxEventCount = '0'
+                delete host.dataset.playbackId
+              }
+              host.dataset.collisionDebugFx = showDebugCollisionFxRef.current ? 'on' : 'off'
+              host.dataset.collisionDebugFxStyle = showDebugCollisionFxRef.current ? 'logic-event-pulse-v1' : 'off'
+'''
+          assert old in board, 'debug fx dataset anchor missing'
+          board = board.replace(old, new, 1)
+
+          old = '''      disposeObject(dummyGroup)
+                disposeObject(player)
+'''
+          new = '''      disposeObject(dummyGroup)
+                clearCollisionDebugFx(collisionFxGroup)
+                disposeObject(collisionFxGroup)
+                disposeObject(player)
+'''
+          assert old in board, 'cleanup anchor missing'
+          board = board.replace(old, new, 1)
+
+          board_path.write_text(board)
+
+          lab_path = Path('src/labs/control-window/ControlWindowLabV3.jsx')
+          lab = lab_path.read_text()
+          old = '''      data-cw-board-radius={boardRadius}
+            >
+'''
+          new = '''      data-cw-board-radius={boardRadius}
+              data-cw-collision-vfx="logic-event-pulse-v1"
+            >
+'''
+          assert old in lab, 'lab data marker anchor missing'
+          lab = lab.replace(old, new, 1)
+
+          old = '''              showThermal={false}
+                    onHoverHex={(hex) => {
+'''
+          new = '''              showThermal={false}
+                    showDebugCollisionFx
+                    onHoverHex={(hex) => {
+'''
+          assert old in lab, 'Board3D lab prop anchor missing'
+          lab = lab.replace(old, new, 1)
+
+          old = '''            <p className="actor-sub">Bidirectional Contact, Skip, Heavy Drive and variable board size live only in this lab candidate. Spatial Inertia v1 authority is untouched.</p>
+'''
+          new = '''            <p className="actor-sub">Bidirectional Contact, Skip, Heavy Drive, variable board size and logic-driven collision debug VFX live only in this lab candidate. Spatial Inertia v1 authority is untouched.</p>
+'''
+          assert old in lab, 'isolation copy anchor missing'
+          lab = lab.replace(old, new, 1)
+          lab_path.write_text(lab)
+
+          verify_path = Path('scripts/verify-control-window-lab.mjs')
+          verify = verify_path.read_text()
+          old = '''  assert(dom.includes('bidirectional collision candidate'), 'Player knockback candidate marker missing')
+'''
+          new = '''  assert(dom.includes('bidirectional collision candidate'), 'Player knockback candidate marker missing')
+            assert(dom.includes('data-cw-collision-vfx="logic-event-pulse-v1"'), 'Control Window collision VFX marker missing')
+            assert(dom.includes('data-collision-debug-fx="on"'), 'Board3D collision debug VFX was not enabled for Control Window Lab')
+'''
+          assert old in verify, 'browser smoke anchor missing'
+          verify = verify.replace(old, new, 1)
+          verify_path.write_text(verify)
+          PY
+
+      - name: Install and verify
+        shell: bash
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm build
+          pnpm verify:dist
+          pnpm verify:browser
+
+      - name: Commit collision VFX patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/ui/Board3D.jsx src/labs/control-window/ControlWindowLabV3.jsx scripts/verify-control-window-lab.mjs
+          git commit -m "Add Control Window collision debug VFX"
+          git push origin HEAD:fix/control-window-collision-vfx
