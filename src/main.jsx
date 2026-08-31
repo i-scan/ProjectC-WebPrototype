@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './ui/App.jsx'
-import { ControlWindowLab } from './labs/control-window/ControlWindowLab.jsx'
+import { ControlWindowLabV3 } from './labs/control-window/ControlWindowLabV3.jsx'
 import './styles.css'
 import './ui/cell-world.css'
 import './ui/movement-corrections.css'
@@ -64,7 +64,7 @@ function Root() {
         </nav>
       </div>
       {view === 'inertia' && <App />}
-      {view === 'control-window' && <ControlWindowLab />}
+      {view === 'control-window' && <ControlWindowLabV3 />}
       {view === 'thermal' && (
         <PlaceholderLab eyebrow="ProjectC · reserved test space" title="Thermal Clock Lab">
           当前热力钟摆已经恢复到 Inertia Driving Lab 左栏；这里保留为后续独立热力机制实验空间。
