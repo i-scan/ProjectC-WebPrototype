@@ -666,6 +666,9 @@ export function Board3D({
     host.dataset.wallReflectionPathContract = WALL_REFLECTION_PATH_CONTRACT
     host.dataset.previewPathMode = 'smooth'
     host.dataset.playbackPathMode = 'smooth'
+    host.dataset.collisionDebugFx = showDebugCollisionFxRef.current ? 'on' : 'off'
+    host.dataset.collisionDebugFxStyle = showDebugCollisionFxRef.current ? 'logic-event-pulse-v1' : 'off'
+    host.dataset.collisionFxEventCount = '0'
 
     const camera = new THREE.OrthographicCamera(-7, 7, 5, -5, 0.1, 60)
     const boardGroup = new THREE.Group()
