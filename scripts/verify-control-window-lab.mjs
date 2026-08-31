@@ -49,6 +49,8 @@ try {
     '--disable-dev-shm-usage',
     '--enable-unsafe-swiftshader',
     '--window-size=1600,1100',
+    '--virtual-time-budget=2000',
+    '--run-all-compositor-stages-before-draw',
     '--dump-dom',
     pageUrl,
   ], { encoding: 'utf8', timeout: 30000 })
@@ -69,6 +71,8 @@ try {
   assert(dom.includes('data-cw-board-radius-slider'), 'Board radius control missing')
   assert(dom.includes('control-window-bidirectional-strike-v2'), 'Bidirectional collision rule marker missing')
   assert(dom.includes('bidirectional collision candidate'), 'Player knockback candidate marker missing')
+  assert(dom.includes('data-cw-collision-vfx="logic-event-pulse-v1"'), 'Control Window collision VFX marker missing')
+  assert(dom.includes('data-collision-debug-fx="on"'), 'Board3D collision debug VFX was not enabled for Control Window Lab')
 
   console.log('Control Window Lab v3 browser smoke verified.')
 } finally {

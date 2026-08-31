@@ -370,6 +370,7 @@ export function ControlWindowLabV3() {
       data-cw-wall-count={obstacles.length}
       data-cw-wander={wanderEnabled ? 'on' : 'off'}
       data-cw-board-radius={boardRadius}
+      data-cw-collision-vfx="logic-event-pulse-v1"
     >
       <header className="prototype-header">
         <div className="brand"><p>ProjectC · isolated candidate</p><h1>Control Window Lab</h1></div>
@@ -454,6 +455,7 @@ export function ControlWindowLabV3() {
               selectedAimHex={selectedAimHex}
               showWeather={false}
               showThermal={false}
+              showDebugCollisionFx
               onHoverHex={(hex) => {
                 if (playback || !windowOpen || actionId === 'skip' || (hex && !reachableKeys.has(axialKey(hex)))) return setHoverHex(null)
                 setHoverHex(hex)
@@ -563,7 +565,7 @@ export function ControlWindowLabV3() {
 
           <section className="panel-card">
             <div className="section-heading"><h3>Isolation Contract</h3><span>v3</span></div>
-            <p className="actor-sub">Bidirectional Contact, Skip, Heavy Drive and variable board size live only in this lab candidate. Spatial Inertia v1 authority is untouched.</p>
+            <p className="actor-sub">Bidirectional Contact, Skip, Heavy Drive, variable board size and logic-driven collision debug VFX live only in this lab candidate. Spatial Inertia v1 authority is untouched.</p>
             <dl className="state-list compact">
               <div><dt>Rule</dt><dd>{CONTROL_WINDOW_RULE}</dd></div>
               <div><dt>Collision</dt><dd>{CONTROL_WINDOW_COLLISION_RULE}</dd></div>
