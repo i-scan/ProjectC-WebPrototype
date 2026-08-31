@@ -1,0 +1,38 @@
+name: Fix collision VFX init marker
+
+on:
+  push:
+    branches:
+      - fix/control-window-collision-vfx
+    paths:
+      - .github/workflows/fix-collision-vfx-init-marker.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/control-window-collision-vfx
+          token: ${{ github.token }}
+      - name: Write VFX debug marker during Board3D init
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/ui/Board3D.jsx')
+          text = path.read_text()
+          old = "    host.dataset.previewPathMode = 'smooth'\n    host.dataset.playbackPathMode = 'smooth'"
+          new = "    host.dataset.previewPathMode = 'smooth'\n    host.dataset.playbackPathMode = 'smooth'\n    host.dataset.collisionDebugFx = showDebugCollisionFxRef.current ? 'on' : 'off'\n    host.dataset.collisionDebugFxStyle = showDebugCollisionFxRef.current ? 'logic-event-pulse-v1' : 'off'\n    host.dataset.collisionFxEventCount = '0'"
+          if old not in text:
+              raise RuntimeError('Board3D initialization dataset anchor missing')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/ui/Board3D.jsx
+          git commit -m "Initialize collision VFX debug marker synchronously"
+          git push origin HEAD:fix/control-window-collision-vfx
