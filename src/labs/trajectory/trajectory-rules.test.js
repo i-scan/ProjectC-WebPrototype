@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { worldToAxial } from '../../sim/hex.js'
+import { axialToWorld, worldToAxial } from '../../sim/hex.js'
 import {
   TRAJECTORY_DEFAULT_RADIUS,
   TRAJECTORY_MAX_STEER_DEG,
@@ -56,6 +56,33 @@ describe('VAL-012 Process Steering A/B candidate', () => {
     const m1 = plan(makeTrajectoryState({ axisId: 'E', momentum: 1 }), 'coast')
     expect(m1.travelDistance).toBe(1)
     expect(m1.finalM).toBe(0)
+  })
+
+  it('settles every Action endpoint exactly on the derived Cell center while intermediate motion remains continuous', () => {
+    const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
+    const result = plan(state, 'steer', { q: 0, r: -3 })
+    const center = axialToWorld(result.finalHex)
+    expect(result.finalState.position.x).toBeCloseTo(center.x, 8)
+    expect(result.finalState.position.z).toBeCloseTo(center.z, 8)
+    expect(result.samples.at(-1).position.x).toBeCloseTo(center.x, 8)
+    expect(result.samples.at(-1).position.z).toBeCloseTo(center.z, 8)
+
+    const hasOffCenterIntermediateSample = result.samples.slice(1, -1).some((sample) => {
+      const sampleHex = worldToAxial(sample.position)
+      const sampleCenter = axialToWorld(sampleHex)
+      return Math.hypot(sample.position.x - sampleCenter.x, sample.position.z - sampleCenter.z) > 0.02
+    })
+    expect(hasOffCenterIntermediateSample).toBe(true)
+  })
+
+  it('keeps chained Ready states Cell-centered instead of accumulating continuous offsets', () => {
+    const first = plan(makeTrajectoryState({ axisId: 'E', momentum: 3 }), 'steer', { q: 1, r: -3 })
+    const second = plan(first.finalState, 'steer', { q: -1, r: -3 })
+    for (const result of [first, second]) {
+      const center = axialToWorld(result.finalHex)
+      expect(result.finalState.position.x).toBeCloseTo(center.x, 8)
+      expect(result.finalState.position.z).toBeCloseTo(center.z, 8)
+    }
   })
 
   it('caps Basic Steer at 60 degrees per complete Action, not per Cell', () => {
