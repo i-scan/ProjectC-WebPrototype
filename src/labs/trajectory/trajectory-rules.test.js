@@ -154,6 +154,18 @@ describe('VAL-012 Process Steering global-curve candidate', () => {
     expect(Math.hypot(middle.x - chordMid.x, middle.z - chordMid.z)).toBeGreaterThan(0.18)
   })
 
+  it('keeps late-turn curves on the intended side instead of producing an S-bend', () => {
+    const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
+    const lateNe = plan(state, 'steer', { q: 3, r: -1 })
+    expect(lateNe.segmentAxes).toEqual(['E', 'E', 'NE'])
+    expect(lateNe.samples.some((sample) => sample.curveConstruction === 'tangent-intersection')).toBe(true)
+    expect(Math.max(...lateNe.samples.map((sample) => sample.position.z))).toBeLessThanOrEqual(0.000001)
+
+    const lateSe = plan(state, 'steer', { q: 2, r: 1 })
+    expect(lateSe.segmentAxes).toEqual(['E', 'E', 'SE'])
+    expect(Math.min(...lateSe.samples.map((sample) => sample.position.z))).toBeGreaterThanOrEqual(-0.000001)
+  })
+
   it('keeps M0 straight preview straight and appends a readable final-Axis stub', () => {
     const state = makeTrajectoryState({ axisId: null, momentum: 0 })
     const controlled = plan(state, 'steer', { q: 2, r: 0 })

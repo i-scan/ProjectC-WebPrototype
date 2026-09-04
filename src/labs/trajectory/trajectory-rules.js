@@ -258,6 +258,31 @@ function cubicBezierDerivative(p0, p1, p2, p3, t) {
   }
 }
 
+function tangentHandleLengths(from, to, fromHeading, toHeading) {
+  const fromDir = { x: Math.cos(fromHeading), z: Math.sin(fromHeading) }
+  const toDir = { x: Math.cos(toHeading), z: Math.sin(toHeading) }
+  const delta = { x: to.x - from.x, z: to.z - from.z }
+  const distance = Math.max(0.0001, Math.hypot(delta.x, delta.z))
+  const cross = (a, b) => a.x * b.z - a.z * b.x
+  const denominator = cross(fromDir, toDir)
+  if (Math.abs(denominator) < 0.0001) {
+    const handle = distance * BEZIER_STRAIGHT_HANDLE
+    return { fromHandle: handle, toHandle: handle, construction: 'parallel-tangent' }
+  }
+  const fromToIntersection = cross(delta, toDir) / denominator
+  const endBackToIntersection = cross(fromDir, delta) / denominator
+  if (fromToIntersection <= 0.001 || endBackToIntersection <= 0.001) {
+    const handle = distance * BEZIER_STRAIGHT_HANDLE
+    return { fromHandle: handle, toHandle: handle, construction: 'safe-fallback' }
+  }
+  const maxHandle = distance * 0.9
+  return {
+    fromHandle: Math.min(maxHandle, fromToIntersection * BEZIER_TURN_HANDLE),
+    toHandle: Math.min(maxHandle, endBackToIntersection * BEZIER_TURN_HANDLE),
+    construction: 'tangent-intersection',
+  }
+}
+
 function bezierSection({ from, to, fromAxis, toAxis, movingM, includeStart = true, collisionAtEnd = false }) {
   const distance = Math.hypot(to.x - from.x, to.z - from.z)
   if (distance < 0.0001) {
@@ -265,13 +290,17 @@ function bezierSection({ from, to, fromAxis, toAxis, movingM, includeStart = tru
   }
   const fromHeading = axisAngle(fromAxis ?? toAxis ?? 'E')
   const toHeading = axisAngle(toAxis ?? fromAxis ?? 'E')
-  const turn = Math.abs(shortestDelta(fromHeading, toHeading))
-  const handleScale = turn > 0.01 ? BEZIER_TURN_HANDLE : BEZIER_STRAIGHT_HANDLE
-  const handle = distance * handleScale
+  const handles = tangentHandleLengths(from, to, fromHeading, toHeading)
   const p0 = { ...from }
   const p3 = { ...to }
-  const p1 = { x: p0.x + Math.cos(fromHeading) * handle, z: p0.z + Math.sin(fromHeading) * handle }
-  const p2 = { x: p3.x - Math.cos(toHeading) * handle, z: p3.z - Math.sin(toHeading) * handle }
+  const p1 = {
+    x: p0.x + Math.cos(fromHeading) * handles.fromHandle,
+    z: p0.z + Math.sin(fromHeading) * handles.fromHandle,
+  }
+  const p2 = {
+    x: p3.x - Math.cos(toHeading) * handles.toHandle,
+    z: p3.z - Math.sin(toHeading) * handles.toHandle,
+  }
   const count = Math.max(12, Math.round(VISUAL_CURVE_SAMPLES * Math.max(0.45, Math.min(1, distance / 3))))
   const samples = []
   for (let index = includeStart ? 0 : 1; index <= count; index += 1) {
@@ -284,6 +313,7 @@ function bezierSection({ from, to, fromAxis, toAxis, movingM, includeStart = tru
       velocity: velocityForHeading(heading, movingM),
       axisId: nearestAxisIdFromAngle(heading),
       momentumLevel: movingM,
+      curveConstruction: handles.construction,
       collision: collisionAtEnd && index === count,
     })
   }
