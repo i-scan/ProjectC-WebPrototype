@@ -55,7 +55,7 @@ try {
   assert(dom.includes('data-trajectory-action="heavy-drive"'), 'Heavy Drive action missing')
   assert(dom.includes('data-trajectory-action="skip"'), 'Skip action missing')
   assert(!dom.includes('data-trajectory-action="coast"'), 'Coast must remain Skip state semantics, not a separate card')
-  assert(dom.includes('all 6 directions'), 'M0 full Hex6 Move explanation missing')
+  assert(dom.includes('<dt>M0 Move</dt><dd>free Hex6</dd>'), 'M0 free Hex6 Move authority missing')
   assert(dom.includes('Every path bend occurs at a Cell center'), 'Cell-center polyline legend missing')
   assert(dom.includes('Short terminal segment = predicted Ready Axis'), 'Preview Ready Axis terminal marker explanation missing')
   assert(dom.includes('data-control-model="reachable-shape"') && dom.includes('data-control-model="process-steering"'), 'Reachable Shape / Process Steering A/B controls missing')
