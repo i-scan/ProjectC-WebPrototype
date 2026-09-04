@@ -9,13 +9,7 @@ const which = (command) => {
 }
 
 function chromeExecutable() {
-  const executable = [
-    process.env.CHROME_BIN,
-    which('google-chrome'),
-    which('google-chrome-stable'),
-    which('chromium'),
-    which('chromium-browser'),
-  ].find(Boolean)
+  const executable = [process.env.CHROME_BIN, which('google-chrome'), which('google-chrome-stable'), which('chromium'), which('chromium-browser')].find(Boolean)
   assert(executable, 'Chrome / Chromium executable was not found')
   return executable
 }
@@ -37,21 +31,12 @@ async function waitForPreview(attempts = 160) {
 
 let previewProcess
 try {
-  previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4180', '--strictPort'], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4180', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
   await waitForPreview()
 
   const result = spawnSync(chromeExecutable(), [
-    '--headless=new',
-    '--no-sandbox',
-    '--hide-scrollbars',
-    '--disable-dev-shm-usage',
-    '--enable-unsafe-swiftshader',
-    '--window-size=1600,1100',
-    '--virtual-time-budget=900',
-    '--dump-dom',
-    pageUrl,
+    '--headless=new', '--no-sandbox', '--hide-scrollbars', '--disable-dev-shm-usage', '--enable-unsafe-swiftshader',
+    '--window-size=1600,1100', '--virtual-time-budget=900', '--dump-dom', pageUrl,
   ], { encoding: 'utf8', timeout: 30000 })
 
   assert(result.status === 0, `Chrome Trajectory smoke failed: ${result.stderr || result.stdout}`)
@@ -62,20 +47,24 @@ try {
   assert(dom.includes('data-trajectory-steering="max-60deg-per-action-v1"'), '60deg/Action steering marker missing')
   assert(dom.includes('data-trajectory-dissipation="persistent-start-m-minus-1-v1"'), 'Passive Dissipation marker missing')
   assert(dom.includes('data-cell-authority="ready-cell-center-v1"'), 'Cell-authoritative Ready marker missing')
+  assert(dom.includes('data-trajectory-path="cell-center-steering-polyline-v1"'), 'Cell-center trajectory path marker missing')
+  assert(dom.includes('data-spatial-mode="discrete"'), 'Trajectory Lab must expose discrete Hex6 authority')
   assert(dom.includes('data-steer-input="direct-cell-click"'), 'Direct Cell-click Steering marker missing')
-  assert(dom.includes('data-trajectory-action="steer"') && dom.includes('data-trajectory-action="coast"'), 'Steer / Coast action surfaces missing')
-  assert(dom.includes('data-direct-input="cell-click"'), 'Steer action direct input marker missing')
-  assert(!dom.includes('data-trajectory-commit'), 'Legacy extra Commit step must not be present')
-  assert(dom.includes('No extra confirmation button'), 'Direct-input explanation missing')
+  assert(dom.includes('data-trajectory-action="steer"'), 'Move / Steer action missing')
+  assert(dom.includes('data-trajectory-action="drive"'), 'Drive action missing')
+  assert(dom.includes('data-trajectory-action="heavy-drive"'), 'Heavy Drive action missing')
+  assert(dom.includes('data-trajectory-action="skip"'), 'Skip action missing')
+  assert(!dom.includes('data-trajectory-action="coast"'), 'Coast must remain Skip state semantics, not a separate card')
+  assert(dom.includes('all 6 directions'), 'M0 full Hex6 Move explanation missing')
+  assert(dom.includes('Every path bend occurs at a Cell center'), 'Cell-center polyline legend missing')
+  assert(dom.includes('Short terminal segment = predicted Ready Axis'), 'Preview Ready Axis terminal marker explanation missing')
   assert(dom.includes('data-control-model="reachable-shape"') && dom.includes('data-control-model="process-steering"'), 'Reachable Shape / Process Steering A/B controls missing')
-  assert(dom.includes('COAST') && dom.includes('CONTROLLED'), 'Dual Coast / Controlled projection readout missing')
   assert(dom.includes('data-response-curve="linear"') && dom.includes('data-response-curve="smoothstep"'), 'Response curve debug A/B missing')
   assert(dom.includes('data-trajectory-board-radius'), 'Trajectory board radius control missing')
   assert(dom.includes('data-motion-freeze="m2"'), 'Default M2 motion-state marker missing')
-  assert(dom.includes('Ready / Action end = exact Cell center'), 'Cell-center legend missing')
   assert(dom.includes('data-axis-style="actor-body-screen-arrow-v5"'), 'Board3D Axis HUD did not mount')
 
-  console.log('Trajectory Lab browser smoke verified: Cell-center Ready authority, direct Cell-click Steer input, dual projection and motion-state presentation are mounted.')
+  console.log('Trajectory Lab browser smoke verified: Cell-center path, free M0 Move, Drive/Heavy Drive, Skip and direct directional input are mounted.')
 } finally {
   if (previewProcess && !previewProcess.killed) previewProcess.kill('SIGTERM')
 }
