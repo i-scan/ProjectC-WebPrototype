@@ -4,6 +4,7 @@ export const TRAJECTORY_RULE = 'val-012-process-steering-ab-v1-candidate'
 export const TRAJECTORY_READY_RULE = 'action-complete-ready-v1'
 export const TRAJECTORY_STEERING_RULE = 'max-60deg-per-action-v1'
 export const TRAJECTORY_DISSIPATION_RULE = 'persistent-start-m-minus-1-v1'
+export const TRAJECTORY_CELL_AUTHORITY_RULE = 'ready-cell-center-v1'
 export const TRAJECTORY_MIN_RADIUS = 4
 export const TRAJECTORY_MAX_RADIUS = 10
 export const TRAJECTORY_DEFAULT_RADIUS = 6
@@ -16,7 +17,6 @@ const DEG = Math.PI / 180
 const RAD = 180 / Math.PI
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
-const lerp = (a, b, t) => a + (b - a) * t
 
 function normalizeAngle(angle) {
   let value = angle
@@ -224,11 +224,20 @@ export function trajectoryActionPlan({
   }
 
   const simulated = simulatePath({ state, actionId, targetHeading, boardRadius, responseCurve, solverSamples })
-  const samples = simulated.samples
-  const last = samples.at(-1)
+  // Process Steering is continuous only inside the Action. The board stays Cell-authoritative:
+  // derive the landing Cell from that process, then settle Ready exactly at its center.
+  const samples = simulated.samples.map((sample) => ({
+    ...sample,
+    position: { ...sample.position },
+    velocity: { ...sample.velocity },
+  }))
+  const rawLast = samples.at(-1)
+  const crossings = crossingTrace(samples, boardRadius)
+  const finalHex = worldToAxial(rawLast.position)
+  const finalPosition = axialToWorld(finalHex)
   const reachedBoardEdge = samples.length < Math.max(2, Math.round(solverSamples || TRAJECTORY_DEFAULT_SAMPLES) + 1) && simulated.travelDistance > 0
-  let endHeading = Number.isFinite(last?.velocity?.x) && Math.hypot(last.velocity.x, last.velocity.z) > 0.001
-    ? vectorAngle(last.velocity)
+  let endHeading = Number.isFinite(rawLast?.velocity?.x) && Math.hypot(rawLast.velocity.x, rawLast.velocity.z) > 0.001
+    ? vectorAngle(rawLast.velocity)
     : simulated.initialHeading
 
   let generatedM = 0
@@ -262,15 +271,22 @@ export function trajectoryActionPlan({
     : { x: 0, z: 0 }
   const finalState = {
     ...state,
-    position: { ...last.position },
+    position: { ...finalPosition },
     velocity: finalVelocity,
     axisId: actionId === 'coast' && startM === 0 && !state.axisId ? null : finalAxis,
     momentumLevel: finalM,
     heading: endHeading,
     worldAt: Number(state.worldAt ?? 0) + 1,
   }
-  const crossings = crossingTrace(samples, boardRadius)
-  const finalHex = worldToAxial(finalState.position)
+  // Playback is free to interpolate continuously between Cells, but it must end on the same
+  // Cell-center state that becomes authoritative at Ready.
+  samples[samples.length - 1] = {
+    ...rawLast,
+    position: { ...finalPosition },
+    velocity: { ...finalVelocity },
+    axisId: finalState.axisId,
+  }
+
   const steeringAppliedDeg = simulated.steeringDelta * RAD
   const targetDeltaDeg = Number.isFinite(targetHeading) && Number.isFinite(startHeading)
     ? shortestDelta(startHeading, targetHeading) * RAD
@@ -297,6 +313,7 @@ export function trajectoryActionPlan({
     zeroMSettlementDeg,
     responseCurve,
     reachedBoardEdge,
+    cellAuthorityRule: TRAJECTORY_CELL_AUTHORITY_RULE,
     atCost: 1,
     spatialMode: 'hybrid',
     destinationDriven: false,
