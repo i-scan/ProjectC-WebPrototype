@@ -6,7 +6,7 @@ export const TRAJECTORY_STEERING_RULE = 'max-60deg-per-action-v1'
 export const TRAJECTORY_DISSIPATION_RULE = 'persistent-start-m-minus-1-v1'
 export const TRAJECTORY_CELL_AUTHORITY_RULE = 'ready-cell-center-v1'
 export const TRAJECTORY_PATH_RULE = 'cell-center-anchored-steering-curve-v2'
-export const TRAJECTORY_PREVIEW_RULE = 'visited-cell-corridor-curve-v1'
+export const TRAJECTORY_PREVIEW_RULE = 'visited-cell-corridor-curve-v2'
 export const TRAJECTORY_MIN_RADIUS = 4
 export const TRAJECTORY_MAX_RADIUS = 10
 export const TRAJECTORY_DEFAULT_RADIUS = 6
@@ -24,7 +24,9 @@ const RAD = 180 / Math.PI
 const SUBSTEPS_PER_CELL = 8
 const PREVIEW_END_EXTENSION = 0.18
 const PREVIEW_CORNER_PASSES = 2
-const PREVIEW_DENSITY = 8
+const PREVIEW_CORNER_INSET = 0.38
+const PREVIEW_BOW_MAX = 0.18
+const PREVIEW_DENSITY = 10
 const CURVE_TANGENT_SCALE = 0.78
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
@@ -297,7 +299,7 @@ function chaikinPass(points) {
   for (let index = 0; index < points.length - 1; index += 1) {
     const a = points[index]
     const b = points[index + 1]
-    result.push(pointLerp(a, b, 0.25), pointLerp(a, b, 0.75))
+    result.push(pointLerp(a, b, PREVIEW_CORNER_INSET), pointLerp(a, b, 1 - PREVIEW_CORNER_INSET))
   }
   result.push({ ...points.at(-1) })
   return result
@@ -346,12 +348,29 @@ function relaxedPreviewSamples(plan) {
   for (let pass = 0; pass < PREVIEW_CORNER_PASSES; pass += 1) guide = chaikinPass(guide)
 
   const dense = []
+  const startAxis = plan.segmentAxes?.[0] ?? plan.finalState?.axisId ?? 'E'
+  const startDirection = directionVector(startAxis)
+  const turnSign = Math.sign(plan.steeringAppliedDeg ?? 0)
+  const turnStrength = clamp(Math.abs(plan.steeringAppliedDeg ?? 0) / TRAJECTORY_MAX_STEER_DEG, 0, 1)
+  const travelStrength = clamp((plan.travelSteps ?? 1) / 3, 0.45, 1)
+  const bowAmplitude = PREVIEW_BOW_MAX * turnStrength * travelStrength
+  const turnNormal = { x: -startDirection.z * turnSign, z: startDirection.x * turnSign }
+  const guideSegments = Math.max(1, guide.length - 1)
+
   for (let index = 0; index < guide.length - 1; index += 1) {
     const from = guide[index]
     const to = guide[index + 1]
     for (let step = 0; step < PREVIEW_DENSITY; step += 1) {
       if (index > 0 && step === 0) continue
-      dense.push(clampPreviewPointToVisitedCells(pointLerp(from, to, step / PREVIEW_DENSITY), centers, visitedKeys))
+      const local = step / PREVIEW_DENSITY
+      const progress = (index + local) / guideSegments
+      const basePoint = pointLerp(from, to, local)
+      const bow = Math.pow(Math.sin(Math.PI * progress), 1.15) * bowAmplitude
+      const curvedPoint = {
+        x: basePoint.x + turnNormal.x * bow,
+        z: basePoint.z + turnNormal.z * bow,
+      }
+      dense.push(clampPreviewPointToVisitedCells(curvedPoint, centers, visitedKeys))
     }
   }
   dense.push(clampPreviewPointToVisitedCells(guide.at(-1), centers, visitedKeys))

@@ -154,6 +154,12 @@ describe('VAL-012 Process Steering Cell-center candidate', () => {
     const interiorCenters = controlled.pathCells.slice(1, -1).map(axialToWorld)
     expect(preview.samples.some((sample) => interiorCenters.every((center) => Math.hypot(sample.position.x - center.x, sample.position.z - center.z) > 0.025))).toBe(true)
 
+    const earlyCurveSamples = preview.samples.filter((sample) => {
+      const hex = worldToAxial(sample.position)
+      return (hex.q === 0 && hex.r === 0) || (hex.q === 1 && hex.r === 0)
+    })
+    expect(earlyCurveSamples.some((sample) => Math.abs(sample.position.z) > 0.035)).toBe(true)
+
     const finalCenter = axialToWorld(controlled.finalHex)
     const end = preview.samples.at(-1).position
     const endDistance = Math.hypot(end.x - finalCenter.x, end.z - finalCenter.z)
