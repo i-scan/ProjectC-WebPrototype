@@ -5,8 +5,8 @@ export const TRAJECTORY_READY_RULE = 'action-complete-ready-v1'
 export const TRAJECTORY_STEERING_RULE = 'max-60deg-per-action-v1'
 export const TRAJECTORY_DISSIPATION_RULE = 'persistent-start-m-minus-1-v1'
 export const TRAJECTORY_CELL_AUTHORITY_RULE = 'ready-cell-center-v1'
-export const TRAJECTORY_PATH_RULE = 'cell-center-anchored-steering-curve-v2'
-export const TRAJECTORY_PREVIEW_RULE = 'visited-cell-corridor-curve-v2'
+export const TRAJECTORY_PATH_RULE = 'canonical-turn-timing-path-v3'
+export const TRAJECTORY_PREVIEW_RULE = 'canonical-result-corridor-curve-v3'
 export const TRAJECTORY_MIN_RADIUS = 4
 export const TRAJECTORY_MAX_RADIUS = 10
 export const TRAJECTORY_DEFAULT_RADIUS = 6
@@ -22,11 +22,11 @@ export const TRAJECTORY_ACTION_PROFILES = Object.freeze({
 const DEG = Math.PI / 180
 const RAD = 180 / Math.PI
 const SUBSTEPS_PER_CELL = 8
-const PREVIEW_END_EXTENSION = 0.18
+const PREVIEW_END_EXTENSION = 0.42
 const PREVIEW_CORNER_PASSES = 2
-const PREVIEW_CORNER_INSET = 0.38
-const PREVIEW_BOW_MAX = 0.18
-const PREVIEW_DENSITY = 10
+const PREVIEW_CORNER_INSET = 0.42
+const PREVIEW_BOW_MAX = 0.34
+const PREVIEW_DENSITY = 12
 const CURVE_TANGENT_SCALE = 0.78
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
@@ -156,7 +156,38 @@ export function compatibleStartupMove(state, selectedHex) {
   return Math.abs(shortestDelta(axisAngle(state.axisId), axisAngle(targetAxis)) * RAD) <= TRAJECTORY_MAX_STEER_DEG + 0.001
 }
 
-function buildCenterPath({ state, targetHeading, travelSteps, steeringEnabled, responseCurve, boardRadius, freeM0Direction }) {
+function rotatedAxisId(axisId, offset) {
+  const index = HEX_DIRECTIONS.findIndex((entry) => entry.id === axisId)
+  if (index < 0) return axisId ?? 'E'
+  const count = HEX_DIRECTIONS.length
+  return HEX_DIRECTIONS[(index + offset + count) % count].id
+}
+
+function routeForAxes(startHex, axes, boardRadius, turnAt = null, turnAxis = null) {
+  const path = [{ ...startHex }]
+  const segmentAxes = []
+  let current = { ...startHex }
+  for (const axisId of axes) {
+    const next = addStep(current, axisId)
+    if (axialDistance(next) > boardRadius) break
+    current = next
+    path.push({ ...current })
+    segmentAxes.push(axisId)
+  }
+  return { path, segmentAxes, turnAt, turnAxis }
+}
+
+function routeTargetScore(route, selectedHex, requestedSteps) {
+  const missingSteps = Math.max(0, requestedSteps - route.segmentAxes.length)
+  if (!selectedHex) return missingSteps * 100
+  const finalHex = route.path.at(-1)
+  const finalWorld = axialToWorld(finalHex)
+  const targetWorld = axialToWorld(selectedHex)
+  const worldDistance = Math.hypot(finalWorld.x - targetWorld.x, finalWorld.z - targetWorld.z)
+  return missingSteps * 100 + axialDistance(finalHex, selectedHex) * 10 + worldDistance
+}
+
+function buildCenterPath({ state, targetHeading, targetHex, travelSteps, steeringEnabled, responseCurve, boardRadius, freeM0Direction }) {
   const startHex = worldToAxial(state.position)
   const startAxis = state.axisId ?? (Number.isFinite(targetHeading) ? nearestAxisIdFromAngle(targetHeading) : null)
   const targetAxis = Number.isFinite(targetHeading) ? nearestAxisIdFromAngle(targetHeading) : startAxis
@@ -170,38 +201,39 @@ function buildCenterPath({ state, targetHeading, travelSteps, steeringEnabled, r
       : clamp(rawDelta, -TRAJECTORY_MAX_STEER_DEG * DEG, TRAJECTORY_MAX_STEER_DEG * DEG)
   }
 
-  const path = [{ ...startHex }]
-  const segmentAxes = []
-  let current = { ...startHex }
-  for (let index = 1; index <= travelSteps; index += 1) {
-    const segmentMidProgress = (index - 0.5) / Math.max(1, travelSteps)
-    const desiredHeading = freeM0Direction && Number.isFinite(targetHeading)
-      ? targetHeading
-      : startHeading + cappedDelta * responseValue(responseCurve, segmentMidProgress)
-    // Persistent M must first cash out the Axis it already owns. Steering happens during
-    // that first Cell segment and can redirect later Cell choices, but it cannot replace
-    // the only M1 Travel with a neighboring sector at Action start.
-    const stepAxis = !freeM0Direction && index === 1
-      ? initialAxis
-      : steeringEnabled
-        ? nearestAxisIdFromAngle(desiredHeading)
-        : initialAxis
-    const next = addStep(current, stepAxis)
-    if (axialDistance(next) > boardRadius) break
-    current = next
-    path.push({ ...current })
-    segmentAxes.push(stepAxis)
+  let chosenRoute
+  if (freeM0Direction) {
+    const freeAxis = targetAxis ?? initialAxis
+    chosenRoute = routeForAxes(startHex, Array.from({ length: travelSteps }, () => freeAxis), boardRadius)
+  } else {
+    const candidates = [
+      routeForAxes(startHex, Array.from({ length: travelSteps }, () => initialAxis), boardRadius),
+    ]
+    if (steeringEnabled && travelSteps >= 2) {
+      for (const offset of [-1, 1]) {
+        const turnAxis = rotatedAxisId(initialAxis, offset)
+        for (let turnAt = 2; turnAt <= travelSteps; turnAt += 1) {
+          const axes = Array.from({ length: travelSteps }, (_, index) => (index + 1 < turnAt ? initialAxis : turnAxis))
+          candidates.push(routeForAxes(startHex, axes, boardRadius, turnAt, turnAxis))
+        }
+      }
+    }
+    candidates.sort((a, b) => routeTargetScore(a, targetHex, travelSteps) - routeTargetScore(b, targetHex, travelSteps))
+    chosenRoute = candidates[0]
   }
 
   return {
-    path,
-    segmentAxes,
+    path: chosenRoute.path,
+    segmentAxes: chosenRoute.segmentAxes,
     targetAxis: targetAxis ?? initialAxis,
     startAxis: initialAxis,
     startHeading,
     cappedDelta,
     steeringEnabled,
-    finalTravelAxis: segmentAxes.at(-1) ?? initialAxis,
+    turnAt: chosenRoute.turnAt,
+    turnAxis: chosenRoute.turnAxis,
+    responseCurve,
+    finalTravelAxis: chosenRoute.segmentAxes.at(-1) ?? initialAxis,
   }
 }
 
@@ -231,7 +263,7 @@ function hermitePoint(from, to, fromHeading, toHeading, t) {
   return { position, heading: Math.atan2(derivative.z, derivative.x) }
 }
 
-function samplesForCenterPath(path, pathResult, movingM, finalM, finalAxis, responseCurve) {
+function samplesForCenterPath(path, pathResult, movingM, finalM, finalAxis) {
   const segmentCount = Math.max(0, path.length - 1)
   if (segmentCount === 0) {
     const center = axialToWorld(path[0])
@@ -243,10 +275,12 @@ function samplesForCenterPath(path, pathResult, movingM, finalM, finalAxis, resp
 
   const headingAtAnchor = (anchorIndex) => {
     if (anchorIndex <= 0) return pathResult.startHeading
-    if (anchorIndex >= segmentCount) return finalAxis ? axisAngle(finalAxis) : pathResult.startHeading
-    if (!pathResult.steeringEnabled) return pathResult.startHeading
-    const progress = anchorIndex / segmentCount
-    return pathResult.startHeading + pathResult.cappedDelta * responseValue(responseCurve, progress)
+    if (anchorIndex >= segmentCount) return finalAxis ? axisAngle(finalAxis) : axisAngle(pathResult.segmentAxes.at(-1) ?? pathResult.startAxis)
+    const incomingAxis = pathResult.segmentAxes[anchorIndex - 1] ?? pathResult.startAxis
+    const outgoingAxis = pathResult.segmentAxes[anchorIndex] ?? incomingAxis
+    const incomingHeading = axisAngle(incomingAxis)
+    const outgoingHeading = axisAngle(outgoingAxis)
+    return incomingHeading + shortestDelta(incomingHeading, outgoingHeading) * 0.5
   }
 
   const samples = []
@@ -337,26 +371,36 @@ function relaxedPreviewSamples(plan) {
   const centers = plan.pathCells.map((hex) => axialToWorld(hex))
   const visitedKeys = new Set(plan.pathCells.map((hex) => `${hex.q},${hex.r}`))
   const finalCenter = centers.at(-1)
-  const finalDirection = plan.finalState?.axisId ? directionVector(plan.finalState.axisId) : { x: 0, z: 0 }
+  const finalAxis = plan.finalState?.axisId ?? plan.segmentAxes?.at(-1) ?? null
+  const finalDirection = finalAxis ? directionVector(finalAxis) : { x: 0, z: 0 }
   const rawEnd = {
     x: finalCenter.x + finalDirection.x * PREVIEW_END_EXTENSION,
     z: finalCenter.z + finalDirection.z * PREVIEW_END_EXTENSION,
   }
-  const safeEnd = clampPreviewPointToVisitedCells(rawEnd, [finalCenter], new Set([`${plan.finalHex.q},${plan.finalHex.r}`]))
+  const finalVisited = new Set([`${plan.finalHex.q},${plan.finalHex.r}`])
+  const safeEnd = clampPreviewPointToVisitedCells(rawEnd, [finalCenter], finalVisited)
 
-  let guide = [...centers.map((point) => ({ ...point })), safeEnd]
-  for (let pass = 0; pass < PREVIEW_CORNER_PASSES; pass += 1) guide = chaikinPass(guide)
+  const startAxis = plan.segmentAxes?.[0] ?? finalAxis
+  const startDirection = startAxis ? directionVector(startAxis) : { x: 1, z: 0 }
+  const startHeading = startAxis ? axisAngle(startAxis) : 0
+  const finalHeading = finalAxis ? axisAngle(finalAxis) : startHeading
+  const canonicalTurnDeg = shortestDelta(startHeading, finalHeading) * RAD
+  const turnSign = Math.sign(canonicalTurnDeg)
+  const meaningfulTurn = Math.abs(canonicalTurnDeg) > 1
+  const firstTurnSegment = startAxis ? (plan.segmentAxes ?? []).findIndex((axisId) => axisId !== startAxis) : -1
+  const segmentCount = Math.max(1, plan.pathCells.length - 1)
+  const turnProgress = firstTurnSegment >= 0
+    ? clamp((firstTurnSegment + 0.35) / segmentCount, 0.2, 0.86)
+    : 0.82
+  const turnNormal = { x: -startDirection.z * turnSign, z: startDirection.x * turnSign }
+
+  let guide = centers.map((point) => ({ ...point }))
+  if (meaningfulTurn) {
+    for (let pass = 0; pass < PREVIEW_CORNER_PASSES; pass += 1) guide = chaikinPass(guide)
+  }
 
   const dense = []
-  const startAxis = plan.segmentAxes?.[0] ?? plan.finalState?.axisId ?? 'E'
-  const startDirection = directionVector(startAxis)
-  const turnSign = Math.sign(plan.steeringAppliedDeg ?? 0)
-  const turnStrength = clamp(Math.abs(plan.steeringAppliedDeg ?? 0) / TRAJECTORY_MAX_STEER_DEG, 0, 1)
-  const travelStrength = clamp((plan.travelSteps ?? 1) / 3, 0.45, 1)
-  const bowAmplitude = PREVIEW_BOW_MAX * turnStrength * travelStrength
-  const turnNormal = { x: -startDirection.z * turnSign, z: startDirection.x * turnSign }
   const guideSegments = Math.max(1, guide.length - 1)
-
   for (let index = 0; index < guide.length - 1; index += 1) {
     const from = guide[index]
     const to = guide[index + 1]
@@ -365,30 +409,39 @@ function relaxedPreviewSamples(plan) {
       const local = step / PREVIEW_DENSITY
       const progress = (index + local) / guideSegments
       const basePoint = pointLerp(from, to, local)
-      const bow = Math.pow(Math.sin(Math.PI * progress), 1.15) * bowAmplitude
-      const curvedPoint = {
-        x: basePoint.x + turnNormal.x * bow,
-        z: basePoint.z + turnNormal.z * bow,
+      let curvedPoint = basePoint
+      if (meaningfulTurn) {
+        const envelope = Math.pow(Math.max(0, Math.sin(Math.PI * progress)), 0.72)
+        const focus = Math.exp(-Math.pow((progress - turnProgress) / 0.34, 2))
+        const bow = PREVIEW_BOW_MAX * envelope * (0.35 + 0.65 * focus)
+        curvedPoint = {
+          x: basePoint.x + turnNormal.x * bow,
+          z: basePoint.z + turnNormal.z * bow,
+        }
       }
       dense.push(clampPreviewPointToVisitedCells(curvedPoint, centers, visitedKeys))
     }
   }
-  dense.push(clampPreviewPointToVisitedCells(guide.at(-1), centers, visitedKeys))
+  dense.push({ ...finalCenter })
+
+  if (finalAxis) {
+    for (let step = 1; step <= 5; step += 1) {
+      dense.push(clampPreviewPointToVisitedCells(pointLerp(finalCenter, safeEnd, step / 5), [finalCenter], finalVisited))
+    }
+  }
 
   return dense.map((position, index) => {
     const next = dense[Math.min(dense.length - 1, index + 1)]
     const previous = dense[Math.max(0, index - 1)]
     const dx = next.x - previous.x
     const dz = next.z - previous.z
-    const heading = Math.hypot(dx, dz) > 0.0001
-      ? Math.atan2(dz, dx)
-      : (plan.finalState?.axisId ? axisAngle(plan.finalState.axisId) : 0)
+    const heading = Math.hypot(dx, dz) > 0.0001 ? Math.atan2(dz, dx) : finalHeading
     const atEnd = index === dense.length - 1
     return {
       t: dense.length <= 1 ? 1 : index / (dense.length - 1),
       position,
       velocity: atEnd ? { ...plan.finalState.velocity } : velocityForHeading(heading, Math.max(1, plan.beforeM, plan.builtM)),
-      axisId: atEnd ? plan.finalState.axisId : nearestAxisIdFromAngle(heading),
+      axisId: atEnd ? finalAxis : nearestAxisIdFromAngle(heading),
       momentumLevel: atEnd ? plan.finalM : Math.max(1, plan.beforeM, plan.builtM),
       previewCorridorSample: true,
       previewEnd: atEnd,
@@ -425,6 +478,7 @@ export function trajectoryActionPlan({
   const pathResult = buildCenterPath({
     state,
     targetHeading,
+    targetHex: selectedHex,
     travelSteps: requestedTravelSteps,
     steeringEnabled,
     responseCurve,
@@ -481,7 +535,7 @@ export function trajectoryActionPlan({
   }
 
   const movingM = Math.max(1, startM, builtM)
-  const samples = samplesForCenterPath(pathResult.path, pathResult, movingM, finalM, finalAxis, responseCurve)
+  const samples = samplesForCenterPath(pathResult.path, pathResult, movingM, finalM, finalAxis)
   const crossings = pathResult.path.map((hex, index) => ({
     hex: { ...hex },
     sampleIndex: index * SUBSTEPS_PER_CELL,
@@ -553,6 +607,7 @@ export function withCoastProjection(controlledPlan, coastPlan) {
     samples: relaxedPreviewSamples(controlledPlan),
     actorTrajectories: coastPlan?.valid ? { coastProjection: coastPlan.pathCells } : {},
     previewAxisStub: controlledPlan.finalState?.axisId ?? null,
+    previewAxisStubLength: PREVIEW_END_EXTENSION,
     previewRule: TRAJECTORY_PREVIEW_RULE,
     coastPreviewAxis: coastPlan?.finalState?.axisId ?? null,
   }
