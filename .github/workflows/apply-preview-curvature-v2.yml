@@ -52,9 +52,6 @@ jobs:
           if anchor not in text:
               raise RuntimeError('preview test anchor missing')
           p.write_text(text.replace(anchor, addition + anchor, 1))
-
-          p = Path('src/labs/trajectory/TrajectoryLab.jsx')
-          p.write_text(p.read_text().replace('Blue may miss intermediate centers but never enters an unvisited Cell', 'Blue uses a stronger inertial bow and may miss intermediate centers, but never enters an unvisited Cell'))
           PY
       - name: Install dependencies
         run: pnpm install
