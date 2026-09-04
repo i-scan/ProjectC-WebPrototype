@@ -1,21 +1,27 @@
-import { axialDistance, axialToWorld, directionVector, worldToAxial } from '../../sim/hex.js'
+import { HEX_DIRECTIONS, axialDistance, axialToWorld, directionVector, worldToAxial } from '../../sim/hex.js'
 
 export const TRAJECTORY_RULE = 'val-012-process-steering-ab-v1-candidate'
 export const TRAJECTORY_READY_RULE = 'action-complete-ready-v1'
 export const TRAJECTORY_STEERING_RULE = 'max-60deg-per-action-v1'
 export const TRAJECTORY_DISSIPATION_RULE = 'persistent-start-m-minus-1-v1'
 export const TRAJECTORY_CELL_AUTHORITY_RULE = 'ready-cell-center-v1'
+export const TRAJECTORY_PATH_RULE = 'cell-center-steering-polyline-v1'
 export const TRAJECTORY_MIN_RADIUS = 4
 export const TRAJECTORY_MAX_RADIUS = 10
 export const TRAJECTORY_DEFAULT_RADIUS = 6
-export const TRAJECTORY_DEFAULT_SAMPLES = 120
 export const TRAJECTORY_MAX_STEER_DEG = 60
 export const TRAJECTORY_BASE_DISSIPATION = 1
+export const TRAJECTORY_ACTION_PROFILES = Object.freeze({
+  steer: { id: 'steer', buildM: 0, sustain: false, needsDirection: true },
+  skip: { id: 'skip', buildM: 0, sustain: false, needsDirection: false },
+  drive: { id: 'drive', buildM: 1, sustain: true, needsDirection: true },
+  'heavy-drive': { id: 'heavy-drive', buildM: 2, sustain: true, needsDirection: true },
+})
 
-const DIRECTION_IDS = ['E', 'NE', 'NW', 'W', 'SW', 'SE']
 const DEG = Math.PI / 180
 const RAD = 180 / Math.PI
-
+const SUBSTEPS_PER_CELL = 4
+const PREVIEW_AXIS_STUB = 0.48
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
 function normalizeAngle(angle) {
@@ -33,88 +39,68 @@ function vectorAngle(vector) {
   return Math.atan2(vector.z ?? 0, vector.x ?? 0)
 }
 
-function angleVector(angle) {
-  return { x: Math.cos(angle), z: Math.sin(angle) }
-}
-
 function axisAngle(axisId) {
   return vectorAngle(directionVector(axisId ?? 'E'))
 }
 
 function nearestAxisIdFromAngle(angle) {
-  const vector = angleVector(angle)
+  const source = { x: Math.cos(angle), z: Math.sin(angle) }
   let bestId = 'E'
   let bestDot = -Infinity
-  for (const id of DIRECTION_IDS) {
-    const direction = directionVector(id)
-    const dot = direction.x * vector.x + direction.z * vector.z
+  for (const entry of HEX_DIRECTIONS) {
+    const direction = directionVector(entry.id)
+    const dot = direction.x * source.x + direction.z * source.z
     if (dot > bestDot) {
       bestDot = dot
-      bestId = id
+      bestId = entry.id
     }
   }
   return bestId
 }
 
+function directionEntry(axisId) {
+  return HEX_DIRECTIONS.find((entry) => entry.id === axisId) ?? HEX_DIRECTIONS[0]
+}
+
+function addStep(hex, axisId) {
+  const direction = directionEntry(axisId)
+  return { q: hex.q + direction.q, r: hex.r + direction.r }
+}
+
 function responseValue(kind, t) {
+  if (kind === 'smoothstep') return t * t * (3 - 2 * t)
   if (kind === 'ease-in') return t * t
   if (kind === 'ease-out') return 1 - ((1 - t) * (1 - t))
-  if (kind === 'smoothstep') return t * t * (3 - 2 * t)
   return t
 }
 
 function displaySpeed(momentum) {
-  if (momentum <= 0) return 0.05
-  return momentum
+  return Math.max(0.05, momentum)
 }
 
-function makeSample(position, momentum, heading, t) {
+function velocityFor(axisId, momentum) {
+  if (!axisId || momentum <= 0) return { x: 0, z: 0 }
+  const direction = directionVector(axisId)
   const speed = displaySpeed(momentum)
-  return {
-    t,
-    position: { x: position.x, z: position.z },
-    velocity: { x: Math.cos(heading) * speed, z: Math.sin(heading) * speed },
-    axisId: nearestAxisIdFromAngle(heading),
-  }
+  return { x: direction.x * speed, z: direction.z * speed }
 }
 
-function crossingTrace(samples, boardRadius) {
-  const crossings = []
-  let previousKey = null
-  for (let index = 0; index < samples.length; index += 1) {
-    const sample = samples[index]
-    const hex = worldToAxial(sample.position)
-    if (axialDistance(hex) > boardRadius) break
-    const key = `${hex.q},${hex.r}`
-    if (key === previousKey) continue
-    crossings.push({ hex, sampleIndex: index, t: sample.t })
-    previousKey = key
-  }
-  return crossings
-}
-
-function trimAtBoard(samples, boardRadius) {
-  const result = []
-  for (const sample of samples) {
-    const hex = worldToAxial(sample.position)
-    if (axialDistance(hex) > boardRadius) break
-    result.push(sample)
-  }
-  return result.length ? result : [samples[0]]
+function profileFor(actionId) {
+  if (actionId === 'coast') return TRAJECTORY_ACTION_PROFILES.skip
+  return TRAJECTORY_ACTION_PROFILES[actionId] ?? TRAJECTORY_ACTION_PROFILES.steer
 }
 
 export function makeTrajectoryState({ hex = { q: 0, r: 0 }, position = null, axisId = null, momentum = 0, worldAt = 0, heading = null } = {}) {
-  const resolvedPosition = position ? { ...position } : axialToWorld(hex)
-  const resolvedHeading = Number.isFinite(heading) ? heading : (axisId ? axisAngle(axisId) : null)
-  const velocity = momentum > 0 && Number.isFinite(resolvedHeading)
-    ? { x: Math.cos(resolvedHeading) * momentum, z: Math.sin(resolvedHeading) * momentum }
-    : { x: 0, z: 0 }
+  const resolvedHex = position ? worldToAxial(position) : { ...hex }
+  const resolvedPosition = axialToWorld(resolvedHex)
+  const resolvedAxis = axisId ?? (Number.isFinite(heading) ? nearestAxisIdFromAngle(heading) : null)
+  const m = clamp(Math.round(momentum), 0, 3)
   return {
     position: resolvedPosition,
-    velocity,
-    axisId: axisId ?? (Number.isFinite(resolvedHeading) ? nearestAxisIdFromAngle(resolvedHeading) : null),
-    momentumLevel: clamp(Math.round(momentum), 0, 3),
-    heading: resolvedHeading,
+    velocity: velocityFor(resolvedAxis, m),
+    axisId: resolvedAxis,
+    momentumLevel: m,
+    heading: resolvedAxis ? axisAngle(resolvedAxis) : null,
     worldAt,
   }
 }
@@ -129,10 +115,10 @@ export function trajectoryMomentum(state) {
 }
 
 export function trajectoryHeading(state) {
+  if (state?.axisId) return axisAngle(state.axisId)
   const speed = Math.hypot(state?.velocity?.x ?? 0, state?.velocity?.z ?? 0)
   if (speed > 0.02) return vectorAngle(state.velocity)
-  if (Number.isFinite(state?.heading)) return state.heading
-  return state?.axisId ? axisAngle(state.axisId) : null
+  return Number.isFinite(state?.heading) ? state.heading : null
 }
 
 export function steeringBearingFromCell(state, selectedHex) {
@@ -151,59 +137,116 @@ export function steeringDeltaDegrees(state, selectedHex) {
 }
 
 export function compatibleStartupMove(state, selectedHex) {
-  const current = trajectoryHeading(state)
+  if (!state?.axisId) return false
   const target = steeringBearingFromCell(state, selectedHex)
-  if (!Number.isFinite(current) || !Number.isFinite(target)) return false
-  return Math.abs(shortestDelta(current, target) * RAD) <= TRAJECTORY_MAX_STEER_DEG + 0.001
+  if (!Number.isFinite(target)) return false
+  const targetAxis = nearestAxisIdFromAngle(target)
+  return Math.abs(shortestDelta(axisAngle(state.axisId), axisAngle(targetAxis)) * RAD) <= TRAJECTORY_MAX_STEER_DEG + 0.001
 }
 
-function simulatePath({ state, actionId, targetHeading, boardRadius, responseCurve, solverSamples }) {
-  const startM = trajectoryMomentum(state)
-  const startHeading = trajectoryHeading(state)
-  const activeMove = actionId === 'steer'
-  const hasPersistentMotion = startM > 0
-  const shouldTravel = hasPersistentMotion || (startM === 0 && activeMove)
-  const distance = hasPersistentMotion ? startM : (activeMove ? 1 : 0)
-
-  let initialHeading = startHeading
-  if (!Number.isFinite(initialHeading)) initialHeading = Number.isFinite(targetHeading) ? targetHeading : 0
-
-  let steeringDelta = 0
-  if (activeMove && Number.isFinite(targetHeading)) {
-    const rawDelta = shortestDelta(initialHeading, targetHeading)
-    steeringDelta = startM === 0
+function buildCenterPath({ state, targetHeading, travelSteps, steeringEnabled, responseCurve, boardRadius, freeM0Direction }) {
+  const startHex = worldToAxial(state.position)
+  const startAxis = state.axisId ?? (Number.isFinite(targetHeading) ? nearestAxisIdFromAngle(targetHeading) : null)
+  const targetAxis = Number.isFinite(targetHeading) ? nearestAxisIdFromAngle(targetHeading) : startAxis
+  const initialAxis = startAxis ?? targetAxis ?? 'E'
+  const startHeading = axisAngle(initialAxis)
+  let cappedDelta = 0
+  if (steeringEnabled && Number.isFinite(targetHeading)) {
+    const rawDelta = shortestDelta(startHeading, targetHeading)
+    cappedDelta = freeM0Direction
       ? rawDelta
       : clamp(rawDelta, -TRAJECTORY_MAX_STEER_DEG * DEG, TRAJECTORY_MAX_STEER_DEG * DEG)
   }
 
-  const steps = Math.max(16, Math.round(solverSamples || TRAJECTORY_DEFAULT_SAMPLES))
-  const samples = []
-  const position = { ...state.position }
-  samples.push(makeSample(position, startM, initialHeading, 0))
-
-  if (shouldTravel && distance > 0) {
-    const segment = distance / steps
-    for (let index = 1; index <= steps; index += 1) {
-      const t0 = (index - 1) / steps
-      const t1 = index / steps
-      const responseMid = responseValue(responseCurve, (t0 + t1) * 0.5)
-      const heading = initialHeading + steeringDelta * responseMid
-      position.x += Math.cos(heading) * segment
-      position.z += Math.sin(heading) * segment
-      const sampleHeading = initialHeading + steeringDelta * responseValue(responseCurve, t1)
-      samples.push(makeSample(position, startM, sampleHeading, t1))
-    }
-  } else {
-    samples.push(makeSample(position, 0, initialHeading, 1))
+  const path = [{ ...startHex }]
+  const segmentAxes = []
+  let current = { ...startHex }
+  for (let index = 1; index <= travelSteps; index += 1) {
+    const progress = index / Math.max(1, travelSteps)
+    const desiredHeading = freeM0Direction && Number.isFinite(targetHeading)
+      ? targetHeading
+      : startHeading + cappedDelta * responseValue(responseCurve, progress)
+    const stepAxis = steeringEnabled
+      ? nearestAxisIdFromAngle(desiredHeading)
+      : initialAxis
+    const next = addStep(current, stepAxis)
+    if (axialDistance(next) > boardRadius) break
+    current = next
+    path.push({ ...current })
+    segmentAxes.push(stepAxis)
   }
 
   return {
-    samples: trimAtBoard(samples, boardRadius),
-    initialHeading,
-    targetHeading,
-    steeringDelta,
-    travelDistance: distance,
+    path,
+    segmentAxes,
+    targetAxis: targetAxis ?? initialAxis,
+    startAxis: initialAxis,
+    cappedDelta,
+    finalTravelAxis: segmentAxes.at(-1) ?? initialAxis,
   }
+}
+
+function samplesForCenterPath(path, segmentAxes, movingM, finalM, finalAxis) {
+  const segmentCount = Math.max(0, path.length - 1)
+  if (segmentCount === 0) {
+    const center = axialToWorld(path[0])
+    return [
+      { t: 0, position: center, velocity: velocityFor(finalAxis, finalM), axisId: finalAxis, momentumLevel: finalM },
+      { t: 1, position: { ...center }, velocity: velocityFor(finalAxis, finalM), axisId: finalAxis, momentumLevel: finalM },
+    ]
+  }
+
+  const samples = []
+  const startAxis = segmentAxes[0] ?? finalAxis
+  samples.push({
+    t: 0,
+    position: axialToWorld(path[0]),
+    velocity: velocityFor(startAxis, movingM),
+    axisId: startAxis,
+    momentumLevel: movingM,
+  })
+
+  for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
+    const from = axialToWorld(path[segmentIndex])
+    const to = axialToWorld(path[segmentIndex + 1])
+    const segmentAxis = segmentAxes[segmentIndex] ?? finalAxis
+    for (let sub = 1; sub <= SUBSTEPS_PER_CELL; sub += 1) {
+      const local = sub / SUBSTEPS_PER_CELL
+      const global = (segmentIndex + local) / segmentCount
+      const atFinalCenter = segmentIndex === segmentCount - 1 && sub === SUBSTEPS_PER_CELL
+      samples.push({
+        t: global,
+        position: {
+          x: from.x + (to.x - from.x) * local,
+          z: from.z + (to.z - from.z) * local,
+        },
+        velocity: velocityFor(atFinalCenter ? finalAxis : segmentAxis, atFinalCenter ? finalM : movingM),
+        axisId: atFinalCenter ? finalAxis : segmentAxis,
+        momentumLevel: atFinalCenter ? finalM : movingM,
+      })
+    }
+  }
+  return samples
+}
+
+function previewAxisStubSamples(plan) {
+  if (!plan?.valid || !plan.finalState?.axisId || !plan.samples?.length) return plan?.samples ?? []
+  const samples = plan.samples.map((sample) => ({
+    ...sample,
+    position: { ...sample.position },
+    velocity: { ...sample.velocity },
+  }))
+  const center = axialToWorld(plan.finalHex)
+  const direction = directionVector(plan.finalState.axisId)
+  samples.push({
+    t: 1.05,
+    position: { x: center.x + direction.x * PREVIEW_AXIS_STUB, z: center.z + direction.z * PREVIEW_AXIS_STUB },
+    velocity: { ...plan.finalState.velocity },
+    axisId: plan.finalState.axisId,
+    momentumLevel: plan.finalM,
+    previewAxisStub: true,
+  })
+  return samples
 }
 
 export function trajectoryActionPlan({
@@ -212,44 +255,48 @@ export function trajectoryActionPlan({
   selectedHex = null,
   boardRadius = TRAJECTORY_DEFAULT_RADIUS,
   responseCurve = 'linear',
-  solverSamples = TRAJECTORY_DEFAULT_SAMPLES,
   baseDissipationPerAction = TRAJECTORY_BASE_DISSIPATION,
 } = {}) {
+  const profile = profileFor(actionId)
+  const canonicalActionId = profile.id
   const startM = trajectoryMomentum(state)
-  const startHeading = trajectoryHeading(state)
-  const targetHeading = actionId === 'steer' && selectedHex ? steeringBearingFromCell(state, selectedHex) : null
-
-  if (actionId === 'steer' && !Number.isFinite(targetHeading)) {
-    return { valid: false, reason: 'Select a direction Cell to define Blue Steering.' }
+  const targetHeading = profile.needsDirection && selectedHex ? steeringBearingFromCell(state, selectedHex) : null
+  if (profile.needsDirection && !Number.isFinite(targetHeading)) {
+    return { valid: false, reason: 'Hover or click a direction Cell.' }
   }
 
-  const simulated = simulatePath({ state, actionId, targetHeading, boardRadius, responseCurve, solverSamples })
-  // Process Steering is continuous only inside the Action. The board stays Cell-authoritative:
-  // derive the landing Cell from that process, then settle Ready exactly at its center.
-  const samples = simulated.samples.map((sample) => ({
-    ...sample,
-    position: { ...sample.position },
-    velocity: { ...sample.velocity },
-  }))
-  const rawLast = samples.at(-1)
-  const crossings = crossingTrace(samples, boardRadius)
-  const finalHex = worldToAxial(rawLast.position)
-  const finalPosition = axialToWorld(finalHex)
-  const reachedBoardEdge = samples.length < Math.max(2, Math.round(solverSamples || TRAJECTORY_DEFAULT_SAMPLES) + 1) && simulated.travelDistance > 0
-  let endHeading = Number.isFinite(rawLast?.velocity?.x) && Math.hypot(rawLast.velocity.x, rawLast.velocity.z) > 0.001
-    ? vectorAngle(rawLast.velocity)
-    : simulated.initialHeading
+  const buildM = profile.buildM ?? 0
+  const builtM = clamp(startM + buildM, 0, 3)
+  const freeM0Direction = startM === 0
+  const steeringEnabled = profile.needsDirection
 
+  let requestedTravelSteps = 0
+  if (canonicalActionId === 'skip') requestedTravelSteps = startM
+  else if (buildM > 0) requestedTravelSteps = Math.max(1, builtM)
+  else requestedTravelSteps = startM > 0 ? startM : 1
+
+  const pathResult = buildCenterPath({
+    state,
+    targetHeading,
+    travelSteps: requestedTravelSteps,
+    steeringEnabled,
+    responseCurve,
+    boardRadius,
+    freeM0Direction,
+  })
+
+  const actualSteps = Math.max(0, pathResult.path.length - 1)
   let generatedM = 0
-  let finalM = startM
   let startupCompatible = false
+  let finalM = startM
 
-  if (startM === 0) {
-    if (actionId === 'steer') {
+  if (profile.sustain) {
+    finalM = builtM
+  } else if (startM === 0) {
+    if (canonicalActionId === 'steer') {
       startupCompatible = Boolean(state.axisId) && compatibleStartupMove(state, selectedHex)
       generatedM = startupCompatible ? 1 : 0
       finalM = generatedM
-      endHeading = targetHeading
     } else {
       finalM = 0
     }
@@ -257,63 +304,83 @@ export function trajectoryActionPlan({
     finalM = Math.max(0, startM - Math.max(0, baseDissipationPerAction))
   }
 
+  let finalAxis = pathResult.finalTravelAxis ?? state.axisId ?? pathResult.targetAxis
   let zeroMSettlementDeg = 0
-  if (startM > 0 && finalM === 0 && actionId === 'steer' && Number.isFinite(targetHeading)) {
-    const remaining = shortestDelta(endHeading, targetHeading)
-    const settlement = clamp(remaining, -TRAJECTORY_MAX_STEER_DEG * DEG, TRAJECTORY_MAX_STEER_DEG * DEG)
-    endHeading = normalizeAngle(endHeading + settlement)
-    zeroMSettlementDeg = settlement * RAD
+  if (startM > 0 && finalM === 0 && canonicalActionId === 'steer' && Number.isFinite(targetHeading)) {
+    const currentAxisHeading = axisAngle(finalAxis)
+    const remaining = shortestDelta(currentAxisHeading, targetHeading)
+    if (Math.abs(remaining) > 0.001) {
+      const settlement = clamp(remaining, -TRAJECTORY_MAX_STEER_DEG * DEG, TRAJECTORY_MAX_STEER_DEG * DEG)
+      finalAxis = nearestAxisIdFromAngle(currentAxisHeading + settlement)
+      zeroMSettlementDeg = settlement * RAD
+    }
   }
 
-  const finalAxis = nearestAxisIdFromAngle(endHeading)
-  const finalVelocity = finalM > 0
-    ? { x: Math.cos(endHeading) * finalM, z: Math.sin(endHeading) * finalM }
-    : { x: 0, z: 0 }
+  if (startM === 0 && profile.needsDirection && Number.isFinite(targetHeading)) {
+    finalAxis = nearestAxisIdFromAngle(targetHeading)
+  }
+  if (canonicalActionId === 'skip' && startM === 0 && !state.axisId) finalAxis = null
+
+  const finalHex = pathResult.path.at(-1)
+  const finalPosition = axialToWorld(finalHex)
   const finalState = {
     ...state,
-    position: { ...finalPosition },
-    velocity: finalVelocity,
-    axisId: actionId === 'coast' && startM === 0 && !state.axisId ? null : finalAxis,
+    position: finalPosition,
+    velocity: velocityFor(finalAxis, finalM),
+    axisId: finalAxis,
     momentumLevel: finalM,
-    heading: endHeading,
+    heading: finalAxis ? axisAngle(finalAxis) : null,
     worldAt: Number(state.worldAt ?? 0) + 1,
   }
-  // Playback is free to interpolate continuously between Cells, but it must end on the same
-  // Cell-center state that becomes authoritative at Ready.
-  samples[samples.length - 1] = {
-    ...rawLast,
-    position: { ...finalPosition },
-    velocity: { ...finalVelocity },
-    axisId: finalState.axisId,
-  }
 
-  const steeringAppliedDeg = simulated.steeringDelta * RAD
-  const targetDeltaDeg = Number.isFinite(targetHeading) && Number.isFinite(startHeading)
-    ? shortestDelta(startHeading, targetHeading) * RAD
+  const movingM = Math.max(1, startM, builtM)
+  const samples = samplesForCenterPath(pathResult.path, pathResult.segmentAxes, movingM, finalM, finalAxis)
+  const crossings = pathResult.path.map((hex, index) => ({
+    hex: { ...hex },
+    sampleIndex: index * SUBSTEPS_PER_CELL,
+    t: index / Math.max(1, pathResult.path.length - 1),
+  }))
+
+  const targetDeltaDeg = Number.isFinite(targetHeading) && state.axisId
+    ? shortestDelta(axisAngle(state.axisId), targetHeading) * RAD
     : null
-
-  const verb = actionId === 'coast' ? (startM > 0 ? 'Coast' : 'Wait') : (startM > 0 ? 'Steer' : 'Move')
-  const summary = `${verb} · ${simulated.travelDistance.toFixed(1)} Cell-band / 1 AT · M${startM}→M${finalM} · Axis ${state.axisId ?? 'none'}→${finalState.axisId ?? 'none'}`
+  const steeringAppliedDeg = pathResult.cappedDelta * RAD
+  const reachedBoardEdge = actualSteps < requestedTravelSteps
+  const verb = canonicalActionId === 'skip'
+    ? 'Skip'
+    : canonicalActionId === 'drive'
+      ? 'Drive'
+      : canonicalActionId === 'heavy-drive'
+        ? 'Heavy Drive'
+        : (startM > 0 ? 'Steer' : 'Move')
+  const summary = `${verb} · ${actualSteps} Cell / 1 AT · M${startM}→M${finalM} · Axis ${state.axisId ?? 'none'}→${finalAxis ?? 'none'}`
 
   return {
     valid: true,
-    kind: actionId,
-    actionId,
+    kind: canonicalActionId,
+    actionId: canonicalActionId,
     samples,
     crossings,
+    pathCells: pathResult.path.map((hex) => ({ ...hex })),
+    segmentAxes: [...pathResult.segmentAxes],
     finalState,
     finalHex,
     beforeM: startM,
+    builtM,
+    buildM,
     finalM,
     generatedM,
     startupCompatible,
-    travelDistance: simulated.travelDistance,
+    travelDistance: actualSteps,
+    travelSteps: actualSteps,
+    requestedTravelSteps,
     steeringAppliedDeg,
     targetDeltaDeg,
     zeroMSettlementDeg,
     responseCurve,
     reachedBoardEdge,
     cellAuthorityRule: TRAJECTORY_CELL_AUTHORITY_RULE,
+    pathRule: TRAJECTORY_PATH_RULE,
     atCost: 1,
     spatialMode: 'hybrid',
     destinationDriven: false,
@@ -328,18 +395,17 @@ export function trajectoryActionPlan({
 
 export function trajectoryProjectionPair(options = {}) {
   const controlled = trajectoryActionPlan(options)
-  const coast = trajectoryActionPlan({ ...options, actionId: 'coast', selectedHex: null })
+  const coast = trajectoryActionPlan({ ...options, actionId: 'skip', selectedHex: null })
   return { controlled, coast }
-}
-
-export function coastHexPath(plan) {
-  return (plan?.crossings ?? []).map((entry) => ({ ...entry.hex }))
 }
 
 export function withCoastProjection(controlledPlan, coastPlan) {
   if (!controlledPlan?.valid) return controlledPlan
   return {
     ...controlledPlan,
-    actorTrajectories: coastPlan?.valid ? { coastProjection: coastHexPath(coastPlan) } : {},
+    samples: previewAxisStubSamples(controlledPlan),
+    actorTrajectories: coastPlan?.valid ? { coastProjection: coastPlan.pathCells } : {},
+    previewAxisStub: controlledPlan.finalState?.axisId ?? null,
+    coastPreviewAxis: coastPlan?.finalState?.axisId ?? null,
   }
 }

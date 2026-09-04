@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { axialToWorld, worldToAxial } from '../../sim/hex.js'
+import { axialDistance, axialToWorld, directionIdBetween } from '../../sim/hex.js'
 import {
   TRAJECTORY_DEFAULT_RADIUS,
   TRAJECTORY_MAX_STEER_DEG,
+  TRAJECTORY_PATH_RULE,
   compatibleStartupMove,
   makeTrajectoryState,
   trajectoryActionPlan,
   trajectoryProjectionPair,
+  withCoastProjection,
 } from './trajectory-rules.js'
 
 const plan = (state, actionId, selectedHex = null, extra = {}) => trajectoryActionPlan({
@@ -18,104 +20,115 @@ const plan = (state, actionId, selectedHex = null, extra = {}) => trajectoryActi
   ...extra,
 })
 
-describe('VAL-012 Process Steering A/B candidate', () => {
+const expectCenter = (position, hex) => {
+  const center = axialToWorld(hex)
+  expect(position.x).toBeCloseTo(center.x, 6)
+  expect(position.z).toBeCloseTo(center.z, 6)
+}
+
+describe('VAL-012 Process Steering Cell-center candidate', () => {
   it('uses two compatible M0 Moves to establish persistent M1', () => {
     const first = plan(makeTrajectoryState({ axisId: null, momentum: 0 }), 'steer', { q: 1, r: 0 })
-    expect(first.valid).toBe(true)
     expect(first.finalM).toBe(0)
     expect(first.finalState.axisId).toBe('E')
-    expect(first.finalState.worldAt).toBe(1)
+    expect(first.pathCells).toEqual([{ q: 0, r: 0 }, { q: 1, r: 0 }])
+    expectCenter(first.finalState.position, { q: 1, r: 0 })
 
     const second = plan(first.finalState, 'steer', { q: 2, r: 0 })
     expect(second.startupCompatible).toBe(true)
     expect(second.generatedM).toBe(1)
     expect(second.finalM).toBe(1)
     expect(second.finalState.axisId).toBe('E')
-    expect(second.finalState.worldAt).toBe(2)
+    expect(second.pathCells).toEqual([{ q: 1, r: 0 }, { q: 2, r: 0 }])
   })
 
-  it('does not build M1 from a large-angle M0 rewrite', () => {
+  it('lets M0 freely Move behind and rewrite Axis without generating incompatible M', () => {
     const state = makeTrajectoryState({ axisId: 'E', momentum: 0 })
     expect(compatibleStartupMove(state, { q: -1, r: 0 })).toBe(false)
     const result = plan(state, 'steer', { q: -1, r: 0 })
     expect(result.finalM).toBe(0)
     expect(result.finalState.axisId).toBe('W')
+    expect(result.pathCells).toEqual([{ q: 0, r: 0 }, { q: -1, r: 0 }])
+    expectCenter(result.finalState.position, { q: -1, r: 0 })
   })
 
-  it('coasts persistently for the current M band and dissipates once at Action end', () => {
-    const m3 = plan(makeTrajectoryState({ axisId: 'E', momentum: 3 }), 'coast')
-    expect(m3.travelDistance).toBe(3)
-    expect(m3.finalM).toBe(2)
-    expect(m3.finalState.worldAt).toBe(1)
-    expect(worldToAxial(m3.finalState.position).q).toBeGreaterThanOrEqual(2)
-
-    const m2 = plan(makeTrajectoryState({ axisId: 'E', momentum: 2 }), 'coast')
-    expect(m2.travelDistance).toBe(2)
-    expect(m2.finalM).toBe(1)
-
-    const m1 = plan(makeTrajectoryState({ axisId: 'E', momentum: 1 }), 'coast')
-    expect(m1.travelDistance).toBe(1)
-    expect(m1.finalM).toBe(0)
-  })
-
-  it('settles every Action endpoint exactly on the derived Cell center while intermediate motion remains continuous', () => {
-    const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
-    const result = plan(state, 'steer', { q: 0, r: -3 })
-    const center = axialToWorld(result.finalHex)
-    expect(result.finalState.position.x).toBeCloseTo(center.x, 8)
-    expect(result.finalState.position.z).toBeCloseTo(center.z, 8)
-    expect(result.samples.at(-1).position.x).toBeCloseTo(center.x, 8)
-    expect(result.samples.at(-1).position.z).toBeCloseTo(center.z, 8)
-
-    const hasOffCenterIntermediateSample = result.samples.slice(1, -1).some((sample) => {
-      const sampleHex = worldToAxial(sample.position)
-      const sampleCenter = axialToWorld(sampleHex)
-      return Math.hypot(sample.position.x - sampleCenter.x, sample.position.z - sampleCenter.z) > 0.02
-    })
-    expect(hasOffCenterIntermediateSample).toBe(true)
-  })
-
-  it('keeps chained Ready states Cell-centered instead of accumulating continuous offsets', () => {
-    const first = plan(makeTrajectoryState({ axisId: 'E', momentum: 3 }), 'steer', { q: 1, r: -3 })
-    const second = plan(first.finalState, 'steer', { q: -1, r: -3 })
-    for (const result of [first, second]) {
-      const center = axialToWorld(result.finalHex)
-      expect(result.finalState.position.x).toBeCloseTo(center.x, 8)
-      expect(result.finalState.position.z).toBeCloseTo(center.z, 8)
+  it('builds every rule trajectory from adjacent Cell-center segments', () => {
+    const result = plan(makeTrajectoryState({ axisId: 'E', momentum: 3 }), 'steer', { q: -3, r: 0 })
+    expect(result.pathRule).toBe(TRAJECTORY_PATH_RULE)
+    expect(result.pathCells.length).toBe(4)
+    for (let index = 1; index < result.pathCells.length; index += 1) {
+      expect(axialDistance(result.pathCells[index], result.pathCells[index - 1])).toBe(1)
+      expect(directionIdBetween(result.pathCells[index - 1], result.pathCells[index])).not.toBeNull()
+      const sampleAtCenter = result.samples[index * 4]
+      expectCenter(sampleAtCenter.position, result.pathCells[index])
     }
+    expect(result.segmentAxes).toEqual(['E', 'SE', 'SE'])
+    expect(result.finalState.axisId).toBe('SE')
   })
 
-  it('caps Basic Steer at 60 degrees per complete Action, not per Cell', () => {
-    const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
-    const result = plan(state, 'steer', { q: -2, r: 0 })
-    expect(Math.abs(result.steeringAppliedDeg)).toBeCloseTo(TRAJECTORY_MAX_STEER_DEG, 4)
-    expect(result.travelDistance).toBe(3)
-    expect(result.finalM).toBe(2)
+  it('keeps 60 degrees per Action as inertia while high M crosses more Cell centers', () => {
+    const m1 = plan(makeTrajectoryState({ axisId: 'E', momentum: 1 }), 'steer', { q: -3, r: 0 })
+    const m3 = plan(makeTrajectoryState({ axisId: 'E', momentum: 3 }), 'steer', { q: -3, r: 0 })
+    expect(Math.abs(m1.steeringAppliedDeg)).toBeCloseTo(TRAJECTORY_MAX_STEER_DEG, 4)
+    expect(Math.abs(m3.steeringAppliedDeg)).toBeCloseTo(TRAJECTORY_MAX_STEER_DEG, 4)
+    expect(m1.travelSteps).toBe(1)
+    expect(m3.travelSteps).toBe(3)
+    expect(m3.pathCells.length).toBeGreaterThan(m1.pathCells.length)
   })
 
-  it('applies zero-M steering settlement without adding Travel', () => {
+  it('applies zero-M settlement to Ready Axis without adding a Cell segment', () => {
     const state = makeTrajectoryState({ axisId: 'E', momentum: 1 })
     const result = plan(state, 'steer', { q: -2, r: 0 })
-    expect(result.travelDistance).toBe(1)
+    expect(result.travelSteps).toBe(1)
     expect(result.finalM).toBe(0)
     expect(Math.abs(result.steeringAppliedDeg)).toBeCloseTo(60, 4)
     expect(Math.abs(result.zeroMSettlementDeg)).toBeCloseTo(60, 4)
+    expect(result.pathCells.length).toBe(2)
   })
 
-  it('keeps Preview authority shared between Coast and Controlled projections', () => {
+  it('treats Skip as deliberate Coast at M>0 and stationary Wait semantics at M0', () => {
+    const moving = plan(makeTrajectoryState({ axisId: 'E', momentum: 3 }), 'skip')
+    expect(moving.kind).toBe('skip')
+    expect(moving.travelSteps).toBe(3)
+    expect(moving.finalM).toBe(2)
+    expect(moving.segmentAxes).toEqual(['E', 'E', 'E'])
+
+    const stopped = plan(makeTrajectoryState({ axisId: null, momentum: 0 }), 'skip')
+    expect(stopped.travelSteps).toBe(0)
+    expect(stopped.finalM).toBe(0)
+    expect(stopped.finalState.axisId).toBeNull()
+  })
+
+  it('restores Drive and Heavy Drive as isolated Build/Sustain test profiles', () => {
+    const drive0 = plan(makeTrajectoryState({ axisId: null, momentum: 0 }), 'drive', { q: 2, r: 0 })
+    expect(drive0.buildM).toBe(1)
+    expect(drive0.finalM).toBe(1)
+    expect(drive0.travelSteps).toBe(1)
+    expect(drive0.finalState.axisId).toBe('E')
+
+    const drive1 = plan(makeTrajectoryState({ axisId: 'E', momentum: 1 }), 'drive', { q: 3, r: 0 })
+    expect(drive1.finalM).toBe(2)
+    expect(drive1.travelSteps).toBe(2)
+
+    const heavy1 = plan(makeTrajectoryState({ axisId: 'E', momentum: 1 }), 'heavy-drive', { q: 4, r: 0 })
+    expect(heavy1.buildM).toBe(2)
+    expect(heavy1.finalM).toBe(3)
+    expect(heavy1.travelSteps).toBe(3)
+  })
+
+  it('adds a preview-only terminal Axis stub without changing authoritative Landing', () => {
     const state = makeTrajectoryState({ axisId: 'E', momentum: 2 })
     const { controlled, coast } = trajectoryProjectionPair({
       state,
       actionId: 'steer',
       selectedHex: { q: 1, r: -2 },
       boardRadius: TRAJECTORY_DEFAULT_RADIUS,
-      responseCurve: 'smoothstep',
+      responseCurve: 'linear',
     })
-    expect(controlled.valid).toBe(true)
-    expect(coast.valid).toBe(true)
-    expect(controlled.beforeM).toBe(coast.beforeM)
-    expect(controlled.finalM).toBe(coast.finalM)
-    expect(controlled.samples.length).toBe(coast.samples.length)
-    expect(controlled.finalHex).not.toEqual(coast.finalHex)
+    const preview = withCoastProjection(controlled, coast)
+    expect(preview.samples.length).toBe(controlled.samples.length + 1)
+    expect(preview.previewAxisStub).toBe(controlled.finalState.axisId)
+    expect(preview.actorTrajectories.coastProjection).toEqual(coast.pathCells)
+    expectCenter(controlled.finalState.position, controlled.finalHex)
   })
 })
