@@ -1,0 +1,212 @@
+.trajectory-lab .trajectory-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 1px solid rgba(117, 148, 175, 0.28);
+  border-radius: 12px;
+  background: rgba(24, 42, 61, 0.78);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.trajectory-lab .trajectory-status strong {
+  color: #d9e8f3;
+  letter-spacing: 0.055em;
+  font-size: 0.78rem;
+}
+
+.trajectory-lab .trajectory-status span {
+  color: #8fa9bc;
+  font-size: 0.76rem;
+  text-align: right;
+}
+
+.trajectory-lab .trajectory-status.is-ready {
+  border-color: rgba(242, 200, 90, 0.38);
+  background: linear-gradient(90deg, rgba(75, 62, 30, 0.44), rgba(24, 42, 61, 0.82));
+}
+
+.trajectory-lab .trajectory-status.is-ready strong {
+  color: #ffe49a;
+}
+
+.trajectory-lab .trajectory-action-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.trajectory-lab .trajectory-action-row .action-card {
+  min-width: 0;
+  width: 100%;
+  min-height: 124px;
+  overflow: hidden;
+}
+
+.trajectory-lab .trajectory-action-row .action-card p {
+  min-height: 62px;
+  overflow-wrap: anywhere;
+}
+
+.trajectory-lab .trajectory-commit {
+  margin-top: 10px;
+  min-height: 42px;
+}
+
+.trajectory-lab .projection-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+
+.trajectory-lab .projection-entry {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid rgba(117, 148, 175, 0.24);
+  border-radius: 9px;
+  background: rgba(14, 28, 42, 0.58);
+  color: #9fb7c9;
+  font-size: 0.72rem;
+}
+
+.trajectory-lab .projection-entry b {
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+}
+
+.trajectory-lab .projection-entry.coast {
+  border-color: rgba(242, 200, 90, 0.38);
+}
+
+.trajectory-lab .projection-entry.coast b {
+  color: #f2c85a;
+}
+
+.trajectory-lab .projection-entry.controlled.active {
+  border-color: rgba(104, 204, 232, 0.55);
+  background: rgba(26, 69, 87, 0.52);
+}
+
+.trajectory-lab .projection-entry.controlled b {
+  color: #79dff5;
+}
+
+.trajectory-lab .trajectory-board-frame {
+  position: relative;
+  min-height: 460px;
+  overflow: hidden;
+}
+
+.trajectory-lab .trajectory-board-frame .cell-world-board {
+  min-height: 460px;
+}
+
+.trajectory-lab .trajectory-vector-compass {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 25;
+  display: grid;
+  gap: 5px;
+  max-width: 270px;
+  padding: 8px 10px;
+  border: 1px solid rgba(103, 142, 170, 0.34);
+  border-radius: 9px;
+  background: rgba(10, 23, 35, 0.82);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.trajectory-lab .vector-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #aac0d0;
+  font-size: 0.68rem;
+}
+
+.trajectory-lab .vector-row i {
+  display: inline-flex;
+  width: 24px;
+  justify-content: center;
+  font-size: 1.2rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.trajectory-lab .vector-row.yellow i { color: #f2c85a; }
+.trajectory-lab .vector-row.blue i { color: #68cce8; }
+.trajectory-lab .vector-row.blue { color: #9fdced; }
+
+.trajectory-lab .motion-freeze-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(242, 200, 90, 0.42);
+  border-radius: 999px;
+  background: rgba(31, 33, 38, 0.76);
+  color: #ffe49a;
+  box-shadow: 0 0 20px rgba(242, 200, 90, 0.09);
+  pointer-events: none;
+}
+
+.trajectory-lab .motion-freeze-badge b {
+  font-size: 0.66rem;
+  letter-spacing: 0.07em;
+}
+
+.trajectory-lab .motion-freeze-badge i {
+  color: rgba(104, 204, 232, 0.8);
+  font-style: normal;
+  letter-spacing: -0.18em;
+}
+
+.trajectory-lab .trajectory-board-frame.m2 .motion-freeze-badge,
+.trajectory-lab .trajectory-board-frame.m3 .motion-freeze-badge {
+  box-shadow: 0 0 28px rgba(104, 204, 232, 0.12), 0 0 18px rgba(242, 200, 90, 0.09);
+}
+
+.trajectory-lab .trajectory-ab button {
+  min-height: 58px;
+}
+
+.trajectory-lab .trajectory-presets {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.trajectory-lab .board-legend {
+  max-width: calc(100% - 20px);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1180px) {
+  .trajectory-lab .trajectory-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .trajectory-lab .trajectory-status span {
+    text-align: left;
+  }
+}
+
+@media (max-width: 760px) {
+  .trajectory-lab .trajectory-action-row,
+  .trajectory-lab .projection-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .trajectory-lab .trajectory-vector-compass,
+  .trajectory-lab .motion-freeze-badge {
+    position: static;
+    margin: 8px;
+  }
+}
