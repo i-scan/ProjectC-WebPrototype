@@ -48,7 +48,7 @@ try {
   assert(dom.includes('data-trajectory-dissipation="persistent-start-m-minus-1-v1"'), 'Passive Dissipation marker missing')
   assert(dom.includes('data-cell-authority="ready-cell-center-v1"'), 'Cell-authoritative Ready marker missing')
   assert(dom.includes('data-trajectory-path="cell-center-anchored-steering-curve-v2"'), 'Cell-center anchored authority curve marker missing')
-  assert(dom.includes('data-trajectory-preview="visited-cell-corridor-curve-v1"'), 'Visited-Cell corridor preview marker missing')
+  assert(dom.includes('data-trajectory-preview="visited-cell-corridor-curve-v2"'), 'Visited-Cell corridor preview marker missing')
   assert(dom.includes('data-spatial-mode="discrete"'), 'Trajectory Lab must expose discrete Hex6 authority')
   assert(dom.includes('data-steer-input="direct-cell-click"'), 'Direct Cell-click Steering marker missing')
   assert(dom.includes('data-trajectory-action="steer"'), 'Move / Steer action missing')
