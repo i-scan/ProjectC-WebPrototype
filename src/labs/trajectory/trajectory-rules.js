@@ -1,4 +1,5 @@
-import { HEX_DIRECTIONS, axialDistance, axialToWorld, directionVector, worldToAxial } from '../../sim/hex.js'
+import { HEX_DIRECTIONS, axialDistance, axialToWorld, directionIdBetween, directionVector, worldToAxial } from '../../sim/hex.js'
+import { runCellMotion } from '../../sim/cell-motion.js'
 
 export const TRAJECTORY_RULE = 'val-012-process-steering-ab-v1-candidate'
 export const TRAJECTORY_READY_RULE = 'action-complete-ready-v1'
@@ -6,7 +7,8 @@ export const TRAJECTORY_STEERING_RULE = 'max-60deg-per-action-v1'
 export const TRAJECTORY_DISSIPATION_RULE = 'persistent-start-m-minus-1-v1'
 export const TRAJECTORY_CELL_AUTHORITY_RULE = 'ready-cell-center-v1'
 export const TRAJECTORY_PATH_RULE = 'canonical-turn-timing-path-v3'
-export const TRAJECTORY_PREVIEW_RULE = 'canonical-result-corridor-curve-v3'
+export const TRAJECTORY_PREVIEW_RULE = 'global-tangent-bezier-preview-v4'
+export const TRAJECTORY_REFLECTION_RULE = 'driving-lab-wall-pivot-reflection-v1'
 export const TRAJECTORY_MIN_RADIUS = 4
 export const TRAJECTORY_MAX_RADIUS = 10
 export const TRAJECTORY_DEFAULT_RADIUS = 6
@@ -21,13 +23,10 @@ export const TRAJECTORY_ACTION_PROFILES = Object.freeze({
 
 const DEG = Math.PI / 180
 const RAD = 180 / Math.PI
-const SUBSTEPS_PER_CELL = 8
-const PREVIEW_END_EXTENSION = 0.42
-const PREVIEW_CORNER_PASSES = 2
-const PREVIEW_CORNER_INSET = 0.42
-const PREVIEW_BOW_MAX = 0.34
-const PREVIEW_DENSITY = 12
-const CURVE_TANGENT_SCALE = 0.78
+const VISUAL_CURVE_SAMPLES = 40
+const PREVIEW_END_EXTENSION = 0.34
+const BEZIER_TURN_HANDLE = 0.72
+const BEZIER_STRAIGHT_HANDLE = 0.34
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
 function normalizeAngle(angle) {
@@ -237,216 +236,158 @@ function buildCenterPath({ state, targetHeading, targetHex, travelSteps, steerin
   }
 }
 
-function hermitePoint(from, to, fromHeading, toHeading, t) {
-  const distance = Math.max(0.001, Math.hypot(to.x - from.x, to.z - from.z))
-  const tangentLength = distance * CURVE_TANGENT_SCALE
-  const m0 = { x: Math.cos(fromHeading) * tangentLength, z: Math.sin(fromHeading) * tangentLength }
-  const m1 = { x: Math.cos(toHeading) * tangentLength, z: Math.sin(toHeading) * tangentLength }
-  const t2 = t * t
-  const t3 = t2 * t
-  const h00 = 2 * t3 - 3 * t2 + 1
-  const h10 = t3 - 2 * t2 + t
-  const h01 = -2 * t3 + 3 * t2
-  const h11 = t3 - t2
-  const position = {
-    x: h00 * from.x + h10 * m0.x + h01 * to.x + h11 * m1.x,
-    z: h00 * from.z + h10 * m0.z + h01 * to.z + h11 * m1.z,
-  }
-  const dh00 = 6 * t2 - 6 * t
-  const dh10 = 3 * t2 - 4 * t + 1
-  const dh01 = -6 * t2 + 6 * t
-  const dh11 = 3 * t2 - 2 * t
-  const derivative = {
-    x: dh00 * from.x + dh10 * m0.x + dh01 * to.x + dh11 * m1.x,
-    z: dh00 * from.z + dh10 * m0.z + dh01 * to.z + dh11 * m1.z,
-  }
-  return { position, heading: Math.atan2(derivative.z, derivative.x) }
-}
-
-function samplesForCenterPath(path, pathResult, movingM, finalM, finalAxis) {
-  const segmentCount = Math.max(0, path.length - 1)
-  if (segmentCount === 0) {
-    const center = axialToWorld(path[0])
-    return [
-      { t: 0, position: center, velocity: velocityFor(finalAxis, finalM), axisId: finalAxis, momentumLevel: finalM },
-      { t: 1, position: { ...center }, velocity: velocityFor(finalAxis, finalM), axisId: finalAxis, momentumLevel: finalM },
-    ]
-  }
-
-  const headingAtAnchor = (anchorIndex) => {
-    if (anchorIndex <= 0) return pathResult.startHeading
-    if (anchorIndex >= segmentCount) return finalAxis ? axisAngle(finalAxis) : axisAngle(pathResult.segmentAxes.at(-1) ?? pathResult.startAxis)
-    const incomingAxis = pathResult.segmentAxes[anchorIndex - 1] ?? pathResult.startAxis
-    const outgoingAxis = pathResult.segmentAxes[anchorIndex] ?? incomingAxis
-    const incomingHeading = axisAngle(incomingAxis)
-    const outgoingHeading = axisAngle(outgoingAxis)
-    return incomingHeading + shortestDelta(incomingHeading, outgoingHeading) * 0.5
-  }
-
-  const samples = []
-  samples.push({
-    t: 0,
-    position: axialToWorld(path[0]),
-    velocity: velocityForHeading(headingAtAnchor(0), movingM),
-    axisId: pathResult.startAxis,
-    momentumLevel: movingM,
-    cellCenterAnchor: true,
-  })
-
-  for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
-    const from = axialToWorld(path[segmentIndex])
-    const to = axialToWorld(path[segmentIndex + 1])
-    const fromHeading = headingAtAnchor(segmentIndex)
-    const toHeading = headingAtAnchor(segmentIndex + 1)
-    for (let sub = 1; sub <= SUBSTEPS_PER_CELL; sub += 1) {
-      const local = sub / SUBSTEPS_PER_CELL
-      const global = (segmentIndex + local) / segmentCount
-      const atFinalCenter = segmentIndex === segmentCount - 1 && sub === SUBSTEPS_PER_CELL
-      const atCellCenter = sub === SUBSTEPS_PER_CELL
-      const curve = hermitePoint(from, to, fromHeading, toHeading, local)
-      const sampleAxis = atFinalCenter ? finalAxis : nearestAxisIdFromAngle(curve.heading)
-      samples.push({
-        t: global,
-        position: curve.position,
-        velocity: atFinalCenter ? velocityFor(finalAxis, finalM) : velocityForHeading(curve.heading, movingM),
-        axisId: sampleAxis,
-        momentumLevel: atFinalCenter ? finalM : movingM,
-        cellCenterAnchor: atCellCenter,
-      })
-    }
-  }
-  return samples
-}
-
 function pointLerp(a, b, t) {
   return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t }
 }
 
-function pointHexKey(point) {
-  const hex = worldToAxial(point)
-  return `${hex.q},${hex.r}`
+function cubicBezierPoint(p0, p1, p2, p3, t) {
+  const u = 1 - t
+  const uu = u * u
+  const tt = t * t
+  return {
+    x: uu * u * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + tt * t * p3.x,
+    z: uu * u * p0.z + 3 * uu * t * p1.z + 3 * u * tt * p2.z + tt * t * p3.z,
+  }
 }
 
-function chaikinPass(points) {
-  if (points.length <= 2) return points.map((point) => ({ ...point }))
-  const result = [{ ...points[0] }]
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const a = points[index]
-    const b = points[index + 1]
-    result.push(pointLerp(a, b, PREVIEW_CORNER_INSET), pointLerp(a, b, 1 - PREVIEW_CORNER_INSET))
+function cubicBezierDerivative(p0, p1, p2, p3, t) {
+  const u = 1 - t
+  return {
+    x: 3 * u * u * (p1.x - p0.x) + 6 * u * t * (p2.x - p1.x) + 3 * t * t * (p3.x - p2.x),
+    z: 3 * u * u * (p1.z - p0.z) + 6 * u * t * (p2.z - p1.z) + 3 * t * t * (p3.z - p2.z),
   }
-  result.push({ ...points.at(-1) })
-  return result
 }
 
-function nearestVisitedCenter(point, centers) {
-  let nearest = centers[0]
-  let best = Infinity
-  for (const center of centers) {
-    const distance = Math.hypot(point.x - center.x, point.z - center.z)
-    if (distance < best) {
-      best = distance
-      nearest = center
-    }
+function bezierSection({ from, to, fromAxis, toAxis, movingM, includeStart = true, collisionAtEnd = false }) {
+  const distance = Math.hypot(to.x - from.x, to.z - from.z)
+  if (distance < 0.0001) {
+    return includeStart ? [{ position: { ...from }, axisId: fromAxis ?? toAxis ?? null, momentumLevel: movingM }] : []
   }
-  return nearest
-}
-
-function clampPreviewPointToVisitedCells(point, centers, visitedKeys) {
-  if (visitedKeys.has(pointHexKey(point))) return { ...point }
-  const center = nearestVisitedCenter(point, centers)
-  let low = 0
-  let high = 1
-  for (let index = 0; index < 18; index += 1) {
-    const mid = (low + high) * 0.5
-    const candidate = pointLerp(center, point, mid)
-    if (visitedKeys.has(pointHexKey(candidate))) low = mid
-    else high = mid
-  }
-  return pointLerp(center, point, Math.max(0, low - 0.002))
-}
-
-function relaxedPreviewSamples(plan) {
-  if (!plan?.valid || !plan.pathCells?.length) return plan?.samples ?? []
-  const centers = plan.pathCells.map((hex) => axialToWorld(hex))
-  const visitedKeys = new Set(plan.pathCells.map((hex) => `${hex.q},${hex.r}`))
-  const finalCenter = centers.at(-1)
-  const finalAxis = plan.finalState?.axisId ?? plan.segmentAxes?.at(-1) ?? null
-  const finalDirection = finalAxis ? directionVector(finalAxis) : { x: 0, z: 0 }
-  const rawEnd = {
-    x: finalCenter.x + finalDirection.x * PREVIEW_END_EXTENSION,
-    z: finalCenter.z + finalDirection.z * PREVIEW_END_EXTENSION,
-  }
-  const finalVisited = new Set([`${plan.finalHex.q},${plan.finalHex.r}`])
-  const safeEnd = clampPreviewPointToVisitedCells(rawEnd, [finalCenter], finalVisited)
-
-  const startAxis = plan.segmentAxes?.[0] ?? finalAxis
-  const startDirection = startAxis ? directionVector(startAxis) : { x: 1, z: 0 }
-  const startHeading = startAxis ? axisAngle(startAxis) : 0
-  const finalHeading = finalAxis ? axisAngle(finalAxis) : startHeading
-  const canonicalTurnDeg = shortestDelta(startHeading, finalHeading) * RAD
-  const turnSign = Math.sign(canonicalTurnDeg)
-  const meaningfulTurn = Math.abs(canonicalTurnDeg) > 1
-  const firstTurnSegment = startAxis ? (plan.segmentAxes ?? []).findIndex((axisId) => axisId !== startAxis) : -1
-  const segmentCount = Math.max(1, plan.pathCells.length - 1)
-  const turnProgress = firstTurnSegment >= 0
-    ? clamp((firstTurnSegment + 0.35) / segmentCount, 0.2, 0.86)
-    : 0.82
-  const turnNormal = { x: -startDirection.z * turnSign, z: startDirection.x * turnSign }
-
-  let guide = centers.map((point) => ({ ...point }))
-  if (meaningfulTurn) {
-    for (let pass = 0; pass < PREVIEW_CORNER_PASSES; pass += 1) guide = chaikinPass(guide)
-  }
-
-  const dense = []
-  const guideSegments = Math.max(1, guide.length - 1)
-  for (let index = 0; index < guide.length - 1; index += 1) {
-    const from = guide[index]
-    const to = guide[index + 1]
-    for (let step = 0; step < PREVIEW_DENSITY; step += 1) {
-      if (index > 0 && step === 0) continue
-      const local = step / PREVIEW_DENSITY
-      const progress = (index + local) / guideSegments
-      const basePoint = pointLerp(from, to, local)
-      let curvedPoint = basePoint
-      if (meaningfulTurn) {
-        const envelope = Math.pow(Math.max(0, Math.sin(Math.PI * progress)), 0.72)
-        const focus = Math.exp(-Math.pow((progress - turnProgress) / 0.34, 2))
-        const bow = PREVIEW_BOW_MAX * envelope * (0.35 + 0.65 * focus)
-        curvedPoint = {
-          x: basePoint.x + turnNormal.x * bow,
-          z: basePoint.z + turnNormal.z * bow,
-        }
-      }
-      dense.push(clampPreviewPointToVisitedCells(curvedPoint, centers, visitedKeys))
-    }
-  }
-  dense.push({ ...finalCenter })
-
-  if (finalAxis) {
-    for (let step = 1; step <= 5; step += 1) {
-      dense.push(clampPreviewPointToVisitedCells(pointLerp(finalCenter, safeEnd, step / 5), [finalCenter], finalVisited))
-    }
-  }
-
-  return dense.map((position, index) => {
-    const next = dense[Math.min(dense.length - 1, index + 1)]
-    const previous = dense[Math.max(0, index - 1)]
-    const dx = next.x - previous.x
-    const dz = next.z - previous.z
-    const heading = Math.hypot(dx, dz) > 0.0001 ? Math.atan2(dz, dx) : finalHeading
-    const atEnd = index === dense.length - 1
-    return {
-      t: dense.length <= 1 ? 1 : index / (dense.length - 1),
+  const fromHeading = axisAngle(fromAxis ?? toAxis ?? 'E')
+  const toHeading = axisAngle(toAxis ?? fromAxis ?? 'E')
+  const turn = Math.abs(shortestDelta(fromHeading, toHeading))
+  const handleScale = turn > 0.01 ? BEZIER_TURN_HANDLE : BEZIER_STRAIGHT_HANDLE
+  const handle = distance * handleScale
+  const p0 = { ...from }
+  const p3 = { ...to }
+  const p1 = { x: p0.x + Math.cos(fromHeading) * handle, z: p0.z + Math.sin(fromHeading) * handle }
+  const p2 = { x: p3.x - Math.cos(toHeading) * handle, z: p3.z - Math.sin(toHeading) * handle }
+  const count = Math.max(12, Math.round(VISUAL_CURVE_SAMPLES * Math.max(0.45, Math.min(1, distance / 3))))
+  const samples = []
+  for (let index = includeStart ? 0 : 1; index <= count; index += 1) {
+    const local = index / count
+    const position = cubicBezierPoint(p0, p1, p2, p3, local)
+    const derivative = cubicBezierDerivative(p0, p1, p2, p3, local)
+    const heading = Math.hypot(derivative.x, derivative.z) > 0.0001 ? Math.atan2(derivative.z, derivative.x) : toHeading
+    samples.push({
       position,
-      velocity: atEnd ? { ...plan.finalState.velocity } : velocityForHeading(heading, Math.max(1, plan.beforeM, plan.builtM)),
-      axisId: atEnd ? finalAxis : nearestAxisIdFromAngle(heading),
-      momentumLevel: atEnd ? plan.finalM : Math.max(1, plan.beforeM, plan.builtM),
-      previewCorridorSample: true,
-      previewEnd: atEnd,
+      velocity: velocityForHeading(heading, movingM),
+      axisId: nearestAxisIdFromAngle(heading),
+      momentumLevel: movingM,
+      collision: collisionAtEnd && index === count,
+    })
+  }
+  return samples
+}
+
+function retimeVisualSamples(samples, finalState) {
+  if (!samples.length) return []
+  const distances = [0]
+  let total = 0
+  for (let index = 1; index < samples.length; index += 1) {
+    total += Math.hypot(
+      samples[index].position.x - samples[index - 1].position.x,
+      samples[index].position.z - samples[index - 1].position.z,
+    )
+    distances.push(total)
+  }
+  return samples.map((sample, index) => {
+    const atEnd = index === samples.length - 1
+    return {
+      ...sample,
+      t: total > 0.0001 ? distances[index] / total : index / Math.max(1, samples.length - 1),
+      velocity: atEnd ? { ...finalState.velocity } : sample.velocity,
+      axisId: atEnd ? finalState.axisId : sample.axisId,
+      momentumLevel: atEnd ? finalState.momentumLevel : sample.momentumLevel,
     }
   })
+}
+
+function visualSamplesForMotion({ state, motion, pathResult, movingM, finalState, travelEndAxis }) {
+  const finalPosition = finalState.position
+  const collisions = motion?.collisions ?? []
+  const samples = []
+  let from = { ...state.position }
+  let fromAxis = pathResult.startAxis ?? state.axisId ?? travelEndAxis
+  let first = true
+
+  for (const collision of collisions) {
+    if (!collision?.position) continue
+    const section = bezierSection({
+      from,
+      to: collision.position,
+      fromAxis,
+      toAxis: collision.axisBefore ?? fromAxis,
+      movingM,
+      includeStart: first,
+      collisionAtEnd: true,
+    })
+    samples.push(...section)
+    first = false
+    from = { ...collision.position }
+    fromAxis = collision.axisAfter ?? fromAxis
+  }
+
+  const tail = bezierSection({
+    from,
+    to: finalPosition,
+    fromAxis,
+    toAxis: travelEndAxis ?? fromAxis,
+    movingM,
+    includeStart: first,
+  })
+  samples.push(...tail)
+
+  if (!samples.length) {
+    samples.push({
+      position: { ...state.position }, velocity: { ...state.velocity }, axisId: state.axisId ?? null,
+      momentumLevel: trajectoryMomentum(state),
+    })
+    if (Math.hypot(finalPosition.x - state.position.x, finalPosition.z - state.position.z) > 0.0001) {
+      samples.push({
+        position: { ...finalPosition }, velocity: { ...finalState.velocity }, axisId: finalState.axisId,
+        momentumLevel: finalState.momentumLevel,
+      })
+    }
+  }
+  return retimeVisualSamples(samples, finalState)
+}
+
+function previewSamplesForPlan(plan) {
+  if (!plan?.valid || !plan.samples?.length) return plan?.samples ?? []
+  const samples = plan.samples.map((sample) => ({
+    ...sample,
+    position: { ...sample.position },
+    velocity: { ...(sample.velocity ?? { x: 0, z: 0 }) },
+  }))
+  const finalAxis = plan.finalState?.axisId ?? null
+  if (!finalAxis) return samples
+  const finalCenter = plan.finalState.position
+  const direction = directionVector(finalAxis)
+  const speed = Math.max(1, plan.beforeM, plan.builtM)
+  for (let step = 1; step <= 6; step += 1) {
+    const distance = PREVIEW_END_EXTENSION * (step / 6)
+    samples.push({
+      t: 1,
+      position: { x: finalCenter.x + direction.x * distance, z: finalCenter.z + direction.z * distance },
+      velocity: velocityForHeading(axisAngle(finalAxis), speed),
+      axisId: finalAxis,
+      momentumLevel: plan.finalM,
+      previewAxisStub: true,
+      previewEnd: step === 6,
+    })
+  }
+  return samples
 }
 
 export function trajectoryActionPlan({
@@ -456,6 +397,7 @@ export function trajectoryActionPlan({
   boardRadius = TRAJECTORY_DEFAULT_RADIUS,
   responseCurve = 'linear',
   baseDissipationPerAction = TRAJECTORY_BASE_DISSIPATION,
+  obstacles = [],
 } = {}) {
   const profile = profileFor(actionId)
   const canonicalActionId = profile.id
@@ -486,11 +428,37 @@ export function trajectoryActionPlan({
     freeM0Direction,
   })
 
-  const actualSteps = Math.max(0, pathResult.path.length - 1)
+  const startHex = worldToAxial(state.position)
+  const movingM = Math.max(1, startM, builtM)
+  const motion = runCellMotion({
+    startHex,
+    initialAxisId: pathResult.startAxis ?? state.axisId ?? pathResult.finalTravelAxis,
+    initialMomentum: Math.max(startM, builtM),
+    travelBudget: requestedTravelSteps,
+    authoredPathCells: pathResult.path.slice(1),
+    obstacles,
+    boardRadius,
+    capRemainingByMomentum: false,
+    // Match Driving Lab / Spatial Inertia v1: surface redirects Axis; reflection itself is not an M tax.
+    reflectionMomentum: ({ momentum }) => ({ momentum, restitution: null }),
+  })
+
+  if (startM === 0 && buildM === 0 && motion.collisions.length > 0) {
+    return {
+      valid: false,
+      reason: 'M0 Move cannot initiate a Wall / Surface reflection.',
+      kind: canonicalActionId,
+      actionId: canonicalActionId,
+      beforeM: startM,
+      finalM: startM,
+      collisions: motion.collisions,
+      reflectionRule: TRAJECTORY_REFLECTION_RULE,
+    }
+  }
+
   let generatedM = 0
   let startupCompatible = false
   let finalM = startM
-
   if (profile.sustain) {
     finalM = builtM
   } else if (startM === 0) {
@@ -505,9 +473,19 @@ export function trajectoryActionPlan({
     finalM = Math.max(0, startM - Math.max(0, baseDissipationPerAction))
   }
 
-  let finalAxis = pathResult.finalTravelAxis ?? state.axisId ?? pathResult.targetAxis
+  const actualPathCells = [startHex, ...(motion.actualPath ?? [])].map((hex) => ({ ...hex }))
+  const resolvedSegmentAxes = []
+  for (let index = 1; index < actualPathCells.length; index += 1) {
+    const axisId = directionIdBetween(actualPathCells[index - 1], actualPathCells[index])
+    if (axisId) resolvedSegmentAxes.push(axisId)
+  }
+  const travelEndAxis = motion.reflected
+    ? (motion.axisAfter ?? resolvedSegmentAxes.at(-1) ?? pathResult.finalTravelAxis)
+    : (pathResult.finalTravelAxis ?? resolvedSegmentAxes.at(-1) ?? state.axisId ?? pathResult.targetAxis)
+
+  let finalAxis = travelEndAxis
   let zeroMSettlementDeg = 0
-  if (startM > 0 && finalM === 0 && canonicalActionId === 'steer' && Number.isFinite(targetHeading)) {
+  if (!motion.reflected && startM > 0 && finalM === 0 && canonicalActionId === 'steer' && Number.isFinite(targetHeading)) {
     const currentAxisHeading = axisAngle(finalAxis)
     const remaining = shortestDelta(currentAxisHeading, targetHeading)
     if (Math.abs(remaining) > 0.001) {
@@ -516,13 +494,12 @@ export function trajectoryActionPlan({
       zeroMSettlementDeg = settlement * RAD
     }
   }
-
-  if (startM === 0 && profile.needsDirection && Number.isFinite(targetHeading)) {
+  if (startM === 0 && profile.needsDirection && Number.isFinite(targetHeading) && !motion.reflected) {
     finalAxis = nearestAxisIdFromAngle(targetHeading)
   }
   if (canonicalActionId === 'skip' && startM === 0 && !state.axisId) finalAxis = null
 
-  const finalHex = pathResult.path.at(-1)
+  const finalHex = { ...motion.finalHex }
   const finalPosition = axialToWorld(finalHex)
   const finalState = {
     ...state,
@@ -533,20 +510,20 @@ export function trajectoryActionPlan({
     heading: finalAxis ? axisAngle(finalAxis) : null,
     worldAt: Number(state.worldAt ?? 0) + 1,
   }
-
-  const movingM = Math.max(1, startM, builtM)
-  const samples = samplesForCenterPath(pathResult.path, pathResult, movingM, finalM, finalAxis)
-  const crossings = pathResult.path.map((hex, index) => ({
+  const samples = visualSamplesForMotion({ state, motion, pathResult, movingM, finalState, travelEndAxis })
+  const actualSteps = motion.spentTravel
+  const crossings = actualPathCells.map((hex, index) => ({
     hex: { ...hex },
-    sampleIndex: index * SUBSTEPS_PER_CELL,
-    t: index / Math.max(1, pathResult.path.length - 1),
+    sampleIndex: Math.round((index / Math.max(1, actualPathCells.length - 1)) * Math.max(0, samples.length - 1)),
+    t: index / Math.max(1, actualPathCells.length - 1),
+    logicalOnly: true,
   }))
 
   const targetDeltaDeg = Number.isFinite(targetHeading) && state.axisId
     ? shortestDelta(axisAngle(state.axisId), targetHeading) * RAD
     : null
   const steeringAppliedDeg = pathResult.cappedDelta * RAD
-  const reachedBoardEdge = actualSteps < requestedTravelSteps
+  const reachedBoardEdge = actualSteps < requestedTravelSteps && motion.collisions.length === 0
   const verb = canonicalActionId === 'skip'
     ? 'Skip'
     : canonicalActionId === 'drive'
@@ -554,7 +531,13 @@ export function trajectoryActionPlan({
       : canonicalActionId === 'heavy-drive'
         ? 'Heavy Drive'
         : (startM > 0 ? 'Steer' : 'Move')
-  const summary = `${verb} · ${actualSteps} Cell / 1 AT · M${startM}→M${finalM} · Axis ${state.axisId ?? 'none'}→${finalAxis ?? 'none'}`
+  const reflectionText = motion.reflectionCount > 0 ? ` · Reflect×${motion.reflectionCount}` : ''
+  const summary = `${verb} · ${actualSteps} Travel / 1 AT · M${startM}→M${finalM} · Axis ${state.axisId ?? 'none'}→${finalAxis ?? 'none'}${reflectionText}`
+  const conflictEvents = motion.collisions.map((collision) => ({
+    kind: 'surface-reflection',
+    actorId: 'player',
+    ...collision,
+  }))
 
   return {
     valid: true,
@@ -562,8 +545,9 @@ export function trajectoryActionPlan({
     actionId: canonicalActionId,
     samples,
     crossings,
-    pathCells: pathResult.path.map((hex) => ({ ...hex })),
-    segmentAxes: [...pathResult.segmentAxes],
+    pathCells: actualPathCells,
+    nominalPathCells: pathResult.path.map((hex) => ({ ...hex })),
+    segmentAxes: motion.reflected ? resolvedSegmentAxes : [...pathResult.segmentAxes],
     finalState,
     finalHex,
     beforeM: startM,
@@ -582,11 +566,17 @@ export function trajectoryActionPlan({
     reachedBoardEdge,
     cellAuthorityRule: TRAJECTORY_CELL_AUTHORITY_RULE,
     pathRule: TRAJECTORY_PATH_RULE,
+    previewRule: TRAJECTORY_PREVIEW_RULE,
+    reflectionRule: TRAJECTORY_REFLECTION_RULE,
+    reflectionCount: motion.reflectionCount,
+    motionTrace: motion.trace,
+    travelEndAxis,
     atCost: 1,
     spatialMode: 'hybrid',
     destinationDriven: false,
-    collisions: [],
-    conflictEvents: [],
+    visualCurveAuthoritative: true,
+    collisions: motion.collisions,
+    conflictEvents,
     actorTrajectories: {},
     actorPlaybackWindows: {},
     actorStates: [],
@@ -604,11 +594,12 @@ export function withCoastProjection(controlledPlan, coastPlan) {
   if (!controlledPlan?.valid) return controlledPlan
   return {
     ...controlledPlan,
-    samples: relaxedPreviewSamples(controlledPlan),
+    samples: previewSamplesForPlan(controlledPlan),
     actorTrajectories: coastPlan?.valid ? { coastProjection: coastPlan.pathCells } : {},
     previewAxisStub: controlledPlan.finalState?.axisId ?? null,
     previewAxisStubLength: PREVIEW_END_EXTENSION,
     previewRule: TRAJECTORY_PREVIEW_RULE,
     coastPreviewAxis: coastPlan?.finalState?.axisId ?? null,
+    visualCurveAuthoritative: true,
   }
 }
