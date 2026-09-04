@@ -11,6 +11,7 @@ import {
   TRAJECTORY_MAX_RADIUS,
   TRAJECTORY_MIN_RADIUS,
   TRAJECTORY_PATH_RULE,
+  TRAJECTORY_PREVIEW_RULE,
   TRAJECTORY_READY_RULE,
   TRAJECTORY_RULE,
   TRAJECTORY_STEERING_RULE,
@@ -312,6 +313,7 @@ export function TrajectoryLab() {
       data-trajectory-dissipation={TRAJECTORY_DISSIPATION_RULE}
       data-cell-authority={TRAJECTORY_CELL_AUTHORITY_RULE}
       data-trajectory-path={TRAJECTORY_PATH_RULE}
+      data-trajectory-preview={TRAJECTORY_PREVIEW_RULE}
       data-steer-input="direct-cell-click"
       data-world-at={state.worldAt}
       data-momentum={momentum}
@@ -353,7 +355,7 @@ export function TrajectoryLab() {
           </section>
 
           <section className="panel-card prediction-card" data-trajectory-preview-panel>
-            <div className="section-heading"><h3>Projection</h3><span>Cell-center polyline</span></div>
+            <div className="section-heading"><h3>Projection</h3><span>visited-Cell corridor curve</span></div>
             <div className="projection-pair">
               <div className="projection-entry coast">
                 <b>SKIP / COAST</b>
@@ -441,10 +443,10 @@ export function TrajectoryLab() {
               </div>
             )}
             <div className="board-legend">
-              <span><i className="trajectory" />Blue = chosen Action center-path</span>
-              <span><i className="momentum-axis" />Yellow = Skip/Coast center-path</span>
-              <span>Every path bend occurs at a Cell center</span>
-              <span>Short terminal segment = predicted Ready Axis</span>
+              <span><i className="trajectory" />Blue = smoothed preview inside visited Cells</span>
+              <span><i className="momentum-axis" />Yellow = Skip/Coast authority path</span>
+              <span>Blue may miss intermediate centers but never enters an unvisited Cell</span>
+              <span>Preview ends near final Cell center, biased toward Ready Axis</span>
             </div>
             {playback && <div className="playback-badge">1 Action · +1 AT · interpolate center → center</div>}
           </div>
