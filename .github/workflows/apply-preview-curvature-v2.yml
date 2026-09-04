@@ -35,75 +35,26 @@ jobs:
           text = text.replace("const PREVIEW_CORNER_PASSES = 2\nconst PREVIEW_DENSITY = 8", "const PREVIEW_CORNER_PASSES = 2\nconst PREVIEW_CORNER_INSET = 0.38\nconst PREVIEW_BOW_MAX = 0.18\nconst PREVIEW_DENSITY = 10")
           text = text.replace("result.push(pointLerp(a, b, 0.25), pointLerp(a, b, 0.75))", "result.push(pointLerp(a, b, PREVIEW_CORNER_INSET), pointLerp(a, b, 1 - PREVIEW_CORNER_INSET))")
 
-          old = '''  const dense = []
-  for (let index = 0; index < guide.length - 1; index += 1) {
-    const from = guide[index]
-    const to = guide[index + 1]
-    for (let step = 0; step < PREVIEW_DENSITY; step += 1) {
-      if (index > 0 && step === 0) continue
-      dense.push(clampPreviewPointToVisitedCells(pointLerp(from, to, step / PREVIEW_DENSITY), centers, visitedKeys))
-    }
-  }
-  dense.push(clampPreviewPointToVisitedCells(guide.at(-1), centers, visitedKeys))
-'''
-          new = '''  const dense = []
-  const startAxis = plan.segmentAxes?.[0] ?? plan.finalState?.axisId ?? 'E'
-  const startDirection = directionVector(startAxis)
-  const turnSign = Math.sign(plan.steeringAppliedDeg ?? 0)
-  const turnStrength = clamp(Math.abs(plan.steeringAppliedDeg ?? 0) / TRAJECTORY_MAX_STEER_DEG, 0, 1)
-  const travelStrength = clamp((plan.travelSteps ?? 1) / 3, 0.45, 1)
-  const bowAmplitude = PREVIEW_BOW_MAX * turnStrength * travelStrength
-  const turnNormal = { x: -startDirection.z * turnSign, z: startDirection.x * turnSign }
-  const guideSegments = Math.max(1, guide.length - 1)
-
-  for (let index = 0; index < guide.length - 1; index += 1) {
-    const from = guide[index]
-    const to = guide[index + 1]
-    for (let step = 0; step < PREVIEW_DENSITY; step += 1) {
-      if (index > 0 && step === 0) continue
-      const local = step / PREVIEW_DENSITY
-      const progress = (index + local) / guideSegments
-      const basePoint = pointLerp(from, to, local)
-      const bow = Math.pow(Math.sin(Math.PI * progress), 1.15) * bowAmplitude
-      const curvedPoint = {
-        x: basePoint.x + turnNormal.x * bow,
-        z: basePoint.z + turnNormal.z * bow,
-      }
-      dense.push(clampPreviewPointToVisitedCells(curvedPoint, centers, visitedKeys))
-    }
-  }
-  dense.push(clampPreviewPointToVisitedCells(guide.at(-1), centers, visitedKeys))
-'''
+          old = "  const dense = []\n  for (let index = 0; index < guide.length - 1; index += 1) {\n    const from = guide[index]\n    const to = guide[index + 1]\n    for (let step = 0; step < PREVIEW_DENSITY; step += 1) {\n      if (index > 0 && step === 0) continue\n      dense.push(clampPreviewPointToVisitedCells(pointLerp(from, to, step / PREVIEW_DENSITY), centers, visitedKeys))\n    }\n  }\n  dense.push(clampPreviewPointToVisitedCells(guide.at(-1), centers, visitedKeys))\n"
+          new = "  const dense = []\n  const startAxis = plan.segmentAxes?.[0] ?? plan.finalState?.axisId ?? 'E'\n  const startDirection = directionVector(startAxis)\n  const turnSign = Math.sign(plan.steeringAppliedDeg ?? 0)\n  const turnStrength = clamp(Math.abs(plan.steeringAppliedDeg ?? 0) / TRAJECTORY_MAX_STEER_DEG, 0, 1)\n  const travelStrength = clamp((plan.travelSteps ?? 1) / 3, 0.45, 1)\n  const bowAmplitude = PREVIEW_BOW_MAX * turnStrength * travelStrength\n  const turnNormal = { x: -startDirection.z * turnSign, z: startDirection.x * turnSign }\n  const guideSegments = Math.max(1, guide.length - 1)\n\n  for (let index = 0; index < guide.length - 1; index += 1) {\n    const from = guide[index]\n    const to = guide[index + 1]\n    for (let step = 0; step < PREVIEW_DENSITY; step += 1) {\n      if (index > 0 && step === 0) continue\n      const local = step / PREVIEW_DENSITY\n      const progress = (index + local) / guideSegments\n      const basePoint = pointLerp(from, to, local)\n      const bow = Math.pow(Math.sin(Math.PI * progress), 1.15) * bowAmplitude\n      const curvedPoint = {\n        x: basePoint.x + turnNormal.x * bow,\n        z: basePoint.z + turnNormal.z * bow,\n      }\n      dense.push(clampPreviewPointToVisitedCells(curvedPoint, centers, visitedKeys))\n    }\n  }\n  dense.push(clampPreviewPointToVisitedCells(guide.at(-1), centers, visitedKeys))\n"
           if old not in text:
               raise RuntimeError('dense preview block anchor missing')
           text = text.replace(old, new, 1)
           p.write_text(text)
 
           p = Path('scripts/verify-trajectory-lab.mjs')
-          text = p.read_text().replace('data-trajectory-preview="visited-cell-corridor-curve-v1"', 'data-trajectory-preview="visited-cell-corridor-curve-v2"')
-          p.write_text(text)
+          p.write_text(p.read_text().replace('data-trajectory-preview="visited-cell-corridor-curve-v1"', 'data-trajectory-preview="visited-cell-corridor-curve-v2"'))
 
           p = Path('src/labs/trajectory/trajectory-rules.test.js')
           text = p.read_text()
-          anchor = '''    const finalCenter = axialToWorld(controlled.finalHex)
-    const end = preview.samples.at(-1).position
-'''
-          addition = '''    const earlyCurveSamples = preview.samples.filter((sample) => {
-      const hex = worldToAxial(sample.position)
-      return (hex.q === 0 && hex.r === 0) || (hex.q === 1 && hex.r === 0)
-    })
-    expect(earlyCurveSamples.some((sample) => Math.abs(sample.position.z) > 0.035)).toBe(true)
-
-'''
+          anchor = "    const finalCenter = axialToWorld(controlled.finalHex)\n    const end = preview.samples.at(-1).position\n"
+          addition = "    const earlyCurveSamples = preview.samples.filter((sample) => {\n      const hex = worldToAxial(sample.position)\n      return (hex.q === 0 && hex.r === 0) || (hex.q === 1 && hex.r === 0)\n    })\n    expect(earlyCurveSamples.some((sample) => Math.abs(sample.position.z) > 0.035)).toBe(true)\n\n"
           if anchor not in text:
               raise RuntimeError('preview test anchor missing')
-          text = text.replace(anchor, addition + anchor, 1)
-          p.write_text(text)
+          p.write_text(text.replace(anchor, addition + anchor, 1))
 
           p = Path('src/labs/trajectory/TrajectoryLab.jsx')
-          text = p.read_text()
-          text = text.replace('Blue may miss intermediate centers but never enters an unvisited Cell', 'Blue uses a stronger inertial bow and may miss intermediate centers, but never enters an unvisited Cell')
-          p.write_text(text)
+          p.write_text(p.read_text().replace('Blue may miss intermediate centers but never enters an unvisited Cell', 'Blue uses a stronger inertial bow and may miss intermediate centers, but never enters an unvisited Cell'))
           PY
       - name: Install dependencies
         run: pnpm install
