@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Board3D } from '../../ui/Board3D.jsx'
-import { axialDistance, axialKey, worldToAxial } from '../../sim/hex.js'
+import { axialKey, worldToAxial } from '../../sim/hex.js'
 import { createCellWorld } from '../../sim/world.js'
 import { AT_VISUAL_MS } from '../../sim/solver.js'
 import {
   TRAJECTORY_BASE_DISSIPATION,
+  TRAJECTORY_CELL_AUTHORITY_RULE,
   TRAJECTORY_DEFAULT_RADIUS,
   TRAJECTORY_DISSIPATION_RULE,
   TRAJECTORY_MAX_RADIUS,
@@ -82,7 +83,7 @@ export function TrajectoryLab() {
   const [atVisualMs, setAtVisualMs] = useState(AT_VISUAL_MS)
   const [playback, setPlayback] = useState(null)
   const [history, setHistory] = useState([])
-  const [lastEvent, setLastEvent] = useState('B preset loaded at E / M2. Hover or click any Cell to define Steering direction; Coast remains visible as the neutral projection.')
+  const [lastEvent, setLastEvent] = useState('B preset loaded at E / M2. Hover previews direction; with Move / Steer selected, click a Cell to execute immediately. Ready always settles on a Cell center.')
   const [lastPlan, setLastPlan] = useState(null)
   const playbackIdRef = useRef(1)
 
@@ -144,7 +145,7 @@ export function TrajectoryLab() {
       setSelectedHex(null)
       setHoverHex(null)
       const nextM = trajectoryMomentum(playback.finalState)
-      setLastEvent(`${playback.summary} · READY at M${nextM}; motion ${nextM > 0 ? 'continues through the next Action horizon' : 'has dissipated to M0'}.`)
+      setLastEvent(`${playback.summary} · READY on Cell ${cellText(playback.finalHex)} at M${nextM}; ${nextM > 0 ? 'motion history remains for the next Action' : 'Horizontal M has dissipated to M0'}.`)
     }, remainingMs)
     return () => window.clearTimeout(timer)
   }, [playback?.id])
@@ -153,12 +154,12 @@ export function TrajectoryLab() {
     if (playback || !plan?.valid) return false
     saveHistory()
     setPlayback(playbackFromPlan(plan, playbackIdRef.current++, atVisualMs))
-    setLastEvent(`${plan.summary} · resolving complete 1 AT Action; no intermediate Ready Window.`)
+    setLastEvent(`${plan.summary} · resolving the complete 1 AT transition to Cell ${cellText(plan.finalHex)}; no intermediate Ready Window.`)
     return true
   }
 
-  const commitSteer = (hex = selectedHex) => {
-    if (playback || !hex) return false
+  const commitSteer = (hex) => {
+    if (playback || actionId !== 'steer' || !hex) return false
     const plan = trajectoryActionPlan({
       state,
       actionId: 'steer',
@@ -175,6 +176,8 @@ export function TrajectoryLab() {
   const commitCoast = () => {
     if (playback) return false
     setActionId('coast')
+    setHoverHex(null)
+    setSelectedHex(null)
     return beginPlan(coastPlan)
   }
 
@@ -189,20 +192,21 @@ export function TrajectoryLab() {
     setHistory([])
     setLastPlan(null)
     setCameraResetToken((value) => value + 1)
-    setLastEvent('B preset loaded at E / M2. Hover or click any Cell to define Steering direction; Coast remains visible as the neutral projection.')
+    setLastEvent('B preset loaded at E / M2. Hover previews direction; with Move / Steer selected, click a Cell to execute immediately. Ready always settles on a Cell center.')
     return true
   }
 
   const setPreset = (level, axisId = 'E') => {
     if (playback) return false
     setState(level === 0 && !axisId ? noAxisState() : presetState(level, axisId))
+    setActionId('steer')
     setSelectedHex(null)
     setHoverHex(null)
     setLastPlan(null)
     setHistory([])
     setLastEvent(level === 0 && !axisId
-      ? 'M0 / NoAxis startup preset. First Move establishes Axis but remains M0.'
-      : `Preset ${axisId ?? 'NoAxis'} / M${level} loaded at Ready.`)
+      ? 'M0 / NoAxis startup preset. Move is selected: hover previews, click a Cell executes and establishes Axis while remaining M0.'
+      : `Preset ${axisId ?? 'NoAxis'} / M${level} loaded at a Cell-center Ready state.`)
     return true
   }
 
@@ -211,12 +215,13 @@ export function TrajectoryLab() {
     const next = Math.max(TRAJECTORY_MIN_RADIUS, Math.min(TRAJECTORY_MAX_RADIUS, Math.round(radius)))
     setBoardRadius(next)
     setState(presetState(2))
+    setActionId('steer')
     setSelectedHex(null)
     setHoverHex(null)
     setLastPlan(null)
     setHistory([])
     setCameraResetToken((value) => value + 1)
-    setLastEvent(`Board Radius changed to ${next}. Trajectory scene reset to E / M2.`)
+    setLastEvent(`Board Radius changed to ${next}. Trajectory scene reset to E / M2 at the origin Cell center.`)
     return true
   }
 
@@ -243,6 +248,8 @@ export function TrajectoryLab() {
         readyRule: TRAJECTORY_READY_RULE,
         steeringRule: TRAJECTORY_STEERING_RULE,
         dissipationRule: TRAJECTORY_DISSIPATION_RULE,
+        cellAuthorityRule: TRAJECTORY_CELL_AUTHORITY_RULE,
+        steerInput: 'direct-cell-click',
         worldAt: state.worldAt,
         momentum,
         axisId: state.axisId,
@@ -260,7 +267,21 @@ export function TrajectoryLab() {
       setNoAxis: () => setPreset(0, null),
       setResponseCurve,
       setRadius: changeRadius,
-      steerAt: (q, r) => commitSteer({ q, r }),
+      steerAt: (q, r) => {
+        if (playback) return false
+        setActionId('steer')
+        const plan = trajectoryActionPlan({
+          state,
+          actionId: 'steer',
+          selectedHex: { q, r },
+          boardRadius,
+          responseCurve,
+          baseDissipationPerAction: TRAJECTORY_BASE_DISSIPATION,
+        })
+        if (!plan.valid) return false
+        setSelectedHex({ q, r })
+        return beginPlan(plan)
+      },
       coast: commitCoast,
       reset,
     }
@@ -279,6 +300,8 @@ export function TrajectoryLab() {
       data-trajectory-ready={TRAJECTORY_READY_RULE}
       data-trajectory-steering={TRAJECTORY_STEERING_RULE}
       data-trajectory-dissipation={TRAJECTORY_DISSIPATION_RULE}
+      data-cell-authority={TRAJECTORY_CELL_AUTHORITY_RULE}
+      data-steer-input="direct-cell-click"
       data-world-at={state.worldAt}
       data-momentum={momentum}
       data-axis={state.axisId ?? 'none'}
@@ -294,7 +317,7 @@ export function TrajectoryLab() {
           <div><span>Momentum</span><strong>M{momentum}</strong></div>
           <div><span>Axis</span><strong>{state.axisId ?? 'none'}</strong></div>
           <div><span>State</span><strong>{playback ? 'RESOLVING' : 'READY'}</strong></div>
-          <div><span>Action</span><strong>{actionLabel}</strong></div>
+          <div><span>Action</span><strong>{actionId === 'coast' ? coastLabel : actionLabel}</strong></div>
         </div>
       </header>
 
@@ -302,7 +325,7 @@ export function TrajectoryLab() {
         <aside className="side-panel left-panel">
           <section className="panel-card actor-card">
             <div className="portrait">➤</div>
-            <div><p>Persistent Motion Actor</p><h2>Courier / PS</h2><span className="actor-sub">Yellow history · Blue intent · trajectory result</span></div>
+            <div><p>Persistent Motion Actor</p><h2>Courier / PS</h2><span className="actor-sub">Cell authority · continuous 1AT transition · Cell-center Ready</span></div>
           </section>
 
           <section className="panel-card">
@@ -311,14 +334,14 @@ export function TrajectoryLab() {
               <div><dt>Cell</dt><dd>{cellText(currentHex)}</dd></div>
               <div><dt>Horizontal M</dt><dd>M{momentum}</dd></div>
               <div><dt>Axis</dt><dd>{state.axisId ?? 'none'}</dd></div>
-              <div><dt>Ready</dt><dd>{ready ? 'YES' : 'resolving'}</dd></div>
+              <div><dt>Ready</dt><dd>{ready ? 'CELL CENTER' : 'resolving'}</dd></div>
               <div><dt>World AT</dt><dd>{state.worldAt.toFixed(1)}</dd></div>
               <div><dt>Position</dt><dd>{state.position.x.toFixed(2)}, {state.position.z.toFixed(2)}</dd></div>
             </dl>
           </section>
 
           <section className="panel-card prediction-card" data-trajectory-preview-panel>
-            <div className="section-heading"><h3>Projection</h3><span>same solver</span></div>
+            <div className="section-heading"><h3>Projection</h3><span>hover only</span></div>
             <div className="projection-pair">
               <div className="projection-entry coast">
                 <b>COAST</b>
@@ -337,20 +360,20 @@ export function TrajectoryLab() {
                 <div><dt>Action Steering</dt><dd>{degreesText(controlledPlan.steeringAppliedDeg)}</dd></div>
                 <div><dt>M→0 Settlement</dt><dd>{degreesText(controlledPlan.zeroMSettlementDeg)}</dd></div>
                 <div><dt>Travel Band</dt><dd>{controlledPlan.travelDistance.toFixed(1)} Cell / AT</dd></div>
-                <div><dt>Crossings</dt><dd>{Math.max(0, controlledPlan.crossings.length - 1)}</dd></div>
+                <div><dt>Landing</dt><dd>{cellText(controlledPlan.finalHex)} center</dd></div>
               </dl>
             )}
           </section>
 
           <section className="panel-card">
             <div className="section-heading"><h3>Previous Motion</h3><span>history</span></div>
-            <p className="actor-sub">{lastPlan ? `${lastPlan.kind.toUpperCase()} · ${Math.max(0, lastCrossings.length - 1)} Cell crossings · ${lastPlan.travelDistance.toFixed(1)} travel band.` : 'No committed B Action yet.'}</p>
+            <p className="actor-sub">{lastPlan ? `${lastPlan.kind.toUpperCase()} · ${Math.max(0, lastCrossings.length - 1)} Cell crossings · settled at ${cellText(lastPlan.finalHex)} center.` : 'No committed B Action yet.'}</p>
           </section>
         </aside>
 
         <section className="center-column">
           <div className={`trajectory-status ${ready ? 'is-ready' : 'is-resolving'}`}>
-            <strong>{ready ? `READY · M${momentum}${momentum > 0 ? ' · MOTION CONTINUES' : ''}` : `ACTION IN FLIGHT · ${actionId.toUpperCase()}`}</strong>
+            <strong>{ready ? `READY · CELL ${cellText(currentHex)} · M${momentum}` : `ACTION IN FLIGHT · ${actionId.toUpperCase()}`}</strong>
             <span>{lastEvent}</span>
           </div>
 
@@ -385,38 +408,38 @@ export function TrajectoryLab() {
               showWeather={false}
               showThermal={false}
               onHoverHex={(hex) => {
-                if (playback) return setHoverHex(null)
+                if (playback || actionId !== 'steer') return setHoverHex(null)
                 if (!hex || axialKey(hex) === axialKey(currentHex)) return setHoverHex(null)
                 setHoverHex(hex)
               }}
               onClickHex={(hex) => {
-                if (playback || !hex || axialKey(hex) === axialKey(currentHex)) return
-                setActionId('steer')
+                if (playback || actionId !== 'steer' || !hex || axialKey(hex) === axialKey(currentHex)) return
                 setSelectedHex({ ...hex })
                 setHoverHex(null)
+                commitSteer(hex)
               }}
             />
             <div className="trajectory-vector-compass" data-steering-vector={controlledPlan?.valid ? 'visible' : 'hidden'}>
               <div className="vector-row yellow"><i>➜</i><span>Yellow · current motion history</span></div>
-              <div className="vector-row blue"><i>➜</i><span>Blue · {controlledPlan?.valid ? `steering intent ${degreesText(controlledPlan.targetDeltaDeg)}` : 'hover/click Cell for intent'}</span></div>
+              <div className="vector-row blue"><i>➜</i><span>Blue · {controlledPlan?.valid ? `steering intent ${degreesText(controlledPlan.targetDeltaDeg)}` : (actionId === 'steer' ? 'hover Cell to preview' : 'select Move / Steer first')}</span></div>
             </div>
             {ready && momentum > 0 && (
               <div className="motion-freeze-badge" data-motion-freeze={`m${momentum}`}>
-                <i>{'›'.repeat(momentum + 2)}</i><b>M{momentum} · HIGH-SPEED FRAME</b><i>{'›'.repeat(momentum + 2)}</i>
+                <i>{'›'.repeat(momentum + 2)}</i><b>M{momentum} · MOTION STATE</b><i>{'›'.repeat(momentum + 2)}</i>
               </div>
             )}
             <div className="board-legend">
               <span><i className="trajectory" />Blue = Controlled Projection</span>
               <span><i className="momentum-axis" />Yellow = Axis / Coast Projection</span>
-              <span>Click Cell = direction only, never Destination</span>
-              <span>Wall / Contact adaptation intentionally deferred</span>
+              <span>Move / Steer selected → click Cell = execute direction immediately</span>
+              <span>Ready / Action end = exact Cell center</span>
             </div>
-            {playback && <div className="playback-badge">1 Action · +1 AT · no intermediate Ready</div>}
+            {playback && <div className="playback-badge">1 Action · +1 AT · continuous transition → Cell center</div>}
           </div>
 
           <section className="action-hand">
             <div className="hand-heading">
-              <div><h2>Ready Actions</h2><p>Ready belongs to Action completion, not M threshold. At M&gt;0 the Actor is still moving while you choose the next control.</p></div>
+              <div><h2>Ready Actions</h2><p>Move / Steer: select the action, hover to preview, then click a Cell to execute immediately. There is no separate Commit step.</p></div>
               <span>{actionId === 'coast' ? coastLabel : actionLabel}</span>
             </div>
             <div className="action-row trajectory-action-row">
@@ -424,12 +447,17 @@ export function TrajectoryLab() {
                 type="button"
                 className={`action-card ${actionId === 'steer' ? 'selected' : ''}`}
                 data-trajectory-action="steer"
+                data-direct-input="cell-click"
                 disabled={Boolean(playback)}
-                onClick={() => setActionId('steer')}
+                onClick={() => {
+                  setActionId('steer')
+                  setSelectedHex(null)
+                  setHoverHex(null)
+                }}
               >
                 <header><strong>{actionLabel}</strong><em>CONTROL</em></header>
-                <p>{momentum > 0 ? 'Apply a Blue Steering intent for the complete 1 AT horizon. Total angular authority is capped at 60°, independent of Cell crossings.' : 'Move 1 Cell-band actively. M0 can freely establish/rewrite Axis; a second compatible Move crosses into persistent M1.'}</p>
-                <span>{momentum > 0 ? '≤60° / Action · unsustained M-1' : '1 Cell / AT · startup boundary'}</span>
+                <p>{momentum > 0 ? 'Hover any Cell to preview its bearing, then click once to execute the 1AT Steering result. The Cell supplies direction, not a promised Destination.' : 'Hover any Cell to preview, then click once to Move. M0 freely establishes/re-writes Axis; Action end settles at the derived Cell center.'}</p>
+                <span>{momentum > 0 ? '≤60° / Action · click = execute' : '1 Cell / AT · click = execute'}</span>
               </button>
               <button
                 type="button"
@@ -439,19 +467,11 @@ export function TrajectoryLab() {
                 onClick={commitCoast}
               >
                 <header><strong>{coastLabel}</strong><em>PASSIVE</em></header>
-                <p>{momentum > 0 ? 'Apply no new directional control. Persistent Horizontal Motion still travels for the complete Action and dissipates once at Action end.' : 'Advance 1 AT without active locomotion. M0 has no self-sustaining Horizontal Motion.'}</p>
-                <span>+1 AT · no Steering · unsustained M-1</span>
+                <p>{momentum > 0 ? 'No directional target is needed: clicking Coast executes the complete 1AT persistent-motion result immediately and settles at its derived Cell center.' : 'Wait executes immediately: advance 1 AT without active locomotion.'}</p>
+                <span>click action = execute · unsustained M-1</span>
               </button>
             </div>
-            <button
-              type="button"
-              className="wide-button trajectory-commit"
-              data-trajectory-commit
-              disabled={Boolean(playback) || actionId !== 'steer' || !selectedHex}
-              onClick={() => commitSteer(selectedHex)}
-            >
-              Commit {actionLabel} · 1 AT {selectedHex ? `· direction Cell ${selectedHex.q},${selectedHex.r}` : '· choose direction'}
-            </button>
+            <p className="trajectory-direct-input-note" data-direct-input-note>Move / Steer selected → hover previews → click Cell executes. No extra confirmation button.</p>
           </section>
         </section>
 
@@ -495,24 +515,24 @@ export function TrajectoryLab() {
               <input type="range" min="300" max="1400" step="50" value={atVisualMs} disabled={Boolean(playback)} onChange={(event) => setAtVisualMs(Number(event.target.value))} />
               <output>{(atVisualMs / 1000).toFixed(2)} s</output>
             </label>
-            <small>1 Action remains exactly 1 logical AT; playback duration is presentation only.</small>
+            <small>1 Action remains exactly 1 logical AT. Only playback between authoritative Cell centers is continuous.</small>
           </section>
 
           <section className="panel-card">
             <div className="section-heading"><h3>First Gate</h3><span>VAL-012-PS-AB</span></div>
             <dl className="state-list compact">
-              <div><dt>Ready</dt><dd>Action complete</dd></div>
+              <div><dt>Board authority</dt><dd>Cell centers</dd></div>
+              <div><dt>Process</dt><dd>continuous inside 1AT</dd></div>
+              <div><dt>Ready</dt><dd>Action complete / Cell center</dd></div>
               <div><dt>Steering</dt><dd>≤60° / Action</dd></div>
-              <div><dt>Speed Band</dt><dd>M1/2/3 ≈ 1/2/3 Cell</dd></div>
-              <div><dt>Dissipation</dt><dd>-1 pre-existing M / unsustained Action</dd></div>
-              <div><dt>M0 Generate</dt><dd>compatible direction ≤60°</dd></div>
+              <div><dt>Input</dt><dd>Cell click executes</dd></div>
               <div><dt>Wall / Strike</dt><dd>deferred</dd></div>
             </dl>
           </section>
 
           <section className="panel-card">
             <div className="section-heading"><h3>Isolation Contract</h3><span>trajectory v1</span></div>
-            <p className="actor-sub">Trajectory rules live under <code>src/labs/trajectory/</code>. The old Control Window candidate remains in source for rollback but is removed from the visible Lab switcher. Reachable Shape A is not modified.</p>
+            <p className="actor-sub">Trajectory rules live under <code>src/labs/trajectory/</code>. Continuous samples are transition/solver detail; Ready positions remain on the Hex board's discrete Cell centers. Reachable Shape A is not modified.</p>
           </section>
         </aside>
       </section>
