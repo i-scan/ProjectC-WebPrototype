@@ -20,6 +20,8 @@ export const TRAJECTORY_ACTION_PROFILES = Object.freeze({
 
 const DEG = Math.PI / 180
 const RAD = 180 / Math.PI
+const SUBSTEPS_PER_CELL = 4
+const PREVIEW_AXIS_STUB = 0.48
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
 function normalizeAngle(angle) {
@@ -76,18 +78,11 @@ function displaySpeed(momentum) {
   return Math.max(0.05, momentum)
 }
 
-function makeCenterSample(hex, momentum, axisId, t) {
-  const position = axialToWorld(hex)
-  const direction = directionVector(axisId ?? 'E')
+function velocityFor(axisId, momentum) {
+  if (!axisId || momentum <= 0) return { x: 0, z: 0 }
+  const direction = directionVector(axisId)
   const speed = displaySpeed(momentum)
-  return {
-    t,
-    hex: { ...hex },
-    position,
-    velocity: momentum > 0 && axisId ? { x: direction.x * speed, z: direction.z * speed } : { x: 0, z: 0 },
-    axisId: axisId ?? null,
-    momentumLevel: momentum,
-  }
+  return { x: direction.x * speed, z: direction.z * speed }
 }
 
 function profileFor(actionId) {
@@ -100,10 +95,9 @@ export function makeTrajectoryState({ hex = { q: 0, r: 0 }, position = null, axi
   const resolvedPosition = axialToWorld(resolvedHex)
   const resolvedAxis = axisId ?? (Number.isFinite(heading) ? nearestAxisIdFromAngle(heading) : null)
   const m = clamp(Math.round(momentum), 0, 3)
-  const direction = resolvedAxis ? directionVector(resolvedAxis) : { x: 0, z: 0 }
   return {
     position: resolvedPosition,
-    velocity: m > 0 && resolvedAxis ? { x: direction.x * m, z: direction.z * m } : { x: 0, z: 0 },
+    velocity: velocityFor(resolvedAxis, m),
     axisId: resolvedAxis,
     momentumLevel: m,
     heading: resolvedAxis ? axisAngle(resolvedAxis) : null,
@@ -153,10 +147,9 @@ export function compatibleStartupMove(state, selectedHex) {
 function buildCenterPath({ state, targetHeading, travelSteps, steeringEnabled, responseCurve, boardRadius, freeM0Direction }) {
   const startHex = worldToAxial(state.position)
   const startAxis = state.axisId ?? (Number.isFinite(targetHeading) ? nearestAxisIdFromAngle(targetHeading) : null)
-  let targetAxis = Number.isFinite(targetHeading) ? nearestAxisIdFromAngle(targetHeading) : startAxis
-  if (!targetAxis) targetAxis = 'E'
-
-  let startHeading = startAxis ? axisAngle(startAxis) : axisAngle(targetAxis)
+  const targetAxis = Number.isFinite(targetHeading) ? nearestAxisIdFromAngle(targetHeading) : startAxis
+  const initialAxis = startAxis ?? targetAxis ?? 'E'
+  const startHeading = axisAngle(initialAxis)
   let cappedDelta = 0
   if (steeringEnabled && Number.isFinite(targetHeading)) {
     const rawDelta = shortestDelta(startHeading, targetHeading)
@@ -170,12 +163,12 @@ function buildCenterPath({ state, targetHeading, travelSteps, steeringEnabled, r
   let current = { ...startHex }
   for (let index = 1; index <= travelSteps; index += 1) {
     const progress = index / Math.max(1, travelSteps)
-    const desiredHeading = freeM0Direction
+    const desiredHeading = freeM0Direction && Number.isFinite(targetHeading)
       ? targetHeading
       : startHeading + cappedDelta * responseValue(responseCurve, progress)
-    const stepAxis = steeringEnabled && Number.isFinite(desiredHeading)
+    const stepAxis = steeringEnabled
       ? nearestAxisIdFromAngle(desiredHeading)
-      : (startAxis ?? targetAxis)
+      : initialAxis
     const next = addStep(current, stepAxis)
     if (axialDistance(next) > boardRadius) break
     current = next
@@ -183,15 +176,77 @@ function buildCenterPath({ state, targetHeading, travelSteps, steeringEnabled, r
     segmentAxes.push(stepAxis)
   }
 
-  const finalTravelAxis = segmentAxes.at(-1) ?? startAxis ?? targetAxis
   return {
     path,
     segmentAxes,
-    targetAxis,
-    startAxis,
+    targetAxis: targetAxis ?? initialAxis,
+    startAxis: initialAxis,
     cappedDelta,
-    finalTravelAxis,
+    finalTravelAxis: segmentAxes.at(-1) ?? initialAxis,
   }
+}
+
+function samplesForCenterPath(path, segmentAxes, movingM, finalM, finalAxis) {
+  const segmentCount = Math.max(0, path.length - 1)
+  if (segmentCount === 0) {
+    const center = axialToWorld(path[0])
+    return [
+      { t: 0, position: center, velocity: velocityFor(finalAxis, finalM), axisId: finalAxis, momentumLevel: finalM },
+      { t: 1, position: { ...center }, velocity: velocityFor(finalAxis, finalM), axisId: finalAxis, momentumLevel: finalM },
+    ]
+  }
+
+  const samples = []
+  const startAxis = segmentAxes[0] ?? finalAxis
+  samples.push({
+    t: 0,
+    position: axialToWorld(path[0]),
+    velocity: velocityFor(startAxis, movingM),
+    axisId: startAxis,
+    momentumLevel: movingM,
+  })
+
+  for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
+    const from = axialToWorld(path[segmentIndex])
+    const to = axialToWorld(path[segmentIndex + 1])
+    const segmentAxis = segmentAxes[segmentIndex] ?? finalAxis
+    for (let sub = 1; sub <= SUBSTEPS_PER_CELL; sub += 1) {
+      const local = sub / SUBSTEPS_PER_CELL
+      const global = (segmentIndex + local) / segmentCount
+      const atFinalCenter = segmentIndex === segmentCount - 1 && sub === SUBSTEPS_PER_CELL
+      samples.push({
+        t: global,
+        position: {
+          x: from.x + (to.x - from.x) * local,
+          z: from.z + (to.z - from.z) * local,
+        },
+        velocity: velocityFor(atFinalCenter ? finalAxis : segmentAxis, atFinalCenter ? finalM : movingM),
+        axisId: atFinalCenter ? finalAxis : segmentAxis,
+        momentumLevel: atFinalCenter ? finalM : movingM,
+      })
+    }
+  }
+  return samples
+}
+
+function previewAxisStubSamples(plan) {
+  if (!plan?.valid || !plan.finalState?.axisId || !plan.samples?.length) return plan?.samples ?? []
+  const samples = plan.samples.map((sample) => ({
+    ...sample,
+    position: { ...sample.position },
+    velocity: { ...sample.velocity },
+  }))
+  const center = axialToWorld(plan.finalHex)
+  const direction = directionVector(plan.finalState.axisId)
+  samples.push({
+    t: 1.05,
+    position: { x: center.x + direction.x * PREVIEW_AXIS_STUB, z: center.z + direction.z * PREVIEW_AXIS_STUB },
+    velocity: { ...plan.finalState.velocity },
+    axisId: plan.finalState.axisId,
+    momentumLevel: plan.finalM,
+    previewAxisStub: true,
+  })
+  return samples
 }
 
 export function trajectoryActionPlan({
@@ -215,15 +270,15 @@ export function trajectoryActionPlan({
   const freeM0Direction = startM === 0
   const steeringEnabled = profile.needsDirection
 
-  let travelSteps = 0
-  if (canonicalActionId === 'skip') travelSteps = startM
-  else if (buildM > 0) travelSteps = Math.max(1, builtM)
-  else travelSteps = startM > 0 ? startM : 1
+  let requestedTravelSteps = 0
+  if (canonicalActionId === 'skip') requestedTravelSteps = startM
+  else if (buildM > 0) requestedTravelSteps = Math.max(1, builtM)
+  else requestedTravelSteps = startM > 0 ? startM : 1
 
   const pathResult = buildCenterPath({
     state,
     targetHeading,
-    travelSteps,
+    travelSteps: requestedTravelSteps,
     steeringEnabled,
     responseCurve,
     boardRadius,
@@ -261,43 +316,28 @@ export function trajectoryActionPlan({
     }
   }
 
-  if (startM === 0 && canonicalActionId === 'steer' && Number.isFinite(targetHeading)) {
-    finalAxis = nearestAxisIdFromAngle(targetHeading)
-  }
-  if (startM === 0 && profile.sustain && Number.isFinite(targetHeading)) {
+  if (startM === 0 && profile.needsDirection && Number.isFinite(targetHeading)) {
     finalAxis = nearestAxisIdFromAngle(targetHeading)
   }
   if (canonicalActionId === 'skip' && startM === 0 && !state.axisId) finalAxis = null
 
   const finalHex = pathResult.path.at(-1)
   const finalPosition = axialToWorld(finalHex)
-  const finalDirection = finalAxis ? directionVector(finalAxis) : { x: 0, z: 0 }
   const finalState = {
     ...state,
     position: finalPosition,
-    velocity: finalM > 0 && finalAxis ? { x: finalDirection.x * finalM, z: finalDirection.z * finalM } : { x: 0, z: 0 },
+    velocity: velocityFor(finalAxis, finalM),
     axisId: finalAxis,
     momentumLevel: finalM,
     heading: finalAxis ? axisAngle(finalAxis) : null,
     worldAt: Number(state.worldAt ?? 0) + 1,
   }
 
-  const sampleMomentum = Math.max(startM, builtM, finalM)
-  const samples = pathResult.path.map((hex, index) => {
-    const axisId = index === 0
-      ? (state.axisId ?? pathResult.segmentAxes[0] ?? finalAxis)
-      : (pathResult.segmentAxes[index - 1] ?? finalAxis)
-    return makeCenterSample(hex, index === pathResult.path.length - 1 ? finalM : sampleMomentum, axisId, index / Math.max(1, pathResult.path.length - 1))
-  })
-  if (samples.length === 1) {
-    samples.push(makeCenterSample(finalHex, finalM, finalAxis, 1))
-  } else {
-    samples[samples.length - 1] = makeCenterSample(finalHex, finalM, finalAxis, 1)
-  }
-
+  const movingM = Math.max(1, startM, builtM)
+  const samples = samplesForCenterPath(pathResult.path, pathResult.segmentAxes, movingM, finalM, finalAxis)
   const crossings = pathResult.path.map((hex, index) => ({
     hex: { ...hex },
-    sampleIndex: index,
+    sampleIndex: index * SUBSTEPS_PER_CELL,
     t: index / Math.max(1, pathResult.path.length - 1),
   }))
 
@@ -305,7 +345,7 @@ export function trajectoryActionPlan({
     ? shortestDelta(axisAngle(state.axisId), targetHeading) * RAD
     : null
   const steeringAppliedDeg = pathResult.cappedDelta * RAD
-  const reachedBoardEdge = actualSteps < travelSteps
+  const reachedBoardEdge = actualSteps < requestedTravelSteps
   const verb = canonicalActionId === 'skip'
     ? 'Skip'
     : canonicalActionId === 'drive'
@@ -321,6 +361,8 @@ export function trajectoryActionPlan({
     actionId: canonicalActionId,
     samples,
     crossings,
+    pathCells: pathResult.path.map((hex) => ({ ...hex })),
+    segmentAxes: [...pathResult.segmentAxes],
     finalState,
     finalHex,
     beforeM: startM,
@@ -331,7 +373,7 @@ export function trajectoryActionPlan({
     startupCompatible,
     travelDistance: actualSteps,
     travelSteps: actualSteps,
-    requestedTravelSteps: travelSteps,
+    requestedTravelSteps,
     steeringAppliedDeg,
     targetDeltaDeg,
     zeroMSettlementDeg,
@@ -339,10 +381,8 @@ export function trajectoryActionPlan({
     reachedBoardEdge,
     cellAuthorityRule: TRAJECTORY_CELL_AUTHORITY_RULE,
     pathRule: TRAJECTORY_PATH_RULE,
-    preserveCellCenters: true,
-    finalAxisIndicator: finalAxis ? { hex: { ...finalHex }, axisId: finalAxis } : null,
     atCost: 1,
-    spatialMode: 'discrete',
+    spatialMode: 'hybrid',
     destinationDriven: false,
     collisions: [],
     conflictEvents: [],
@@ -363,7 +403,9 @@ export function withCoastProjection(controlledPlan, coastPlan) {
   if (!controlledPlan?.valid) return controlledPlan
   return {
     ...controlledPlan,
-    coastPreviewSamples: coastPlan?.valid ? coastPlan.samples : [],
-    coastFinalAxisIndicator: coastPlan?.valid ? coastPlan.finalAxisIndicator : null,
+    samples: previewAxisStubSamples(controlledPlan),
+    actorTrajectories: coastPlan?.valid ? { coastProjection: coastPlan.pathCells } : {},
+    previewAxisStub: controlledPlan.finalState?.axisId ?? null,
+    coastPreviewAxis: coastPlan?.finalState?.axisId ?? null,
   }
 }
