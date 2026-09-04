@@ -52,17 +52,30 @@ describe('VAL-012 Process Steering Cell-center candidate', () => {
     expectCenter(result.finalState.position, { q: -1, r: 0 })
   })
 
-  it('builds every rule trajectory from adjacent Cell-center segments', () => {
+  it('forces M1 E to cash out its first E Cell before Ready Axis can turn to NE', () => {
+    const state = makeTrajectoryState({ axisId: 'E', momentum: 1 })
+    const result = plan(state, 'steer', { q: 1, r: -1 })
+    expect(result.pathCells).toEqual([{ q: 0, r: 0 }, { q: 1, r: 0 }])
+    expect(result.segmentAxes).toEqual(['E'])
+    expect(result.finalM).toBe(0)
+    expect(result.finalState.axisId).toBe('NE')
+    expectCenter(result.finalState.position, { q: 1, r: 0 })
+    const interior = result.samples.slice(1, -1)
+    expect(interior.some((sample) => Math.abs(sample.position.z) > 0.005)).toBe(true)
+  })
+
+  it('builds every rule trajectory from adjacent Cell-center anchors while visual samples curve through them', () => {
     const result = plan(makeTrajectoryState({ axisId: 'E', momentum: 3 }), 'steer', { q: -3, r: 0 })
     expect(result.pathRule).toBe(TRAJECTORY_PATH_RULE)
     expect(result.pathCells.length).toBe(4)
     for (let index = 1; index < result.pathCells.length; index += 1) {
       expect(axialDistance(result.pathCells[index], result.pathCells[index - 1])).toBe(1)
       expect(directionIdBetween(result.pathCells[index - 1], result.pathCells[index])).not.toBeNull()
-      const sampleAtCenter = result.samples[index * 4]
+      const sampleAtCenter = result.samples[result.crossings[index].sampleIndex]
+      expect(sampleAtCenter.cellCenterAnchor).toBe(true)
       expectCenter(sampleAtCenter.position, result.pathCells[index])
     }
-    expect(result.segmentAxes).toEqual(['E', 'SE', 'SE'])
+    expect(result.segmentAxes).toEqual(['E', 'E', 'SE'])
     expect(result.finalState.axisId).toBe('SE')
   })
 

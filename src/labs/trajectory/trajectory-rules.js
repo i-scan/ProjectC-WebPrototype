@@ -5,7 +5,7 @@ export const TRAJECTORY_READY_RULE = 'action-complete-ready-v1'
 export const TRAJECTORY_STEERING_RULE = 'max-60deg-per-action-v1'
 export const TRAJECTORY_DISSIPATION_RULE = 'persistent-start-m-minus-1-v1'
 export const TRAJECTORY_CELL_AUTHORITY_RULE = 'ready-cell-center-v1'
-export const TRAJECTORY_PATH_RULE = 'cell-center-steering-polyline-v1'
+export const TRAJECTORY_PATH_RULE = 'cell-center-anchored-steering-curve-v2'
 export const TRAJECTORY_MIN_RADIUS = 4
 export const TRAJECTORY_MAX_RADIUS = 10
 export const TRAJECTORY_DEFAULT_RADIUS = 6
@@ -20,8 +20,9 @@ export const TRAJECTORY_ACTION_PROFILES = Object.freeze({
 
 const DEG = Math.PI / 180
 const RAD = 180 / Math.PI
-const SUBSTEPS_PER_CELL = 4
+const SUBSTEPS_PER_CELL = 8
 const PREVIEW_AXIS_STUB = 0.48
+const CURVE_TANGENT_SCALE = 0.78
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
 function normalizeAngle(angle) {
@@ -83,6 +84,12 @@ function velocityFor(axisId, momentum) {
   const direction = directionVector(axisId)
   const speed = displaySpeed(momentum)
   return { x: direction.x * speed, z: direction.z * speed }
+}
+
+function velocityForHeading(heading, momentum) {
+  if (!Number.isFinite(heading) || momentum <= 0) return { x: 0, z: 0 }
+  const speed = displaySpeed(momentum)
+  return { x: Math.cos(heading) * speed, z: Math.sin(heading) * speed }
 }
 
 function profileFor(actionId) {
@@ -162,13 +169,18 @@ function buildCenterPath({ state, targetHeading, travelSteps, steeringEnabled, r
   const segmentAxes = []
   let current = { ...startHex }
   for (let index = 1; index <= travelSteps; index += 1) {
-    const progress = index / Math.max(1, travelSteps)
+    const segmentMidProgress = (index - 0.5) / Math.max(1, travelSteps)
     const desiredHeading = freeM0Direction && Number.isFinite(targetHeading)
       ? targetHeading
-      : startHeading + cappedDelta * responseValue(responseCurve, progress)
-    const stepAxis = steeringEnabled
-      ? nearestAxisIdFromAngle(desiredHeading)
-      : initialAxis
+      : startHeading + cappedDelta * responseValue(responseCurve, segmentMidProgress)
+    // Persistent M must first cash out the Axis it already owns. Steering happens during
+    // that first Cell segment and can redirect later Cell choices, but it cannot replace
+    // the only M1 Travel with a neighboring sector at Action start.
+    const stepAxis = !freeM0Direction && index === 1
+      ? initialAxis
+      : steeringEnabled
+        ? nearestAxisIdFromAngle(desiredHeading)
+        : initialAxis
     const next = addStep(current, stepAxis)
     if (axialDistance(next) > boardRadius) break
     current = next
@@ -181,12 +193,40 @@ function buildCenterPath({ state, targetHeading, travelSteps, steeringEnabled, r
     segmentAxes,
     targetAxis: targetAxis ?? initialAxis,
     startAxis: initialAxis,
+    startHeading,
     cappedDelta,
+    steeringEnabled,
     finalTravelAxis: segmentAxes.at(-1) ?? initialAxis,
   }
 }
 
-function samplesForCenterPath(path, segmentAxes, movingM, finalM, finalAxis) {
+function hermitePoint(from, to, fromHeading, toHeading, t) {
+  const distance = Math.max(0.001, Math.hypot(to.x - from.x, to.z - from.z))
+  const tangentLength = distance * CURVE_TANGENT_SCALE
+  const m0 = { x: Math.cos(fromHeading) * tangentLength, z: Math.sin(fromHeading) * tangentLength }
+  const m1 = { x: Math.cos(toHeading) * tangentLength, z: Math.sin(toHeading) * tangentLength }
+  const t2 = t * t
+  const t3 = t2 * t
+  const h00 = 2 * t3 - 3 * t2 + 1
+  const h10 = t3 - 2 * t2 + t
+  const h01 = -2 * t3 + 3 * t2
+  const h11 = t3 - t2
+  const position = {
+    x: h00 * from.x + h10 * m0.x + h01 * to.x + h11 * m1.x,
+    z: h00 * from.z + h10 * m0.z + h01 * to.z + h11 * m1.z,
+  }
+  const dh00 = 6 * t2 - 6 * t
+  const dh10 = 3 * t2 - 4 * t + 1
+  const dh01 = -6 * t2 + 6 * t
+  const dh11 = 3 * t2 - 2 * t
+  const derivative = {
+    x: dh00 * from.x + dh10 * m0.x + dh01 * to.x + dh11 * m1.x,
+    z: dh00 * from.z + dh10 * m0.z + dh01 * to.z + dh11 * m1.z,
+  }
+  return { position, heading: Math.atan2(derivative.z, derivative.x) }
+}
+
+function samplesForCenterPath(path, pathResult, movingM, finalM, finalAxis, responseCurve) {
   const segmentCount = Math.max(0, path.length - 1)
   if (segmentCount === 0) {
     const center = axialToWorld(path[0])
@@ -196,33 +236,43 @@ function samplesForCenterPath(path, segmentAxes, movingM, finalM, finalAxis) {
     ]
   }
 
+  const headingAtAnchor = (anchorIndex) => {
+    if (anchorIndex <= 0) return pathResult.startHeading
+    if (anchorIndex >= segmentCount) return finalAxis ? axisAngle(finalAxis) : pathResult.startHeading
+    if (!pathResult.steeringEnabled) return pathResult.startHeading
+    const progress = anchorIndex / segmentCount
+    return pathResult.startHeading + pathResult.cappedDelta * responseValue(responseCurve, progress)
+  }
+
   const samples = []
-  const startAxis = segmentAxes[0] ?? finalAxis
   samples.push({
     t: 0,
     position: axialToWorld(path[0]),
-    velocity: velocityFor(startAxis, movingM),
-    axisId: startAxis,
+    velocity: velocityForHeading(headingAtAnchor(0), movingM),
+    axisId: pathResult.startAxis,
     momentumLevel: movingM,
+    cellCenterAnchor: true,
   })
 
   for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
     const from = axialToWorld(path[segmentIndex])
     const to = axialToWorld(path[segmentIndex + 1])
-    const segmentAxis = segmentAxes[segmentIndex] ?? finalAxis
+    const fromHeading = headingAtAnchor(segmentIndex)
+    const toHeading = headingAtAnchor(segmentIndex + 1)
     for (let sub = 1; sub <= SUBSTEPS_PER_CELL; sub += 1) {
       const local = sub / SUBSTEPS_PER_CELL
       const global = (segmentIndex + local) / segmentCount
       const atFinalCenter = segmentIndex === segmentCount - 1 && sub === SUBSTEPS_PER_CELL
+      const atCellCenter = sub === SUBSTEPS_PER_CELL
+      const curve = hermitePoint(from, to, fromHeading, toHeading, local)
+      const sampleAxis = atFinalCenter ? finalAxis : nearestAxisIdFromAngle(curve.heading)
       samples.push({
         t: global,
-        position: {
-          x: from.x + (to.x - from.x) * local,
-          z: from.z + (to.z - from.z) * local,
-        },
-        velocity: velocityFor(atFinalCenter ? finalAxis : segmentAxis, atFinalCenter ? finalM : movingM),
-        axisId: atFinalCenter ? finalAxis : segmentAxis,
+        position: curve.position,
+        velocity: atFinalCenter ? velocityFor(finalAxis, finalM) : velocityForHeading(curve.heading, movingM),
+        axisId: sampleAxis,
         momentumLevel: atFinalCenter ? finalM : movingM,
+        cellCenterAnchor: atCellCenter,
       })
     }
   }
@@ -334,7 +384,7 @@ export function trajectoryActionPlan({
   }
 
   const movingM = Math.max(1, startM, builtM)
-  const samples = samplesForCenterPath(pathResult.path, pathResult.segmentAxes, movingM, finalM, finalAxis)
+  const samples = samplesForCenterPath(pathResult.path, pathResult, movingM, finalM, finalAxis, responseCurve)
   const crossings = pathResult.path.map((hex, index) => ({
     hex: { ...hex },
     sampleIndex: index * SUBSTEPS_PER_CELL,
