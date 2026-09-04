@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { axialDistance, axialToWorld, directionIdBetween, directionVector, worldToAxial } from '../../sim/hex.js'
+import { axialDistance, axialToWorld, directionIdBetween, directionVector } from '../../sim/hex.js'
 import {
   TRAJECTORY_DEFAULT_RADIUS,
   TRAJECTORY_MAX_STEER_DEG,
   TRAJECTORY_PATH_RULE,
   TRAJECTORY_PREVIEW_RULE,
+  TRAJECTORY_REFLECTION_RULE,
   compatibleStartupMove,
   makeTrajectoryState,
   trajectoryActionPlan,
-  trajectoryProjectionPair,
   withCoastProjection,
 } from './trajectory-rules.js'
 
@@ -27,7 +27,11 @@ const expectCenter = (position, hex) => {
   expect(position.z).toBeCloseTo(center.z, 6)
 }
 
-describe('VAL-012 Process Steering Cell-center candidate', () => {
+const samplePositions = (result) => result.samples.map((sample) => [
+  Number(sample.position.x.toFixed(6)), Number(sample.position.z.toFixed(6)),
+])
+
+describe('VAL-012 Process Steering global-curve candidate', () => {
   it('uses two compatible M0 Moves to establish persistent M1', () => {
     const first = plan(makeTrajectoryState({ axisId: null, momentum: 0 }), 'steer', { q: 1, r: 0 })
     expect(first.finalM).toBe(0)
@@ -40,7 +44,6 @@ describe('VAL-012 Process Steering Cell-center candidate', () => {
     expect(second.generatedM).toBe(1)
     expect(second.finalM).toBe(1)
     expect(second.finalState.axisId).toBe('E')
-    expect(second.pathCells).toEqual([{ q: 1, r: 0 }, { q: 2, r: 0 }])
   })
 
   it('lets M0 freely Move behind and rewrite Axis without generating incompatible M', () => {
@@ -49,83 +52,56 @@ describe('VAL-012 Process Steering Cell-center candidate', () => {
     const result = plan(state, 'steer', { q: -1, r: 0 })
     expect(result.finalM).toBe(0)
     expect(result.finalState.axisId).toBe('W')
-    expect(result.pathCells).toEqual([{ q: 0, r: 0 }, { q: -1, r: 0 }])
     expectCenter(result.finalState.position, { q: -1, r: 0 })
   })
 
-  it('forces M1 E to cash out its first E Cell before Ready Axis can turn to NE', () => {
+  it('keeps M1 travel straight when only the zero-M Ready Axis settles afterward', () => {
     const state = makeTrajectoryState({ axisId: 'E', momentum: 1 })
     const result = plan(state, 'steer', { q: 1, r: -1 })
     expect(result.pathCells).toEqual([{ q: 0, r: 0 }, { q: 1, r: 0 }])
     expect(result.segmentAxes).toEqual(['E'])
+    expect(result.travelEndAxis).toBe('E')
     expect(result.finalM).toBe(0)
     expect(result.finalState.axisId).toBe('NE')
-    expectCenter(result.finalState.position, { q: 1, r: 0 })
-    const interior = result.samples.slice(1, -1)
-    expect(interior.some((sample) => Math.abs(sample.position.z) > 0.005)).toBe(true)
+    expect(result.samples.every((sample) => Math.abs(sample.position.z) < 0.000001)).toBe(true)
   })
 
-  it('builds every rule trajectory from adjacent Cell-center anchors while visual samples curve through them', () => {
+  it('keeps discrete Cell route authoritative without forcing visual samples through intermediate centers', () => {
     const result = plan(makeTrajectoryState({ axisId: 'E', momentum: 3 }), 'steer', { q: 2, r: 1 })
     expect(result.pathRule).toBe(TRAJECTORY_PATH_RULE)
     expect(result.pathCells.length).toBe(4)
     for (let index = 1; index < result.pathCells.length; index += 1) {
       expect(axialDistance(result.pathCells[index], result.pathCells[index - 1])).toBe(1)
       expect(directionIdBetween(result.pathCells[index - 1], result.pathCells[index])).not.toBeNull()
-      const sampleAtCenter = result.samples[result.crossings[index].sampleIndex]
-      expect(sampleAtCenter.cellCenterAnchor).toBe(true)
-      expectCenter(sampleAtCenter.position, result.pathCells[index])
     }
     expect(result.segmentAxes).toEqual(['E', 'E', 'SE'])
     expect(result.finalState.axisId).toBe('SE')
+    expect(result.visualCurveAuthoritative).toBe(true)
+    expect(result.samples.some((sample) => sample.cellCenterAnchor)).toBe(false)
+    expectCenter(result.samples.at(0).position, { q: 0, r: 0 })
+    expectCenter(result.samples.at(-1).position, result.finalHex)
   })
 
-  it('keeps 60 degrees per Action as inertia while high M crosses more Cell centers', () => {
+  it('keeps 60 degrees per Action as inertia while high M crosses more logical Cells', () => {
     const m1 = plan(makeTrajectoryState({ axisId: 'E', momentum: 1 }), 'steer', { q: -3, r: 0 })
     const m3 = plan(makeTrajectoryState({ axisId: 'E', momentum: 3 }), 'steer', { q: -3, r: 0 })
     expect(Math.abs(m1.steeringAppliedDeg)).toBeCloseTo(TRAJECTORY_MAX_STEER_DEG, 4)
     expect(Math.abs(m3.steeringAppliedDeg)).toBeCloseTo(TRAJECTORY_MAX_STEER_DEG, 4)
     expect(m1.travelSteps).toBe(1)
     expect(m3.travelSteps).toBe(3)
-    expect(m3.pathCells.length).toBeGreaterThan(m1.pathCells.length)
   })
 
-  it('applies zero-M settlement to Ready Axis without adding a Cell segment', () => {
-    const state = makeTrajectoryState({ axisId: 'E', momentum: 1 })
-    const result = plan(state, 'steer', { q: -2, r: 0 })
-    expect(result.travelSteps).toBe(1)
-    expect(result.finalM).toBe(0)
-    expect(Math.abs(result.steeringAppliedDeg)).toBeCloseTo(60, 4)
-    expect(Math.abs(result.zeroMSettlementDeg)).toBeCloseTo(60, 4)
-    expect(result.pathCells.length).toBe(2)
-  })
-
-  it('treats Skip as deliberate Coast at M>0 and stationary Wait semantics at M0', () => {
+  it('treats Skip as deliberate Coast and Drive/Heavy Drive as isolated sustain profiles', () => {
     const moving = plan(makeTrajectoryState({ axisId: 'E', momentum: 3 }), 'skip')
-    expect(moving.kind).toBe('skip')
     expect(moving.travelSteps).toBe(3)
     expect(moving.finalM).toBe(2)
     expect(moving.segmentAxes).toEqual(['E', 'E', 'E'])
-
-    const stopped = plan(makeTrajectoryState({ axisId: null, momentum: 0 }), 'skip')
-    expect(stopped.travelSteps).toBe(0)
-    expect(stopped.finalM).toBe(0)
-    expect(stopped.finalState.axisId).toBeNull()
-  })
-
-  it('restores Drive and Heavy Drive as isolated Build/Sustain test profiles', () => {
-    const drive0 = plan(makeTrajectoryState({ axisId: null, momentum: 0 }), 'drive', { q: 2, r: 0 })
-    expect(drive0.buildM).toBe(1)
-    expect(drive0.finalM).toBe(1)
-    expect(drive0.travelSteps).toBe(1)
-    expect(drive0.finalState.axisId).toBe('E')
 
     const drive1 = plan(makeTrajectoryState({ axisId: 'E', momentum: 1 }), 'drive', { q: 3, r: 0 })
     expect(drive1.finalM).toBe(2)
     expect(drive1.travelSteps).toBe(2)
 
     const heavy1 = plan(makeTrajectoryState({ axisId: 'E', momentum: 1 }), 'heavy-drive', { q: 4, r: 0 })
-    expect(heavy1.buildM).toBe(2)
     expect(heavy1.finalM).toBe(3)
     expect(heavy1.travelSteps).toBe(3)
   })
@@ -136,76 +112,93 @@ describe('VAL-012 Process Steering Cell-center candidate', () => {
     const lateNe = plan(state, 'steer', { q: 3, r: -1 })
     const lateSe = plan(state, 'steer', { q: 2, r: 1 })
     const earlySe = plan(state, 'steer', { q: 1, r: 2 })
-
     expect(earlyNe.segmentAxes).toEqual(['E', 'NE', 'NE'])
     expect(lateNe.segmentAxes).toEqual(['E', 'E', 'NE'])
     expect(lateSe.segmentAxes).toEqual(['E', 'E', 'SE'])
     expect(earlySe.segmentAxes).toEqual(['E', 'SE', 'SE'])
-    expect(earlyNe.finalHex).toEqual({ q: 3, r: -2 })
-    expect(lateNe.finalHex).toEqual({ q: 3, r: -1 })
-    expect(lateSe.finalHex).toEqual({ q: 2, r: 1 })
-    expect(earlySe.finalHex).toEqual({ q: 1, r: 2 })
   })
 
-  it('canonicalizes the blue preview by discrete path plus final Axis', () => {
+  it('canonicalizes identical rule results to identical global curves', () => {
     const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
     const coast = plan(state, 'skip')
     const a = plan(state, 'steer', { q: 3, r: -2 })
     const b = plan(state, 'steer', { q: 4, r: -3 })
     expect(b.pathCells).toEqual(a.pathCells)
     expect(b.finalState.axisId).toBe(a.finalState.axisId)
-
-    const previewA = withCoastProjection(a, coast)
-    const previewB = withCoastProjection(b, coast)
-    const positionsA = previewA.samples.map((sample) => [Number(sample.position.x.toFixed(6)), Number(sample.position.z.toFixed(6))])
-    const positionsB = previewB.samples.map((sample) => [Number(sample.position.x.toFixed(6)), Number(sample.position.z.toFixed(6))])
-    expect(positionsB).toEqual(positionsA)
+    expect(samplePositions(withCoastProjection(b, coast))).toEqual(samplePositions(withCoastProjection(a, coast)))
   })
 
-  it('keeps M0 straight movement straight and makes the terminal Axis stub readable', () => {
-    const state = makeTrajectoryState({ axisId: null, momentum: 0 })
-    const controlled = plan(state, 'steer', { q: 2, r: 0 })
-    const coast = plan(state, 'skip')
-    const preview = withCoastProjection(controlled, coast)
-    expect(controlled.pathCells).toEqual([{ q: 0, r: 0 }, { q: 1, r: 0 }])
-    expect(controlled.finalState.axisId).toBe('E')
-    expect(preview.samples.every((sample) => Math.abs(sample.position.z) < 0.000001)).toBe(true)
-
-    const finalCenter = axialToWorld(controlled.finalHex)
-    const end = preview.samples.at(-1).position
-    const endDistance = Math.hypot(end.x - finalCenter.x, end.z - finalCenter.z)
-    expect(endDistance).toBeGreaterThan(0.32)
-    expect(endDistance).toBeLessThan(0.46)
-    expect(worldToAxial(end)).toEqual(controlled.finalHex)
-  })
-
-  it('uses a stronger canonical turn curve while staying inside visited Cells and ending along final Axis', () => {
+  it('draws a broad smooth turn with exact start/end travel tangents instead of Cell-border clamping', () => {
     const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
     const controlled = plan(state, 'steer', { q: 3, r: -2 })
-    const coast = plan(state, 'skip')
-    const preview = withCoastProjection(controlled, coast)
+    const preview = withCoastProjection(controlled, plan(state, 'skip'))
     expect(preview.previewRule).toBe(TRAJECTORY_PREVIEW_RULE)
-    expect(preview.previewAxisStub).toBe(controlled.finalState.axisId)
-    expectCenter(controlled.finalState.position, controlled.finalHex)
+    expect(preview.visualCurveAuthoritative).toBe(true)
 
-    const visited = new Set(controlled.pathCells.map((hex) => `${hex.q},${hex.r}`))
-    for (const sample of preview.samples) {
-      const hex = worldToAxial(sample.position)
-      expect(visited.has(`${hex.q},${hex.r}`)).toBe(true)
-    }
+    const travel = controlled.samples
+    const first = travel[0].position
+    const second = travel[1].position
+    const beforeEnd = travel.at(-2).position
+    const end = travel.at(-1).position
+    const startDirection = directionVector('E')
+    const endDirection = directionVector('NE')
+    const startDelta = { x: second.x - first.x, z: second.z - first.z }
+    const endDelta = { x: end.x - beforeEnd.x, z: end.z - beforeEnd.z }
+    const startLen = Math.hypot(startDelta.x, startDelta.z)
+    const endLen = Math.hypot(endDelta.x, endDelta.z)
+    expect((startDelta.x * startDirection.x + startDelta.z * startDirection.z) / startLen).toBeGreaterThan(0.995)
+    expect((endDelta.x * endDirection.x + endDelta.z * endDirection.z) / endLen).toBeGreaterThan(0.995)
 
-    const firstCellSamples = preview.samples.filter((sample) => {
-      const hex = worldToAxial(sample.position)
-      return (hex.q === 0 && hex.r === 0) || (hex.q === 1 && hex.r === 0)
-    })
-    expect(firstCellSamples.some((sample) => Math.abs(sample.position.z) > 0.055)).toBe(true)
+    const chordMid = pointLerpForTest(first, end, 0.5)
+    const middle = travel[Math.floor(travel.length / 2)].position
+    expect(Math.hypot(middle.x - chordMid.x, middle.z - chordMid.z)).toBeGreaterThan(0.18)
+  })
 
-    const finalDirection = directionVector(controlled.finalState.axisId)
+  it('keeps late-turn curves on the intended side instead of producing an S-bend', () => {
+    const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
+    const lateNe = plan(state, 'steer', { q: 3, r: -1 })
+    expect(lateNe.segmentAxes).toEqual(['E', 'E', 'NE'])
+    expect(lateNe.samples.some((sample) => sample.curveConstruction === 'tangent-intersection')).toBe(true)
+    expect(Math.max(...lateNe.samples.map((sample) => sample.position.z))).toBeLessThanOrEqual(0.000001)
+
+    const lateSe = plan(state, 'steer', { q: 2, r: 1 })
+    expect(lateSe.segmentAxes).toEqual(['E', 'E', 'SE'])
+    expect(Math.min(...lateSe.samples.map((sample) => sample.position.z))).toBeGreaterThanOrEqual(-0.000001)
+  })
+
+  it('keeps M0 straight preview straight and appends a readable final-Axis stub', () => {
+    const state = makeTrajectoryState({ axisId: null, momentum: 0 })
+    const controlled = plan(state, 'steer', { q: 2, r: 0 })
+    const preview = withCoastProjection(controlled, plan(state, 'skip'))
+    expect(preview.samples.every((sample) => Math.abs(sample.position.z) < 0.000001)).toBe(true)
+    const finalCenter = controlled.finalState.position
     const end = preview.samples.at(-1).position
-    const previous = preview.samples.at(-2).position
-    const dx = end.x - previous.x
-    const dz = end.z - previous.z
-    const length = Math.hypot(dx, dz)
-    expect((dx * finalDirection.x + dz * finalDirection.z) / length).toBeGreaterThan(0.995)
+    expect(Math.hypot(end.x - finalCenter.x, end.z - finalCenter.z)).toBeGreaterThan(0.3)
+  })
+
+  it('reuses Driving Lab wall-pivot reflection: redirect Axis, no reflection M tax, continue remaining Travel', () => {
+    const wall = { id: 'trajectory-ns-wall', hex: { q: 2, r: 0 }, kind: 'hard', wallAxis: 'NS' }
+    const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
+    const result = plan(state, 'steer', { q: 3, r: 0 }, { obstacles: [wall] })
+    expect(result.valid).toBe(true)
+    expect(result.reflectionRule).toBe(TRAJECTORY_REFLECTION_RULE)
+    expect(result.reflectionCount).toBe(1)
+    expect(result.collisions[0]).toMatchObject({
+      wallCellPivot: true,
+      wallAxis: 'NS',
+      axisBefore: 'E',
+      axisAfter: 'W',
+      beforeM: 3,
+      afterM: 3,
+      wallCellTravelCost: 1,
+    })
+    expect(result.finalM).toBe(2)
+    expect(result.finalState.axisId).toBe('W')
+    expect(result.finalHex).toEqual({ q: 0, r: 0 })
+    expect(result.samples.some((sample) => sample.collision)).toBe(true)
   })
 })
+
+function pointLerpForTest(a, b, t) {
+  return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t }
+}

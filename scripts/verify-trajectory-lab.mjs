@@ -48,7 +48,7 @@ try {
   assert(dom.includes('data-trajectory-dissipation="persistent-start-m-minus-1-v1"'), 'Passive Dissipation marker missing')
   assert(dom.includes('data-cell-authority="ready-cell-center-v1"'), 'Cell-authoritative Ready marker missing')
   assert(dom.includes('data-trajectory-path="canonical-turn-timing-path-v3"'), 'Cell-center anchored authority curve marker missing')
-  assert(dom.includes('data-trajectory-preview="canonical-result-corridor-curve-v3"'), 'Visited-Cell corridor preview marker missing')
+  assert(dom.includes('data-trajectory-preview="global-tangent-bezier-preview-v4"'), 'Visited-Cell corridor preview marker missing')
   assert(dom.includes('data-spatial-mode="discrete"'), 'Trajectory Lab must expose discrete Hex6 authority')
   assert(dom.includes('data-steer-input="direct-cell-click"'), 'Direct Cell-click Steering marker missing')
   assert(dom.includes('data-trajectory-action="steer"'), 'Move / Steer action missing')
@@ -59,14 +59,16 @@ try {
   assert(!dom.includes('Steering Response'), 'Obsolete response-shape UI must not remain visible')
   assert(!dom.includes('data-trajectory-action="coast"'), 'Coast must remain Skip state semantics, not a separate card')
   assert(dom.includes('<dt>M0 Move</dt><dd>free Hex6</dd>'), 'M0 free Hex6 Move authority missing')
-  assert(dom.includes('Blue may miss intermediate centers but never enters an unvisited Cell'), 'Relaxed safe-corridor preview legend missing')
-  assert(dom.includes('Preview ends near final Cell center, biased toward Ready Axis'), 'Near-center preview ending legend missing')
+  assert(dom.includes('Blue is not clamped to Cell centers or Cell borders'), 'Global unclamped visual-curve legend missing')
+  assert(dom.includes('Wall contact is a real geometric breakpoint; final stub shows Ready Axis'), 'Reflection breakpoint legend missing')
+  assert(dom.includes('data-trajectory-reflection="driving-lab-wall-pivot-reflection-v1"'), 'Driving Lab reflection marker missing')
+  assert(dom.includes('data-trajectory-obstacles'), 'Trajectory Driving Walls toggle missing')
   assert(dom.includes('data-control-model="reachable-shape"') && dom.includes('data-control-model="process-steering"'), 'Reachable Shape / Process Steering A/B controls missing')
   assert(dom.includes('data-trajectory-board-radius'), 'Trajectory board radius control missing')
   assert(dom.includes('data-motion-freeze="m2"'), 'Default M2 motion-state marker missing')
   assert(dom.includes('data-axis-style="actor-body-screen-arrow-v5"'), 'Board3D Axis HUD did not mount')
 
-  console.log('Trajectory Lab browser smoke verified: first-segment inertia, center-anchored steering curve, free M0 Move, Drive/Heavy Drive and Skip are mounted.')
+  console.log('Trajectory Lab browser smoke verified: global tangent curve, discrete Cell authority, Driving wall reflection, free M0 Move, Drive/Heavy Drive and Skip are mounted.')
 } finally {
   if (previewProcess && !previewProcess.killed) previewProcess.kill('SIGTERM')
 }

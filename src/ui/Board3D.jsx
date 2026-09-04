@@ -355,6 +355,7 @@ function wallPivotActorIds(events = []) {
 function planPathPoints(plan, y = 0.24) {
   if (!plan?.samples?.length) return []
   const source = uniqueWorldPoints(plan.samples, y)
+  if (plan.visualCurveAuthoritative) return source
   if (playerUsesWallPivot(plan)) return source
   const shouldSmooth = plan.destinationDriven || plan.spatialMode === 'discrete' || source.length <= 8
   return shouldSmooth ? smoothPoints(source) : source

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Board3D } from '../../ui/Board3D.jsx'
 import { axialKey, worldToAxial } from '../../sim/hex.js'
-import { createCellWorld } from '../../sim/world.js'
+import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
 import { AT_VISUAL_MS } from '../../sim/solver.js'
 import {
   TRAJECTORY_BASE_DISSIPATION,
@@ -13,6 +13,7 @@ import {
   TRAJECTORY_PATH_RULE,
   TRAJECTORY_PREVIEW_RULE,
   TRAJECTORY_READY_RULE,
+  TRAJECTORY_REFLECTION_RULE,
   TRAJECTORY_RULE,
   TRAJECTORY_STEERING_RULE,
   makeTrajectoryState,
@@ -86,6 +87,7 @@ export function TrajectoryLab() {
   const [hoverHex, setHoverHex] = useState(null)
   const [responseCurve, setResponseCurve] = useState('linear')
   const [boardRadius, setBoardRadius] = useState(TRAJECTORY_DEFAULT_RADIUS)
+  const [obstaclesEnabled, setObstaclesEnabled] = useState(true)
   const [viewMode, setViewMode] = useState('isometric')
   const [cameraResetToken, setCameraResetToken] = useState(0)
   const [atVisualMs, setAtVisualMs] = useState(AT_VISUAL_MS)
@@ -96,7 +98,7 @@ export function TrajectoryLab() {
   const playbackIdRef = useRef(1)
 
   const cells = useMemo(() => createCellWorld(boardRadius), [boardRadius])
-  const obstacles = useMemo(() => [], [])
+  const obstacles = useMemo(() => obstaclesEnabled ? collisionObstaclesFromCells(cells) : [], [cells, obstaclesEnabled])
   const momentum = trajectoryMomentum(state)
   const currentHex = worldToAxial(state.position)
   const ready = !playback
@@ -109,7 +111,8 @@ export function TrajectoryLab() {
     boardRadius,
     responseCurve,
     baseDissipationPerAction: TRAJECTORY_BASE_DISSIPATION,
-  }), [state, boardRadius, responseCurve])
+    obstacles,
+  }), [state, boardRadius, responseCurve, obstacles])
 
   const intentHex = directionalAction ? (hoverHex ?? selectedHex) : null
   const pair = useMemo(() => {
@@ -121,8 +124,9 @@ export function TrajectoryLab() {
       boardRadius,
       responseCurve,
       baseDissipationPerAction: TRAJECTORY_BASE_DISSIPATION,
+      obstacles,
     })
-  }, [state, actionId, intentHex?.q, intentHex?.r, boardRadius, responseCurve, skipPlan])
+  }, [state, actionId, intentHex?.q, intentHex?.r, boardRadius, responseCurve, skipPlan, obstacles])
 
   const controlledPlan = pair.controlled
   const previewPlan = useMemo(() => {
@@ -137,6 +141,7 @@ export function TrajectoryLab() {
       selectedHex: selectedHex ? { ...selectedHex } : null,
       responseCurve,
       boardRadius,
+      obstaclesEnabled,
       lastEvent,
       lastPlan: lastPlan ? structuredClone(lastPlan) : null,
     }].slice(-60))
@@ -174,6 +179,7 @@ export function TrajectoryLab() {
       boardRadius,
       responseCurve,
       baseDissipationPerAction: TRAJECTORY_BASE_DISSIPATION,
+      obstacles,
     })
     if (!plan.valid) return false
     setSelectedHex({ ...hex })
@@ -204,6 +210,7 @@ export function TrajectoryLab() {
     setHoverHex(null)
     setResponseCurve('linear')
     setBoardRadius(TRAJECTORY_DEFAULT_RADIUS)
+    setObstaclesEnabled(true)
     setHistory([])
     setLastPlan(null)
     setCameraResetToken((value) => value + 1)
@@ -249,6 +256,7 @@ export function TrajectoryLab() {
     setSelectedHex(previous.selectedHex)
     setResponseCurve(previous.responseCurve)
     setBoardRadius(previous.boardRadius)
+    setObstaclesEnabled(previous.obstaclesEnabled ?? true)
     setLastEvent(previous.lastEvent)
     setLastPlan(previous.lastPlan)
     setHoverHex(null)
@@ -266,6 +274,8 @@ export function TrajectoryLab() {
         dissipationRule: TRAJECTORY_DISSIPATION_RULE,
         cellAuthorityRule: TRAJECTORY_CELL_AUTHORITY_RULE,
         pathRule: TRAJECTORY_PATH_RULE,
+        reflectionRule: TRAJECTORY_REFLECTION_RULE,
+        obstaclesEnabled,
         steerInput: 'direct-cell-click',
         worldAt: state.worldAt,
         momentum,
@@ -278,7 +288,7 @@ export function TrajectoryLab() {
         boardRadius,
         playback: Boolean(playback),
         skipFinal: skipPlan?.valid ? { cell: skipPlan.finalHex, axis: skipPlan.finalState.axisId, m: skipPlan.finalM } : null,
-        controlledFinal: controlledPlan?.valid ? { cell: controlledPlan.finalHex, axis: controlledPlan.finalState.axisId, m: controlledPlan.finalM, path: controlledPlan.pathCells } : null,
+        controlledFinal: controlledPlan?.valid ? { cell: controlledPlan.finalHex, axis: controlledPlan.finalState.axisId, m: controlledPlan.finalM, path: controlledPlan.pathCells, reflections: controlledPlan.reflectionCount ?? 0 } : null,
       }),
       setPreset: (level) => setPreset(level, 'E'),
       setNoAxis: () => setPreset(0, null),
@@ -309,6 +319,8 @@ export function TrajectoryLab() {
       data-cell-authority={TRAJECTORY_CELL_AUTHORITY_RULE}
       data-trajectory-path={TRAJECTORY_PATH_RULE}
       data-trajectory-preview={TRAJECTORY_PREVIEW_RULE}
+      data-trajectory-reflection={TRAJECTORY_REFLECTION_RULE}
+      data-obstacles={obstaclesEnabled ? 'on' : 'off'}
       data-steer-input="direct-cell-click"
       data-world-at={state.worldAt}
       data-momentum={momentum}
@@ -334,7 +346,7 @@ export function TrajectoryLab() {
         <aside className="side-panel left-panel">
           <section className="panel-card actor-card">
             <div className="portrait">➤</div>
-            <div><p>Persistent Motion Actor</p><h2>Courier / PS</h2><span className="actor-sub">Cell centers define the path · playback interpolates between them</span></div>
+            <div><p>Persistent Motion Actor</p><h2>Courier / PS</h2><span className="actor-sub">Cells define rule occupancy · one global curve defines visual motion</span></div>
           </section>
 
           <section className="panel-card">
@@ -350,7 +362,7 @@ export function TrajectoryLab() {
           </section>
 
           <section className="panel-card prediction-card" data-trajectory-preview-panel>
-            <div className="section-heading"><h3>Projection</h3><span>visited-Cell corridor curve</span></div>
+            <div className="section-heading"><h3>Projection</h3><span>global tangent curve</span></div>
             <div className="projection-pair">
               <div className="projection-entry coast">
                 <b>SKIP / COAST</b>
@@ -416,6 +428,7 @@ export function TrajectoryLab() {
               selectedAimHex={null}
               showWeather={false}
               showThermal={false}
+              showDebugCollisionFx={true}
               onHoverHex={(hex) => {
                 if (playback || !directionalAction) return setHoverHex(null)
                 if (!hex || axialKey(hex) === axialKey(currentHex)) return setHoverHex(null)
@@ -438,12 +451,12 @@ export function TrajectoryLab() {
               </div>
             )}
             <div className="board-legend">
-              <span><i className="trajectory" />Blue = smoothed preview inside visited Cells</span>
-              <span><i className="momentum-axis" />Yellow = Skip/Coast authority path</span>
-              <span>Blue may miss intermediate centers but never enters an unvisited Cell</span>
-              <span>Preview ends near final Cell center, biased toward Ready Axis</span>
+              <span><i className="trajectory" />Blue = one global visual curve</span>
+              <span><i className="momentum-axis" />Yellow = discrete Skip/Coast Cell authority</span>
+              <span>Blue is not clamped to Cell centers or Cell borders</span>
+              <span>Wall contact is a real geometric breakpoint; final stub shows Ready Axis</span>
             </div>
-            {playback && <div className="playback-badge">1 Action · +1 AT · interpolate center → center</div>}
+            {playback && <div className="playback-badge">1 Action · +1 AT · continuous visual curve over discrete Travel</div>}
           </div>
 
           <section className="action-hand">
@@ -497,6 +510,7 @@ export function TrajectoryLab() {
               <button type="button" disabled={Boolean(playback)} onClick={() => setPreset(0, null)}>NoAxis · M0</button>
               {[0, 1, 2, 3].map((level) => <button type="button" key={level} disabled={Boolean(playback)} onClick={() => setPreset(level, 'E')}>E · M{level}</button>)}
             </div>
+            <button type="button" data-trajectory-obstacles className={obstaclesEnabled ? 'active wide-button' : 'wide-button'} disabled={Boolean(playback)} onClick={() => setObstaclesEnabled((value) => !value)}>Driving Walls · {obstaclesEnabled ? 'ON' : 'OFF'}</button>
             <label className="range-row">
               <span>Board Radius</span>
               <input data-trajectory-board-radius type="range" min={TRAJECTORY_MIN_RADIUS} max={TRAJECTORY_MAX_RADIUS} step="1" value={boardRadius} disabled={Boolean(playback)} onChange={(event) => changeRadius(Number(event.target.value))} />
@@ -511,19 +525,20 @@ export function TrajectoryLab() {
               <input type="range" min="300" max="1400" step="50" value={atVisualMs} disabled={Boolean(playback)} onChange={(event) => setAtVisualMs(Number(event.target.value))} />
               <output>{(atVisualMs / 1000).toFixed(2)} s</output>
             </label>
-            <small>1 Action remains exactly 1 logical AT. Visual interpolation only occurs between consecutive Cell centers.</small>
+            <small>1 Action remains exactly 1 logical AT. Cell route is logical authority; the actor follows the authored global curve until a reflection breakpoint.</small>
           </section>
 
           <section className="panel-card">
             <div className="section-heading"><h3>Current Gate</h3><span>VAL-012-PS-AB</span></div>
             <dl className="state-list compact">
-              <div><dt>Path authority</dt><dd>Cell-center polyline</dd></div>
+              <div><dt>Path authority</dt><dd>discrete Cell route</dd></div>
               <div><dt>M0 Move</dt><dd>free Hex6</dd></div>
               <div><dt>Steering</dt><dd>≤60° / Action</dd></div>
               <div><dt>Speed Band</dt><dd>M1/2/3 = 1/2/3 Cell</dd></div>
               <div><dt>Drive test</dt><dd>+1M sustain</dd></div>
               <div><dt>Heavy test</dt><dd>+2M sustain</dd></div>
-              <div><dt>Wall / Strike</dt><dd>deferred</dd></div>
+              <div><dt>Wall reflection</dt><dd>Driving v1</dd></div>
+              <div><dt>Strike</dt><dd>deferred</dd></div>
             </dl>
           </section>
 
