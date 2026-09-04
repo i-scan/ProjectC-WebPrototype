@@ -6,6 +6,7 @@ export const TRAJECTORY_STEERING_RULE = 'max-60deg-per-action-v1'
 export const TRAJECTORY_DISSIPATION_RULE = 'persistent-start-m-minus-1-v1'
 export const TRAJECTORY_CELL_AUTHORITY_RULE = 'ready-cell-center-v1'
 export const TRAJECTORY_PATH_RULE = 'cell-center-anchored-steering-curve-v2'
+export const TRAJECTORY_PREVIEW_RULE = 'visited-cell-corridor-curve-v1'
 export const TRAJECTORY_MIN_RADIUS = 4
 export const TRAJECTORY_MAX_RADIUS = 10
 export const TRAJECTORY_DEFAULT_RADIUS = 6
@@ -21,7 +22,9 @@ export const TRAJECTORY_ACTION_PROFILES = Object.freeze({
 const DEG = Math.PI / 180
 const RAD = 180 / Math.PI
 const SUBSTEPS_PER_CELL = 8
-const PREVIEW_AXIS_STUB = 0.48
+const PREVIEW_END_EXTENSION = 0.18
+const PREVIEW_CORNER_PASSES = 2
+const PREVIEW_DENSITY = 8
 const CURVE_TANGENT_SCALE = 0.78
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
@@ -279,24 +282,99 @@ function samplesForCenterPath(path, pathResult, movingM, finalM, finalAxis, resp
   return samples
 }
 
-function previewAxisStubSamples(plan) {
-  if (!plan?.valid || !plan.finalState?.axisId || !plan.samples?.length) return plan?.samples ?? []
-  const samples = plan.samples.map((sample) => ({
-    ...sample,
-    position: { ...sample.position },
-    velocity: { ...sample.velocity },
-  }))
-  const center = axialToWorld(plan.finalHex)
-  const direction = directionVector(plan.finalState.axisId)
-  samples.push({
-    t: 1.05,
-    position: { x: center.x + direction.x * PREVIEW_AXIS_STUB, z: center.z + direction.z * PREVIEW_AXIS_STUB },
-    velocity: { ...plan.finalState.velocity },
-    axisId: plan.finalState.axisId,
-    momentumLevel: plan.finalM,
-    previewAxisStub: true,
+function pointLerp(a, b, t) {
+  return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t }
+}
+
+function pointHexKey(point) {
+  const hex = worldToAxial(point)
+  return `${hex.q},${hex.r}`
+}
+
+function chaikinPass(points) {
+  if (points.length <= 2) return points.map((point) => ({ ...point }))
+  const result = [{ ...points[0] }]
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const a = points[index]
+    const b = points[index + 1]
+    result.push(pointLerp(a, b, 0.25), pointLerp(a, b, 0.75))
+  }
+  result.push({ ...points.at(-1) })
+  return result
+}
+
+function nearestVisitedCenter(point, centers) {
+  let nearest = centers[0]
+  let best = Infinity
+  for (const center of centers) {
+    const distance = Math.hypot(point.x - center.x, point.z - center.z)
+    if (distance < best) {
+      best = distance
+      nearest = center
+    }
+  }
+  return nearest
+}
+
+function clampPreviewPointToVisitedCells(point, centers, visitedKeys) {
+  if (visitedKeys.has(pointHexKey(point))) return { ...point }
+  const center = nearestVisitedCenter(point, centers)
+  let low = 0
+  let high = 1
+  for (let index = 0; index < 18; index += 1) {
+    const mid = (low + high) * 0.5
+    const candidate = pointLerp(center, point, mid)
+    if (visitedKeys.has(pointHexKey(candidate))) low = mid
+    else high = mid
+  }
+  return pointLerp(center, point, Math.max(0, low - 0.002))
+}
+
+function relaxedPreviewSamples(plan) {
+  if (!plan?.valid || !plan.pathCells?.length) return plan?.samples ?? []
+  const centers = plan.pathCells.map((hex) => axialToWorld(hex))
+  const visitedKeys = new Set(plan.pathCells.map((hex) => `${hex.q},${hex.r}`))
+  const finalCenter = centers.at(-1)
+  const finalDirection = plan.finalState?.axisId ? directionVector(plan.finalState.axisId) : { x: 0, z: 0 }
+  const rawEnd = {
+    x: finalCenter.x + finalDirection.x * PREVIEW_END_EXTENSION,
+    z: finalCenter.z + finalDirection.z * PREVIEW_END_EXTENSION,
+  }
+  const safeEnd = clampPreviewPointToVisitedCells(rawEnd, [finalCenter], new Set([`${plan.finalHex.q},${plan.finalHex.r}`]))
+
+  let guide = [...centers.map((point) => ({ ...point })), safeEnd]
+  for (let pass = 0; pass < PREVIEW_CORNER_PASSES; pass += 1) guide = chaikinPass(guide)
+
+  const dense = []
+  for (let index = 0; index < guide.length - 1; index += 1) {
+    const from = guide[index]
+    const to = guide[index + 1]
+    for (let step = 0; step < PREVIEW_DENSITY; step += 1) {
+      if (index > 0 && step === 0) continue
+      dense.push(clampPreviewPointToVisitedCells(pointLerp(from, to, step / PREVIEW_DENSITY), centers, visitedKeys))
+    }
+  }
+  dense.push(clampPreviewPointToVisitedCells(guide.at(-1), centers, visitedKeys))
+
+  return dense.map((position, index) => {
+    const next = dense[Math.min(dense.length - 1, index + 1)]
+    const previous = dense[Math.max(0, index - 1)]
+    const dx = next.x - previous.x
+    const dz = next.z - previous.z
+    const heading = Math.hypot(dx, dz) > 0.0001
+      ? Math.atan2(dz, dx)
+      : (plan.finalState?.axisId ? axisAngle(plan.finalState.axisId) : 0)
+    const atEnd = index === dense.length - 1
+    return {
+      t: dense.length <= 1 ? 1 : index / (dense.length - 1),
+      position,
+      velocity: atEnd ? { ...plan.finalState.velocity } : velocityForHeading(heading, Math.max(1, plan.beforeM, plan.builtM)),
+      axisId: atEnd ? plan.finalState.axisId : nearestAxisIdFromAngle(heading),
+      momentumLevel: atEnd ? plan.finalM : Math.max(1, plan.beforeM, plan.builtM),
+      previewCorridorSample: true,
+      previewEnd: atEnd,
+    }
   })
-  return samples
 }
 
 export function trajectoryActionPlan({
@@ -453,9 +531,10 @@ export function withCoastProjection(controlledPlan, coastPlan) {
   if (!controlledPlan?.valid) return controlledPlan
   return {
     ...controlledPlan,
-    samples: previewAxisStubSamples(controlledPlan),
+    samples: relaxedPreviewSamples(controlledPlan),
     actorTrajectories: coastPlan?.valid ? { coastProjection: coastPlan.pathCells } : {},
     previewAxisStub: controlledPlan.finalState?.axisId ?? null,
+    previewRule: TRAJECTORY_PREVIEW_RULE,
     coastPreviewAxis: coastPlan?.finalState?.axisId ?? null,
   }
 }

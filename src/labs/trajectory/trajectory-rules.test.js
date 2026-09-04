@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { axialDistance, axialToWorld, directionIdBetween } from '../../sim/hex.js'
+import { axialDistance, axialToWorld, directionIdBetween, worldToAxial } from '../../sim/hex.js'
 import {
   TRAJECTORY_DEFAULT_RADIUS,
   TRAJECTORY_MAX_STEER_DEG,
   TRAJECTORY_PATH_RULE,
+  TRAJECTORY_PREVIEW_RULE,
   compatibleStartupMove,
   makeTrajectoryState,
   trajectoryActionPlan,
@@ -129,19 +130,35 @@ describe('VAL-012 Process Steering Cell-center candidate', () => {
     expect(heavy1.travelSteps).toBe(3)
   })
 
-  it('adds a preview-only terminal Axis stub without changing authoritative Landing', () => {
-    const state = makeTrajectoryState({ axisId: 'E', momentum: 2 })
+  it('relaxes the blue preview inside visited Cells and ends near the final Cell center', () => {
+    const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
     const { controlled, coast } = trajectoryProjectionPair({
       state,
       actionId: 'steer',
-      selectedHex: { q: 1, r: -2 },
+      selectedHex: { q: -3, r: 0 },
       boardRadius: TRAJECTORY_DEFAULT_RADIUS,
       responseCurve: 'linear',
     })
     const preview = withCoastProjection(controlled, coast)
-    expect(preview.samples.length).toBe(controlled.samples.length + 1)
+    expect(preview.previewRule).toBe(TRAJECTORY_PREVIEW_RULE)
     expect(preview.previewAxisStub).toBe(controlled.finalState.axisId)
     expect(preview.actorTrajectories.coastProjection).toEqual(coast.pathCells)
     expectCenter(controlled.finalState.position, controlled.finalHex)
+
+    const visited = new Set(controlled.pathCells.map((hex) => `${hex.q},${hex.r}`))
+    for (const sample of preview.samples) {
+      const hex = worldToAxial(sample.position)
+      expect(visited.has(`${hex.q},${hex.r}`)).toBe(true)
+    }
+
+    const interiorCenters = controlled.pathCells.slice(1, -1).map(axialToWorld)
+    expect(preview.samples.some((sample) => interiorCenters.every((center) => Math.hypot(sample.position.x - center.x, sample.position.z - center.z) > 0.025))).toBe(true)
+
+    const finalCenter = axialToWorld(controlled.finalHex)
+    const end = preview.samples.at(-1).position
+    const endDistance = Math.hypot(end.x - finalCenter.x, end.z - finalCenter.z)
+    expect(endDistance).toBeGreaterThan(0.04)
+    expect(endDistance).toBeLessThan(0.24)
+    expect(worldToAxial(end)).toEqual(controlled.finalHex)
   })
 })
