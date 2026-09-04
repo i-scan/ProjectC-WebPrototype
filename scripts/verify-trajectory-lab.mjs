@@ -47,7 +47,7 @@ try {
   assert(dom.includes('data-trajectory-steering="max-60deg-per-action-v1"'), '60deg/Action steering marker missing')
   assert(dom.includes('data-trajectory-dissipation="persistent-start-m-minus-1-v1"'), 'Passive Dissipation marker missing')
   assert(dom.includes('data-cell-authority="ready-cell-center-v1"'), 'Cell-authoritative Ready marker missing')
-  assert(dom.includes('data-trajectory-path="cell-center-steering-polyline-v1"'), 'Cell-center trajectory path marker missing')
+  assert(dom.includes('data-trajectory-path="cell-center-anchored-steering-curve-v2"'), 'Cell-center anchored steering curve marker missing')
   assert(dom.includes('data-spatial-mode="discrete"'), 'Trajectory Lab must expose discrete Hex6 authority')
   assert(dom.includes('data-steer-input="direct-cell-click"'), 'Direct Cell-click Steering marker missing')
   assert(dom.includes('data-trajectory-action="steer"'), 'Move / Steer action missing')
@@ -56,7 +56,7 @@ try {
   assert(dom.includes('data-trajectory-action="skip"'), 'Skip action missing')
   assert(!dom.includes('data-trajectory-action="coast"'), 'Coast must remain Skip state semantics, not a separate card')
   assert(dom.includes('<dt>M0 Move</dt><dd>free Hex6</dd>'), 'M0 free Hex6 Move authority missing')
-  assert(dom.includes('Every path bend occurs at a Cell center'), 'Cell-center polyline legend missing')
+  assert(dom.includes('Every path bend occurs at a Cell center'), 'Cell-center authority legend missing')
   assert(dom.includes('Short terminal segment = predicted Ready Axis'), 'Preview Ready Axis terminal marker explanation missing')
   assert(dom.includes('data-control-model="reachable-shape"') && dom.includes('data-control-model="process-steering"'), 'Reachable Shape / Process Steering A/B controls missing')
   assert(dom.includes('data-response-curve="linear"') && dom.includes('data-response-curve="smoothstep"'), 'Response curve debug A/B missing')
@@ -64,7 +64,7 @@ try {
   assert(dom.includes('data-motion-freeze="m2"'), 'Default M2 motion-state marker missing')
   assert(dom.includes('data-axis-style="actor-body-screen-arrow-v5"'), 'Board3D Axis HUD did not mount')
 
-  console.log('Trajectory Lab browser smoke verified: Cell-center path, free M0 Move, Drive/Heavy Drive, Skip and direct directional input are mounted.')
+  console.log('Trajectory Lab browser smoke verified: first-segment inertia, center-anchored steering curve, free M0 Move, Drive/Heavy Drive and Skip are mounted.')
 } finally {
   if (previewProcess && !previewProcess.killed) previewProcess.kill('SIGTERM')
 }
