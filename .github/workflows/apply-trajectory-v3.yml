@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/apply-trajectory-v3.yml
       - .tmp/patch-trajectory-v3.py
+      - .tmp/patch-old-test.py
 
 permissions:
   contents: write
@@ -25,7 +26,9 @@ jobs:
         with:
           node-version: 22
       - name: Apply Trajectory v3 patch
-        run: python .tmp/patch-trajectory-v3.py
+        run: |
+          python .tmp/patch-trajectory-v3.py
+          python .tmp/patch-old-test.py
       - name: Install dependencies
         run: pnpm install
       - name: Verify
@@ -33,10 +36,10 @@ jobs:
       - name: Commit implementation only
         shell: bash
         run: |
-          rm -f .github/workflows/apply-trajectory-v3.yml .tmp/patch-trajectory-v3.py
+          rm -f .github/workflows/apply-trajectory-v3.yml .tmp/patch-trajectory-v3.py .tmp/patch-old-test.py
           rmdir .tmp 2>/dev/null || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src scripts .github/workflows/apply-trajectory-v3.yml .tmp/patch-trajectory-v3.py
+          git add src scripts .github/workflows/apply-trajectory-v3.yml .tmp/patch-trajectory-v3.py .tmp/patch-old-test.py
           git commit -m "Canonicalize Trajectory routes and preview"
           git push origin HEAD:fix/trajectory-canonical-preview-routes
