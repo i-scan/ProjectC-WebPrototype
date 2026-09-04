@@ -23,11 +23,6 @@ import {
   withCoastProjection,
 } from './trajectory-rules.js'
 
-const RESPONSE_CURVES = [
-  { id: 'linear', label: 'Linear', note: 'Spread the same 60° authority evenly across the Cell steps in this Action.' },
-  { id: 'smoothstep', label: 'Smooth', note: 'Delay/soften the sector change while keeping the same Cell-center authority.' },
-]
-
 const DIRECTION_ACTIONS = new Set(['steer', 'drive', 'heavy-drive'])
 
 function actionTitle(actionId, momentum) {
@@ -453,10 +448,10 @@ export function TrajectoryLab() {
 
           <section className="action-hand">
             <div className="hand-heading">
-              <div><h2>Ready Actions</h2><p>Select a directional card, hover to preview, then click one Cell direction to execute immediately. Skip executes from the card.</p></div>
+              <div><h2>Ready Actions</h2><p>Select action → hover → click Cell. Skip executes directly.</p></div>
               <span>{activeTitle}</span>
             </div>
-            <div className="action-row trajectory-action-row">
+            <div className="action-row trajectory-action-row" data-action-layout="driving-row">
               <button type="button" className={`action-card ${actionId === 'steer' ? 'selected' : ''}`} data-trajectory-action="steer" data-direct-input="cell-click" disabled={Boolean(playback)} onClick={() => chooseDirectional('steer')}>
                 <header><strong>{momentum > 0 ? 'Steer' : 'Move'}</strong><em>CONTROL</em></header>
                 <p>{momentum > 0 ? 'No extra M. Apply up to 60° total Steering while the Action traverses its M Cell-center path; unsustained M dissipates at Action end.' : 'Fully six-directional at M0. Move exactly one adjacent Cell center and freely establish/rewrite Axis; a compatible second Move can establish M1.'}</p>
@@ -465,19 +460,19 @@ export function TrajectoryLab() {
 
               <button type="button" className={`action-card ${actionId === 'drive' ? 'selected' : ''}`} data-trajectory-action="drive" data-direct-input="cell-click" disabled={Boolean(playback)} onClick={() => chooseDirectional('drive')}>
                 <header><strong>Drive</strong><em>BUILD</em></header>
-                <p>Testing candidate: Build/Sustain +1M before resolving the 1AT Cell-center trajectory. Uses the same Steering authority, making M1/M2/M3 comparisons easy in normal play.</p>
+                <p>+1M · sustain · same Steering rules.</p>
                 <span>+1M · sustain · targeted</span>
               </button>
 
               <button type="button" className={`action-card ${actionId === 'heavy-drive' ? 'selected' : ''}`} data-trajectory-action="heavy-drive" data-direct-input="cell-click" disabled={Boolean(playback)} onClick={() => chooseDirectional('heavy-drive')}>
                 <header><strong>Heavy Drive</strong><em>BUILD+</em></header>
-                <p>Testing candidate: Build/Sustain +2M (stable cap M3), then resolve the higher-M Cell-center path in the same 1AT. Intended for stress-testing inertia readability.</p>
+                <p>+2M · sustain · cap M3.</p>
                 <span>+2M · cap M3 · targeted</span>
               </button>
 
               <button type="button" className={`action-card ${actionId === 'skip' ? 'selected' : ''}`} data-trajectory-action="skip" disabled={Boolean(playback)} onClick={commitSkip}>
                 <header><strong>Skip</strong><em>{momentum > 0 ? 'COAST' : 'WAIT'}</em></header>
-                <p>{momentum > 0 ? 'Make the deliberate choice not to steer. Current Horizontal Motion traverses its Cell-center path and then loses 1M at Action end.' : 'Deliberately spend 1 AT without locomotion. No misleading separate Wait card is created.'}</p>
+                <p>{momentum > 0 ? 'Coast · no Steering · M-1.' : 'Spend 1 AT · stay in place.'}</p>
                 <span>+1 AT · no Steering · M-1 if M&gt;0</span>
               </button>
             </div>
@@ -495,15 +490,6 @@ export function TrajectoryLab() {
             <small>A remains untouched as the control group.</small>
           </section>
 
-          <section className="panel-card">
-            <div className="section-heading"><h3>Steering Response</h3><span>Cell-step timing</span></div>
-            <div className="quick-grid">
-              {RESPONSE_CURVES.map((curve) => (
-                <button type="button" key={curve.id} data-response-curve={curve.id} className={responseCurve === curve.id ? 'active' : ''} disabled={Boolean(playback)} onClick={() => setResponseCurve(curve.id)}>{curve.label}</button>
-              ))}
-            </div>
-            <p className="actor-sub">{RESPONSE_CURVES.find((entry) => entry.id === responseCurve)?.note}</p>
-          </section>
 
           <section className="panel-card">
             <div className="section-heading"><h3>Test Presets</h3><span>debug</span></div>
