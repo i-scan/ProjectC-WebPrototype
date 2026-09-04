@@ -1,317 +1,237 @@
-# ProjectC Web Prototype · Spatial Inertia v1 Lab
+# ProjectC Web Prototype · Spatial Inertia Control A/B Lab
 
 本仓库是 ProjectC 的可执行规则实验环境。
 
-当前分支正在落实 2026-08-30 完成规范化的 **Spatial Inertia v1 candidate runtime**。唯一 Spatial Inertia 规则主源仍是：
+当前最高优先级实验：
+
+```text
+VAL-012 Process Steering A/B
+
+A = Reachable Shape
+B = Process Steering / Persistent Motion
+```
+
+当前 Horizontal A/B 主源：
+
+```text
+ProjectC/docs/VAL-012-process-steering-ab.md
+```
+
+父级 Spatial 规则：
 
 ```text
 ProjectC/docs/VAL-012-spatial-inertia-rules-v1.md
 ```
 
-程序交接与原型 Gate：
+程序交接 / Gate：
 
 ```text
 ProjectC/docs/VAL-012-actor-loop-v0-program-handoff.md
 ProjectC/docs/VAL-012-actor-loop-v0-prototype-plan.md
 ```
 
-本轮不是推倒此前原型，而是保留已经验证有效的 landing-cell 操作、Reachable envelope、CellMotionTrace、Wall pivot、曲线 playback 与 Actor causal playback，同时把它们收束到统一的 Spatial Inertia 语法。
+---
+
+## 为什么做这个 A/B
+
+Reachable Shape 已经提供较好的传统战棋落点控制，但测试中仍存在：
+
+- 高 M 转向困难主要由不可达 Cell 表达；
+- M3 Move3 后进入 Ready 很像棋子停下；
+- 高 M 输入窗口限制容易像 Action Lock；
+- Horizontal M 的持续速度 / 身体历史表现不足。
+
+因此 B 不删除 `M + Axis`，而是改写玩家控制方式：
+
+```text
+M / Axis = 已形成的持续运动状态
+Action = 对这段运动施加控制
+Landing = 过程结果
+```
 
 ---
 
-## 当前 v1 runtime 主结构
+## A · Reachable Shape
+
+继续保留当前可用对照：
 
 ```text
-Action
-→ Initiative Transaction
-→ CellMotionTrace / Travel
-→ ContactBehavior
-→ Forced Move
-→ Momentum Event Log
+M / Axis
+→ legal landing shape
+→ click landing cell
+→ deterministic Cell path
 ```
 
-底层移动来源只分：
-
-```text
-Initiative Move
-Forced Move
-```
-
-Basic Move / Drive / 后续卡牌是 Action，不再各自拥有独立的碰撞或击退物理。
+A 不应因为 B 的实现而被悄悄修改或删除。
 
 ---
 
-## Momentum / Travel baseline
+## B · Process Steering
 
-稳定状态：
-
-```text
-M0~M3
-```
-
-系统允许 transient：
+### Startup
 
 ```text
-M4 Overload
+M0 NoAxis + Move
+→ Move1 / 1AT
+→ M0 Axis
+
+M0 Axis + compatible Move
+→ Move1 / 1AT
+→ Generate M1
 ```
 
-默认 Initiative Travel：
+M1+ 表示 Persistent Horizontal Motion。
+
+### Ready
 
 ```text
-M0 Move1
-M1 Move1
-M2 Move2
-M3 Move3
+Action complete → Ready
+Ready != stopped motion
 ```
 
-低 M 启动：
+Action 内 Cell Crossing 不产生 Input Window。
+
+### Steering
 
 ```text
-M0 NoAxis + Move1
-→ establish Axis / M0
-
-M0 Axis + same-axis Move1
-→ Generate M0→M1
-
-M1 + same-axis Move1
-→ Generate M1→M2
-
-M1 ±60°
-→ Move1 / Redirect / keep M1
-
-M1 ±120°
-→ real Travel2 / Resist / M1→M0 / new Axis
+Yellow Arrow = Current Axis
+Blue Arrow = Steering Intent
+Basic authority = <=60° / Action
 ```
 
-Basic Move 自然 Build 到 M2；不会自然从 M2 Build 到 M3。
+不是 `60° / Cell`。
 
-M2 / M3 当前 baseline：
+Axis 在整个 Action Duration 内持续朝 Blue 响应。
+
+如果 Passive Dissipation 后 `M→0`，允许额外最多 60° no-travel Axis settlement，保证低 M 灵活性。
+
+### Preview
+
+B 必须同时显示：
 
 ```text
-one Initiative transaction per Action
-M2 → M1
-M3 → M2
+Coast Projection
+Controlled Projection
 ```
 
-已经验证有效的五格前向 landing envelope 与“不能任意停在中间 Cell”继续保留。
+玩家应该在 Commit 前直接看到“如果不干预会去哪”与“这次 Steering 把未来改到哪里”。
 
 ---
 
-## Transaction timing
+## Travel / Dissipation baseline
 
-v1 明确废弃旧的 action-start post-spend 解释。
-
-```text
-Declare Action
-→ 不立即改变 M
-→ resolve first spatial event
-```
-
-通常第一次成功 Travel 后提交一次 Action Transaction。
-
-因此：
+目标 Band：
 
 ```text
-M3 → empty first Cell
-→ Use M3→M2
-→ 后续 Contact 使用 M2
+M0 active Move = 1 Cell / AT
+M1 ≈ 1 Cell / AT
+M2 ≈ 2 Cells / AT
+M3 ≈ 3 Cells / AT
 ```
 
-但：
+B 的 Cell Crossing 从 1AT 内运动过程求出，不依赖 A 的 authored Reachable Shape。
+
+第一轮：
 
 ```text
-M3 → adjacent Strike Target
-→ 尚未发生 Travel
-→ Strike 直接使用 M3
-→ pending Basic transaction 被 Contact 抢占，不再补算
+unsustained Action end
+→ Passive Dissipation -1M
 ```
 
-这条时序是本轮从原型问题中规范化出的关键修正。
+```text
+Move / Steer = active direction control, no automatic sustain
+Skip / Coast = no active control, no sustain
+Drive / Build effect = later sustain / build hook
+```
+
+实现需预留 Resistance：
+
+```text
+baseDissipationPerAction
+terrainDissipationModifier
+sustainModifier
+```
+
+Normal baseline=1。
+
+Ice 最终值仍待后续比较：
+
+```text
+Normal1 / Ice0
+vs
+Normal2 / Ice1
+```
 
 ---
 
-## Wall / Boundary
+## Dynamic labels
 
-当前 v1 baseline：
-
-```text
-Surface = Redirect Axis
-Surface itself does not directly reduce M
-```
-
-Wall Cell roundtrip：
+不新增独立 Coast 卡牌。
 
 ```text
-pre-wall Cell
-→ wall pivot
-→ mirrored exit
-= one Travel
+M0:
+Move / Wait
+
+Horizontal M>0:
+Steer / Coast
 ```
 
-因此 Wall 不再拥有额外 `M-1` 或 restitution→M 的独立规则。若同一个 Basic Action 最终发生 `M3→M2`，它来自该 Action 的一次 Initiative transaction，而不是 Wall 税。
-
-M0 Initiative 不能主动提交 Wall reflection。
-
-Boundary 使用同一“surface redirects Axis, no direct M loss”基线。
+底层 Action 可以共享，UI 负责表达当前运动语义。
 
 ---
 
-## Contact / Strike
+## Frozen-speed presentation
 
-Actor Contact 先解析 `ContactBehavior`。
+B 的世界暂停必须尝试表现为“高速摄影冻结”，而不是停车。
 
-当前正式接入：
+最低使用：
 
-### Strike
+- Yellow Axis；
+- M dots；
+- Coast line；
+- previous motion trail / ghost samples；
+- 高 M 更明显的 trail / arrow / stretch；
+- Blue Steering + Controlled line。
 
-```text
-Source current M
-→ Transfer as Incoming to Target
-→ Source M0
-→ Source 默认在 Contact 停止
-```
-
-Target 腾空 Contact Cell：Source 可进入；Target 未腾空：Source 返回 pre-contact Cell，但 Transfer 不退款。
-
-旧 equal-mass restitution helper 仍保留用于数值对照，但 v1 正式 Contact resolver 不再调用它。
-
-### Pierce
-
-主规范已经定义：
-
-```text
-no Momentum Transfer
-no Target knockback
-Source keeps M
-continue route
-```
-
-当前没有 live Action 使用 Pierce，因此本轮核心 runtime 暂未暴露 Pierce 卡面；后续必须接入同一个 Contact resolver，禁止另建移动系统。
+网页圆形 Actor 本身就是本轮验证对象：如果这些低成本元素仍无法让 Ready 看起来像持续运动，B 会得到重要负面证据。
 
 ---
 
-## Forced Move / Knockback
+## Down / Spatial parent rules
 
-Forced Move 默认 ContactBehavior = Strike。
-
-第一次有效 Travel，或第一格 occupied travel attempt：
+Down Axis 保留：
 
 ```text
-Forced Use M→M-1 once
+Horizontal Axis + M = persistent planar motion
+Down Axis + M = grounded / stability commitment
 ```
 
-随后再处理该 Cell 的 Contact。
-
-因此 chain decay 不再硬编码：
-
-```text
-Incoming M3
-→ Forced Use M2
-→ Strike transfer M2
-→ next Target Forced Use M1
-→ Strike transfer M1
-→ next Target Forced Use M0
-→ chain stops
-```
-
-Wall reflection 不产生第二笔 M 损失。
+ContactBehavior、Forced Use、Wall、M4 等仍由 `VAL-012-spatial-inertia-rules-v1.md` 负责；它们不需要先全部重构才能测试 B。
 
 ---
 
-## Incoming A/B
-
-Down：
+## 当前实现顺序
 
 ```text
-Down M 1:1 cancel Incoming Horizontal M
+A/B selector
+→ keep A stable
+→ B startup / persistent motion
+→ Yellow / Blue steering
+→ Coast + Controlled projection
+→ 60° / Action
+→ zero-M settlement
+→ Passive Dissipation / Resistance hook
+→ frozen-speed visual
+→ playtest
 ```
 
-Existing Horizontal + Incoming 当前保留两种实验模型：
+先不要把范围扩张到完整 Strike / Pierce / Chain / M4 / Ice / Attack / Drive 平衡。
 
-```text
-A. True Vector Composition
-B. Hex Angle Lookup
-```
-
-runtime 已同时实现两种计算入口；**尚未冻结赢家**。
-
-Hex Lookup 当前数值表明确标记为 `prototype-candidate`，不能反向写成正式设计结论。
+需要高 M 时使用 Debug preset。
 
 ---
 
-## M4 Overload
-
-runtime 已允许 Incoming composition 产生 transient M4，并为 Forced Move 保留 Travel4 / first Forced Use M4→M3 的逻辑接口。
-
-仍未完全闭环：
-
-- Ready 阶段统一 settle M4→M3 的正式时点；
-- M4 的最终 UI 表现；
-- `CellMotionTrace` 内部 M 上限完全扩展到 4 的调试显示。
-
-这些属于后续候选，不应阻塞 M0~M3 v1 核心验证。
-
----
-
-## Drive：当前 prototype candidate
-
-主规范明确 Drive / Build Inertia 是进入 M3 的显式方式，但没有冻结这张测试 Action 的最终数值。
-
-本原型当前采用：
-
-```text
-Drive
-→ Build Inertia +1M
-→ stable cap M3
-→ 第一次成功 Travel 后提交
-→ 不倒推扩大本次已经声明的 Travel route
-```
-
-例如 M2 Drive：
-
-```text
-按当前 M2 landing route Travel2
-first successful Travel 后 M2→M3
-本次仍只完成已声明的 Travel2
-```
-
-此规则带有 `prototype-candidate` 标记，后续试玩可以调整。
-
----
-
-## Terrain / Ice extension
-
-主规范要求未来支持：
-
-```text
-travelCost / travelModifier per Cell
-```
-
-当前一般地面仍按 cost 1 验证。Ice 最终数值尚未冻结，因此本轮没有用 `M+1` 伪造地形效果。
-
-这仍是一个需要继续接入 CellMotionTrace 的实现扩展点。
-
----
-
-## Discrete / Hybrid
-
-Basic Move 与 Drive 现在共享同一份 v1 逻辑路径与最终 Cell / M / Axis。
-
-```text
-Discrete / Hybrid
-= presentation A/B
-≠ two rule systems
-```
-
-Hybrid 可以继续使用更平滑的曲线表现，但不得重新通过独立 `Velocity + ΔV` 求解另一套 gameplay 结果。
-
-尚未迁移到 v1 的 Heavy Drive / Hard Turn 等旧实验 Action 会明确留在 legacy path，不允许静默冒充已经规范化的规则。
-
----
-
-## Debug / regression
-
-核心回归：
+## Regression
 
 ```bash
 pnpm test
@@ -320,57 +240,18 @@ pnpm verify:dist
 pnpm verify:browser
 ```
 
-必须持续保护：
+A/B 第一轮至少验证：
 
-- landing-cell input / reachable envelope；
-- M1 ±60 / ±120；
-- first-Travel transaction timing；
-- adjacent Strike preemption；
-- Wall roundtrip cost 1 / no direct M loss；
-- Strike direct Transfer；
-- Forced Use recursive chain；
-- Preview / execution same solver；
-- curved wall / actor playback；
-- Axis HUD / M dots / Thermal timebase。
+1. M0 startup；
+2. M1/M2/M3 Coast；
+3. M1/M2/M3 Steering；
+4. `<=60° / Action` 与 Cell 数无关；
+5. zero-M settlement 不增加 Travel；
+6. Preview == Commit；
+7. M3 stopping distance；
+8. A/B test isolation；
+9. 当前 board / HUD / playback 基础功能不回归。
 
-不得恢复：
+Pages 只有 unit / build / dist / real Chrome / deploy / published commit verification 全部成功后才算落实。
 
-- action-start post-spend；
-- Wall itself M-1；
-- equal-mass collision 作为默认 Strike；
-- `chain-decay-prototype`；
-- Basic M2 natural build to M3。
-
----
-
-## 尚未闭环的规则 / 实验项
-
-当前明确保留为候选而非正式冻结：
-
-1. Drive 最终 Build 数值与 card cost；
-2. Existing Horizontal + Incoming：True Vector vs Hex Lookup；
-3. Hex Lookup 的最终角度表；
-4. M4 Ready settle 与 UI；
-5. Terrain/Ice 的实际 travel modifier；
-6. 尚无 live card 的 Pierce / 未来 Grab / Throw；
-7. 正式 gameplay state 最终是否彻底从连续 Velocity 切换为离散 `M + Axis` 权威状态。
-
-这些点应继续通过网页原型 A/B 验证，而不是由程序层擅自冻结。
-
----
-
-## GitHub Pages
-
-只有完整完成：
-
-```text
-rule implementation
-→ unit tests
-→ production build
-→ dist verification
-→ real Chrome verification
-→ Pages deploy
-→ published commit verification
-```
-
-才能声称网页端已落实到对应 commit。
+Process Steering 即使实现成功也仍是 `candidate`，必须通过实际试玩和 A/B 比较后才能决定是否替换 Reachable Shape。
