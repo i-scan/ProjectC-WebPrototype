@@ -370,6 +370,7 @@ export function TrajectoryLab() {
       data-trajectory-path={TRAJECTORY_PATH_RULE}
       data-trajectory-preview={TRAJECTORY_PREVIEW_RULE}
       data-trajectory-reflection={TRAJECTORY_REFLECTION_RULE}
+      data-trajectory-edge-intent="outside-ring-v1"
       data-walls={wallsEnabled ? 'on' : 'off'}
       data-targets={targetsEnabled ? 'on' : 'off'}
       data-steer-input="direct-cell-click"
@@ -472,11 +473,11 @@ export function TrajectoryLab() {
               playback={playback}
               atVisualMs={atVisualMs}
               axisDisplayOverride="auto"
-              boardRadius={boardRadius}
+              boardRadius={boardRadius + 1}
               viewMode={viewMode}
               cameraResetToken={cameraResetToken}
-              hoverHex={null}
-              selectedAimHex={null}
+              hoverHex={hoverHex}
+              selectedAimHex={selectedHex}
               showWeather={false}
               showThermal={false}
               showDebugCollisionFx={true}
@@ -505,7 +506,7 @@ export function TrajectoryLab() {
               <span><i className="trajectory" />Blue = one global visual curve</span>
               <span><i className="momentum-axis" />Yellow = discrete Skip/Coast Cell authority</span>
               <span>Blue is not clamped to Cell centers or Cell borders</span>
-              <span>Wall contact is a real geometric breakpoint; final stub shows Ready Axis</span>
+              <span>Boundary/Wall contact is a real geometric breakpoint; the outside ring is direction input only</span>
             </div>
             {playback && <div className="playback-badge">1 Action · +1 AT · continuous visual curve over discrete Travel</div>}
           </div>

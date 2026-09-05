@@ -11,7 +11,7 @@ const BUILD_COMMIT = __BUILD_COMMIT__
 const BUILD_BRANCH = __BUILD_BRANCH__
 
 function viewFromHash() {
-  if (window.location.hash === '#trajectory-lab' || window.location.hash === '#control-window-lab') return 'trajectory'
+  if (window.location.hash === '#trajectory-lab') return 'trajectory'
   if (window.location.hash === '#thermal-lab') return 'thermal'
   if (window.location.hash === '#graphics-lab') return 'graphics'
   return 'inertia'
