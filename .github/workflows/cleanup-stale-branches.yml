@@ -22,66 +22,208 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Delete reviewed stale branches
+      - name: Apply reviewed Trajectory maintenance
         shell: bash
         run: |
           set -euo pipefail
 
-          # These refs were reviewed on 2026-08-30. They are either historical
-          # PR heads already incorporated into main (usually by squash merge),
-          # or explicitly superseded experiments. Backup refs are intentionally
-          # absent from this list and must never be deleted.
-          branches=(
-            'feat/cell-conflict-knockback'
-            'fix/axis-down-m3-momentum-transfer'
-            'fix/basic-move-adjacent-inertia-path'
-            'fix/browser-axis-readiness'
-            'fix/browser-thermal-midpoint-bound'
-            'fix/browser-wait-for-board'
-            'fix/clipped-boundary-reflection-preview'
-            'fix/current-m-travel-accounting'
-            'fix/deployment-foundation-verifier'
-            'fix/discrete-axis-preview-thermal-pan'
-            'fix/ew-wall-pivot-symmetry'
-            'fix/foundation-rules-before-conflict-test'
-            'fix/map-canvas-height'
-            'fix/map-host-inline-override'
-            'fix/obstacle-surface-geometry'
-            'fix/player-boundary-physical-reflection'
-            'fix/reachable-curves-axis-knockback-ui'
-            'fix/reflected-travel-budget-playback'
-            'fix/reflection-budget-and-rebound-path'
-            'fix/reflection-staged-knockback-hold-timebase'
-            'fix/visible-wall-reflection'
-            'fix/wall-cell-pivot-budget'
-            'fix/wall-travel-budget-and-reflected-actor-conflict'
-            'refactor/cell-motion-trace'
-            'revert/pr63-wall-surface'
-            'test/reflected-contact-current-m-regression'
-            'feat/spatial-inertia-v1'
-            'fix/target-momentum-visibility-knockback-distance'
-          )
+          python - <<'PY'
+          from pathlib import Path
 
+          def replace(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              if old not in text:
+                  raise SystemExit(f'missing expected text in {path}: {old!r}')
+              file.write_text(text.replace(old, new))
+
+          replace(
+              'src/labs/trajectory/TrajectoryLab.jsx',
+              '      data-trajectory-reflection={TRAJECTORY_REFLECTION_RULE}\n',
+              '      data-trajectory-reflection={TRAJECTORY_REFLECTION_RULE}\n      data-trajectory-edge-intent="outside-ring-v1"\n',
+          )
+          replace(
+              'src/labs/trajectory/TrajectoryLab.jsx',
+              '              boardRadius={boardRadius}\n',
+              '              boardRadius={boardRadius + 1}\n',
+          )
+          replace(
+              'src/labs/trajectory/TrajectoryLab.jsx',
+              '              hoverHex={null}\n              selectedAimHex={null}\n',
+              '              hoverHex={hoverHex}\n              selectedAimHex={selectedHex}\n',
+          )
+          replace(
+              'src/labs/trajectory/TrajectoryLab.jsx',
+              '<span>Wall contact is a real geometric breakpoint; final stub shows Ready Axis</span>',
+              '<span>Boundary/Wall contact is a real geometric breakpoint; the outside ring is direction input only</span>',
+          )
+          replace(
+              'src/main.jsx',
+              "  if (window.location.hash === '#trajectory-lab' || window.location.hash === '#control-window-lab') return 'trajectory'\n",
+              "  if (window.location.hash === '#trajectory-lab') return 'trajectory'\n",
+          )
+          replace(
+              'package.json',
+              ' && node scripts/verify-control-window-lab.mjs',
+              '',
+          )
+          replace(
+              'scripts/verify-trajectory-lab.mjs',
+              "  assert(dom.includes('data-trajectory-reflection=\"driving-lab-wall-pivot-reflection-v1\"'), 'Driving Lab reflection marker missing')\n",
+              "  assert(dom.includes('data-trajectory-reflection=\"driving-lab-wall-pivot-reflection-v1\"'), 'Driving Lab reflection marker missing')\n  assert(dom.includes('data-trajectory-edge-intent=\"outside-ring-v1\"'), 'Trajectory outside-ring edge intent marker missing')\n",
+          )
+          replace(
+              'scripts/verify-trajectory-lab.mjs',
+              "  assert(dom.includes('Wall contact is a real geometric breakpoint; final stub shows Ready Axis'), 'Reflection breakpoint legend missing')\n",
+              "  assert(dom.includes('Boundary/Wall contact is a real geometric breakpoint; the outside ring is direction input only'), 'Boundary reflection input legend missing')\n",
+          )
+          replace(
+              'scripts/verify-trajectory-lab.mjs',
+              "  console.log('Trajectory Lab browser smoke verified: boundary-authoritative intent, reflected Coast polyline, selectable reflection intent, Target/Wall toggles, global curve, Drive/Heavy Drive and Skip are mounted.')\n",
+              "  console.log('Trajectory Lab browser smoke verified: outside-ring boundary intent, reflection breakpoint curve, reflected Coast polyline, Target/Wall toggles, Drive/Heavy Drive and Skip are mounted.')\n",
+          )
+          PY
+
+          cat > src/labs/trajectory/trajectory-boundary-reflection.test.js <<'EOF'
+          import { describe, expect, it } from 'vitest'
+          import { axialDistance, directionIdBetween, directionVector } from '../../sim/hex.js'
+          import {
+            makeTrajectoryState,
+            trajectoryActionPlan,
+            trajectoryCoastIntentMatches,
+            withCoastProjection,
+          } from './trajectory-rules.js'
+
+          const plan = (state, actionId, selectedHex = null, extra = {}) => trajectoryActionPlan({
+            state,
+            actionId,
+            selectedHex,
+            boardRadius: 4,
+            responseCurve: 'linear',
+            ...extra,
+          })
+
+          describe('Trajectory board-edge reflection regression', () => {
+            it('keeps Drive authored toward the edge and lets cell motion own the reflection', () => {
+              const state = makeTrajectoryState({ hex: { q: 2, r: 0 }, axisId: 'E', momentum: 2 })
+              const result = plan(state, 'drive', { q: 4, r: 0 })
+
+              expect(result.valid).toBe(true)
+              expect(result.requestedTravelSteps).toBe(3)
+              expect(result.reflectionCount).toBeGreaterThan(0)
+              expect(result.collisions[0]).toMatchObject({ kind: 'boundary', axisBefore: 'E' })
+              expect(result.collisions[0].axisAfter).not.toBe('E')
+              expect(result.nominalPathCells.some((hex) => axialDistance(hex) > 4)).toBe(true)
+              expect(result.pathCells.every((hex) => axialDistance(hex) <= 4)).toBe(true)
+              expect(result.pathCells.slice(0, 3)).toEqual([
+                { q: 2, r: 0 },
+                { q: 3, r: 0 },
+                { q: 4, r: 0 },
+              ])
+              expect(result.pathCells).toHaveLength(4)
+              expect(directionIdBetween({ q: 4, r: 0 }, result.pathCells.at(-1))).toBe(result.collisions[0].axisAfter)
+            })
+
+            it('accepts an outside-ring M0 Move direction from the exact board edge', () => {
+              const state = makeTrajectoryState({ hex: { q: 4, r: 0 }, axisId: 'E', momentum: 0 })
+              const result = plan(state, 'steer', { q: 5, r: 0 })
+              const collision = result.collisions[0]
+
+              expect(result.valid).toBe(true)
+              expect(result.requestedTravelSteps).toBe(1)
+              expect(result.travelSteps).toBe(1)
+              expect(result.reflectionCount).toBe(1)
+              expect(collision).toMatchObject({ kind: 'boundary', axisBefore: 'E' })
+              expect(collision.axisAfter).not.toBe('E')
+              expect(result.pathCells.every((hex) => axialDistance(hex) <= 4)).toBe(true)
+              expect(directionIdBetween({ q: 4, r: 0 }, result.finalHex)).toBe(collision.axisAfter)
+              expect(result.finalState.axisId).toBe(collision.axisAfter)
+              expect(result.finalM).toBe(1)
+            })
+
+            it('accepts an outside-ring Drive direction and spends the full reflected Travel budget', () => {
+              const state = makeTrajectoryState({ hex: { q: 4, r: 0 }, axisId: 'E', momentum: 1 })
+              const result = plan(state, 'drive', { q: 5, r: 0 })
+              const collision = result.collisions[0]
+
+              expect(result.valid).toBe(true)
+              expect(result.requestedTravelSteps).toBe(2)
+              expect(result.travelSteps).toBe(2)
+              expect(result.reflectionCount).toBe(1)
+              expect(collision).toMatchObject({ kind: 'boundary', axisBefore: 'E' })
+              expect(result.pathCells).toHaveLength(3)
+              expect(result.pathCells.every((hex) => axialDistance(hex) <= 4)).toBe(true)
+              expect(directionIdBetween({ q: 4, r: 0 }, result.pathCells[1])).toBe(collision.axisAfter)
+              expect(directionIdBetween(result.pathCells[1], result.pathCells[2])).toBe(collision.axisAfter)
+              expect(result.finalState.axisId).toBe(collision.axisAfter)
+              expect(result.finalM).toBe(2)
+            })
+
+            it('keeps the blue preview on the exact collision breakpoint and reflected ray', () => {
+              const state = makeTrajectoryState({ hex: { q: 4, r: 0 }, axisId: 'E', momentum: 1 })
+              const coast = plan(state, 'skip')
+              const controlled = plan(state, 'drive', { q: 5, r: 0 })
+              const preview = withCoastProjection(controlled, coast)
+              const collision = controlled.collisions[0]
+              const collisionIndex = preview.samples.findIndex((sample) => sample.collision)
+
+              expect(coast.reflectionCount).toBeGreaterThan(0)
+              expect(trajectoryCoastIntentMatches(coast, coast.pathCells.at(-1))).toBe(true)
+              expect(collisionIndex).toBeGreaterThanOrEqual(0)
+              expect(preview.samples[collisionIndex].position).toEqual(collision.position)
+
+              const next = preview.samples[collisionIndex + 1]
+              expect(next).toBeTruthy()
+              const reflected = directionVector(collision.axisAfter)
+              const delta = {
+                x: next.position.x - collision.position.x,
+                z: next.position.z - collision.position.z,
+              }
+              const forward = delta.x * reflected.x + delta.z * reflected.z
+              const cross = Math.abs(delta.x * reflected.z - delta.z * reflected.x)
+              expect(forward).toBeGreaterThan(0)
+              expect(cross).toBeLessThan(0.02)
+              expect(preview.samples.at(-1).axisId).toBe(controlled.finalState.axisId)
+            })
+          })
+          EOF
+
+          rm -rf src/labs/control-window
+          rm -f scripts/verify-control-window-lab.mjs
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Trajectory maintenance already applied.'
+          else
+            git commit -m 'Fix Trajectory board-edge input and retire Control Window lab'
+            git push origin HEAD:main
+          fi
+
+      - name: Delete all non-main non-backup branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t branches < <(git ls-remote --heads origin | awk '{sub("refs/heads/", "", $2); print $2}')
           failures=()
           deleted=0
           for branch in "${branches[@]}"; do
-            if ! git ls-remote --exit-code --heads origin "refs/heads/${branch}" >/dev/null 2>&1; then
-              echo "skip missing: ${branch}"
-              continue
-            fi
-
+            case "$branch" in
+              main|backup|backup/*)
+                echo "preserve: ${branch}"
+                continue
+                ;;
+            esac
             echo "delete: ${branch}"
-            if git push origin --delete "${branch}"; then
+            if git push origin --delete "$branch"; then
               deleted=$((deleted + 1))
             else
-              failures+=("${branch}")
+              failures+=("$branch")
             fi
           done
-
-          echo "deleted ${deleted} stale branch(es)"
+          echo "deleted ${deleted} non-main/non-backup branch(es)"
           if (( ${#failures[@]} > 0 )); then
             printf 'failed to delete: %s\n' "${failures[*]}"
             exit 1
           fi
-
-          echo 'Preserved backup/pre-rebuild-2026-08-22 and backup/pre-spatial-inertia-v1-2026-08-30.'
