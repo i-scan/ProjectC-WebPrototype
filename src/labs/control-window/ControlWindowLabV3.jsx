@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Board3D } from '../../ui/Board3D.jsx'
-import { HEX_DIRECTIONS, axialDistance, axialKey, directionIdBetween, worldToAxial } from '../../sim/hex.js'
+import { HEX_DIRECTIONS, axialKey, directionIdBetween, worldToAxial } from '../../sim/hex.js'
 import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
 import { AT_VISUAL_MS } from '../../sim/solver.js'
 import {
@@ -47,10 +47,16 @@ const ACTIONS = [
   },
 ]
 
-function directionCells(hex, boardRadius) {
-  return HEX_DIRECTIONS
-    .map((entry) => ({ hex: { q: hex.q + entry.q, r: hex.r + entry.r }, id: entry.id, rule: 'control-vector-direction' }))
-    .filter((entry) => axialDistance(entry.hex) <= boardRadius)
+function directionCells(hex) {
+  // Keep all six control-vector intents available at the map edge. The one-ring
+  // ghost Cell outside the board is an input handle only; runCellMotion remains
+  // authoritative for the boundary contact and reflected in-board continuation.
+  return HEX_DIRECTIONS.map((entry) => ({
+    hex: { q: hex.q + entry.q, r: hex.r + entry.r },
+    id: entry.id,
+    rule: 'control-vector-direction',
+    outsideBoardIntent: true,
+  }))
 }
 
 function actorCellList(actors = []) {
@@ -70,6 +76,7 @@ function playbackFromPlan(plan, id, durationMs) {
     summary: plan.summary,
     spatialMode: 'discrete',
     destinationDriven: true,
+    visualCurveAuthoritative: Boolean(plan.visualCurveAuthoritative),
     actorTrajectories: plan.actorTrajectories ?? {},
     actorPlaybackWindows: plan.actorPlaybackWindows ?? {},
     actorStates: plan.actorStates ?? [],
@@ -113,8 +120,8 @@ export function ControlWindowLabV3() {
   const currentHex = worldToAxial(state.position)
   const phase = playback ? 'RESOLVING' : windowOpen ? (momentum === 0 ? 'READY' : 'CONTROL WINDOW') : 'PERSISTENT'
   const reachableCells = useMemo(
-    () => windowOpen && !playback && actionId !== 'skip' ? directionCells(currentHex, boardRadius) : [],
-    [windowOpen, playback, actionId, currentHex.q, currentHex.r, boardRadius],
+    () => windowOpen && !playback && actionId !== 'skip' ? directionCells(currentHex) : [],
+    [windowOpen, playback, actionId, currentHex.q, currentHex.r],
   )
   const reachableKeys = useMemo(() => new Set(reachableCells.map((entry) => axialKey(entry.hex))), [reachableCells])
   const action = ACTIONS.find((entry) => entry.id === actionId) ?? ACTIONS[0]
@@ -370,6 +377,7 @@ export function ControlWindowLabV3() {
       data-cw-wall-count={obstacles.length}
       data-cw-wander={wanderEnabled ? 'on' : 'off'}
       data-cw-board-radius={boardRadius}
+      data-cw-boundary-aim="outside-ring-v1"
       data-cw-collision-vfx="logic-event-pulse-v1"
     >
       <header className="prototype-header">
@@ -406,7 +414,7 @@ export function ControlWindowLabV3() {
             <div className="section-heading"><h3>Predicted Action</h3><span>{action.label}</span></div>
             <p>{actionId === 'skip'
               ? 'Skip resolves immediately from the card: +1 World AT, no control vector.'
-              : previewPlan?.summary ?? (windowOpen ? 'Hover one of the bright adjacent direction Cells.' : 'Resolve Persistent Motion to a Control Window first.')}</p>
+              : previewPlan?.summary ?? (windowOpen ? 'Hover one of the bright adjacent direction Cells, including the ghost ring at the board edge.' : 'Resolve Persistent Motion to a Control Window first.')}</p>
             {previewPlan && (
               <dl className="state-list compact">
                 <div><dt>Hex Lookup</dt><dd>M{previewPlan.beforeM}+M{previewPlan.incomingControlM ?? 1} → M{previewPlan.effectiveM}</dd></div>
@@ -449,6 +457,7 @@ export function ControlWindowLabV3() {
               atVisualMs={atVisualMs}
               axisDisplayOverride="auto"
               boardRadius={boardRadius}
+              interactionPadding={1}
               viewMode={viewMode}
               cameraResetToken={cameraResetToken}
               hoverHex={hoverHex}
@@ -464,7 +473,7 @@ export function ControlWindowLabV3() {
             />
             <div className="board-legend">
               <span><i className="trajectory" />Blue route = player motion / forced motion</span>
-              <span><i className="terrain" />Bright Cells = Control-vector directions</span>
+              <span><i className="terrain" />Bright Cells = six control-vector directions; edge ghost = boundary intent</span>
               <span><i className="momentum-axis" />M / Axis shown on every actor</span>
               <span>Enemy Wander may Strike player</span>
             </div>
