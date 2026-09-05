@@ -16,11 +16,13 @@ import {
   TRAJECTORY_REFLECTION_RULE,
   TRAJECTORY_RULE,
   TRAJECTORY_STEERING_RULE,
+  createTrajectoryTargets,
   makeTrajectoryState,
+  resolveTrajectoryTargetContacts,
   trajectoryActionPlan,
+  trajectoryCoastIntentMatches,
   trajectoryHeading,
   trajectoryMomentum,
-  trajectoryProjectionPair,
   withCoastProjection,
 } from './trajectory-rules.js'
 
@@ -43,10 +45,10 @@ function playbackFromPlan(plan, id, durationMs) {
     durationMs,
     spatialMode: 'hybrid',
     destinationDriven: false,
-    actorTrajectories: {},
-    actorPlaybackWindows: {},
-    actorStates: [],
-    playerPlaybackEnd: 1,
+    actorTrajectories: plan.actorTrajectories ?? {},
+    actorPlaybackWindows: plan.actorPlaybackWindows ?? {},
+    actorStates: plan.actorStates ?? [],
+    playerPlaybackEnd: plan.playerPlaybackEnd ?? 1,
   }
 }
 
@@ -76,7 +78,12 @@ function projectionShell(coastPlan) {
   return {
     ...coastPlan,
     samples: holdSamples,
-    actorTrajectories: { coastProjection: coastPlan.pathCells ?? [] },
+    actorTrajectories: { ...(coastPlan.actorTrajectories ?? {}), coastProjection: coastPlan.pathCells ?? [] },
+    actorPlaybackWindows: coastPlan.actorPlaybackWindows ?? {},
+    actorTrajectoryPolylineIds: [
+      ...(coastPlan.actorTrajectoryPolylineIds ?? []),
+      ...((coastPlan.reflectionCount ?? 0) > 0 ? ['coastProjection'] : []),
+    ],
   }
 }
 
@@ -87,7 +94,9 @@ export function TrajectoryLab() {
   const [hoverHex, setHoverHex] = useState(null)
   const [responseCurve, setResponseCurve] = useState('linear')
   const [boardRadius, setBoardRadius] = useState(TRAJECTORY_DEFAULT_RADIUS)
-  const [obstaclesEnabled, setObstaclesEnabled] = useState(true)
+  const [wallsEnabled, setWallsEnabled] = useState(true)
+  const [targetsEnabled, setTargetsEnabled] = useState(true)
+  const [actors, setActors] = useState(() => createTrajectoryTargets(TRAJECTORY_DEFAULT_RADIUS))
   const [viewMode, setViewMode] = useState('isometric')
   const [cameraResetToken, setCameraResetToken] = useState(0)
   const [atVisualMs, setAtVisualMs] = useState(AT_VISUAL_MS)
@@ -98,37 +107,41 @@ export function TrajectoryLab() {
   const playbackIdRef = useRef(1)
 
   const cells = useMemo(() => createCellWorld(boardRadius), [boardRadius])
-  const obstacles = useMemo(() => obstaclesEnabled ? collisionObstaclesFromCells(cells) : [], [cells, obstaclesEnabled])
+  const obstacles = useMemo(() => wallsEnabled ? collisionObstaclesFromCells(cells).filter((entry) => entry.wallAxis) : [], [cells, wallsEnabled])
   const momentum = trajectoryMomentum(state)
   const currentHex = worldToAxial(state.position)
   const ready = !playback
   const directionalAction = DIRECTION_ACTIONS.has(actionId)
   const activeTitle = actionTitle(actionId, momentum)
 
-  const skipPlan = useMemo(() => trajectoryActionPlan({
-    state,
-    actionId: 'skip',
-    boardRadius,
-    responseCurve,
-    baseDissipationPerAction: TRAJECTORY_BASE_DISSIPATION,
-    obstacles,
-  }), [state, boardRadius, responseCurve, obstacles])
-
-  const intentHex = directionalAction ? (hoverHex ?? selectedHex) : null
-  const pair = useMemo(() => {
-    if (!intentHex) return { controlled: null, coast: skipPlan }
-    return trajectoryProjectionPair({
+  const skipPlan = useMemo(() => {
+    const base = trajectoryActionPlan({
       state,
-      actionId,
-      selectedHex: intentHex,
+      actionId: 'skip',
       boardRadius,
       responseCurve,
       baseDissipationPerAction: TRAJECTORY_BASE_DISSIPATION,
       obstacles,
     })
-  }, [state, actionId, intentHex?.q, intentHex?.r, boardRadius, responseCurve, skipPlan, obstacles])
+    return targetsEnabled ? resolveTrajectoryTargetContacts(base, { actors, obstacles, boardRadius }) : base
+  }, [state, boardRadius, responseCurve, obstacles, targetsEnabled, actors])
 
-  const controlledPlan = pair.controlled
+  const intentHex = directionalAction ? (hoverHex ?? selectedHex) : null
+  const coastIntentAxis = intentHex && trajectoryCoastIntentMatches(skipPlan, intentHex) ? state.axisId : null
+  const controlledPlan = useMemo(() => {
+    if (!intentHex) return null
+    const base = trajectoryActionPlan({
+      state,
+      actionId,
+      selectedHex: intentHex,
+      intentAxisId: coastIntentAxis,
+      boardRadius,
+      responseCurve,
+      baseDissipationPerAction: TRAJECTORY_BASE_DISSIPATION,
+      obstacles,
+    })
+    return targetsEnabled ? resolveTrajectoryTargetContacts(base, { actors, obstacles, boardRadius }) : base
+  }, [state, actionId, intentHex?.q, intentHex?.r, coastIntentAxis, boardRadius, responseCurve, obstacles, targetsEnabled, actors])
   const previewPlan = useMemo(() => {
     if (controlledPlan?.valid) return withCoastProjection(controlledPlan, skipPlan)
     return projectionShell(skipPlan)
@@ -141,7 +154,9 @@ export function TrajectoryLab() {
       selectedHex: selectedHex ? { ...selectedHex } : null,
       responseCurve,
       boardRadius,
-      obstaclesEnabled,
+      wallsEnabled,
+      targetsEnabled,
+      actors: structuredClone(actors),
       lastEvent,
       lastPlan: lastPlan ? structuredClone(lastPlan) : null,
     }].slice(-60))
@@ -152,6 +167,7 @@ export function TrajectoryLab() {
     const remainingMs = Math.max(0, playback.durationMs - (performance.now() - playback.startedAt))
     const timer = window.setTimeout(() => {
       setState(playback.finalState)
+      if (targetsEnabled) setActors(structuredClone(playback.actorStates ?? actors))
       setLastPlan(playback)
       setPlayback(null)
       setSelectedHex(null)
@@ -172,15 +188,18 @@ export function TrajectoryLab() {
 
   const commitDirectional = (hex, forcedActionId = actionId) => {
     if (playback || !DIRECTION_ACTIONS.has(forcedActionId) || !hex) return false
-    const plan = trajectoryActionPlan({
+    const intentAxisId = trajectoryCoastIntentMatches(skipPlan, hex) ? state.axisId : null
+    const base = trajectoryActionPlan({
       state,
       actionId: forcedActionId,
       selectedHex: hex,
+      intentAxisId,
       boardRadius,
       responseCurve,
       baseDissipationPerAction: TRAJECTORY_BASE_DISSIPATION,
       obstacles,
     })
+    const plan = targetsEnabled ? resolveTrajectoryTargetContacts(base, { actors, obstacles, boardRadius }) : base
     if (!plan.valid) return false
     setSelectedHex({ ...hex })
     return beginPlan(plan)
@@ -210,7 +229,9 @@ export function TrajectoryLab() {
     setHoverHex(null)
     setResponseCurve('linear')
     setBoardRadius(TRAJECTORY_DEFAULT_RADIUS)
-    setObstaclesEnabled(true)
+    setWallsEnabled(true)
+    setTargetsEnabled(true)
+    setActors(createTrajectoryTargets(TRAJECTORY_DEFAULT_RADIUS))
     setHistory([])
     setLastPlan(null)
     setCameraResetToken((value) => value + 1)
@@ -225,6 +246,7 @@ export function TrajectoryLab() {
     setSelectedHex(null)
     setHoverHex(null)
     setLastPlan(null)
+    if (targetsEnabled) setActors(createTrajectoryTargets(boardRadius))
     setHistory([])
     setLastEvent(level === 0 && !axisId
       ? 'M0 / NoAxis: Move is fully six-directional; click any direction Cell to move one adjacent Cell and establish Axis.'
@@ -241,6 +263,7 @@ export function TrajectoryLab() {
     setSelectedHex(null)
     setHoverHex(null)
     setLastPlan(null)
+    if (targetsEnabled) setActors(createTrajectoryTargets(next))
     setHistory([])
     setCameraResetToken((value) => value + 1)
     setLastEvent(`Board Radius changed to ${next}. Scene reset to E / M2.`)
@@ -256,10 +279,32 @@ export function TrajectoryLab() {
     setSelectedHex(previous.selectedHex)
     setResponseCurve(previous.responseCurve)
     setBoardRadius(previous.boardRadius)
-    setObstaclesEnabled(previous.obstaclesEnabled ?? true)
+    setWallsEnabled(previous.wallsEnabled ?? true)
+    setTargetsEnabled(previous.targetsEnabled ?? true)
+    setActors(structuredClone(previous.actors ?? createTrajectoryTargets(previous.boardRadius)))
     setLastEvent(previous.lastEvent)
     setLastPlan(previous.lastPlan)
     setHoverHex(null)
+    return true
+  }
+
+  const toggleWalls = () => {
+    if (playback) return false
+    setWallsEnabled((value) => !value)
+    setHoverHex(null)
+    setSelectedHex(null)
+    setLastPlan(null)
+    return true
+  }
+
+  const toggleTargets = () => {
+    if (playback) return false
+    const next = !targetsEnabled
+    setTargetsEnabled(next)
+    setActors(next ? createTrajectoryTargets(boardRadius) : [])
+    setHoverHex(null)
+    setSelectedHex(null)
+    setLastPlan(null)
     return true
   }
 
@@ -275,7 +320,9 @@ export function TrajectoryLab() {
         cellAuthorityRule: TRAJECTORY_CELL_AUTHORITY_RULE,
         pathRule: TRAJECTORY_PATH_RULE,
         reflectionRule: TRAJECTORY_REFLECTION_RULE,
-        obstaclesEnabled,
+        wallsEnabled,
+        targetsEnabled,
+        targetCount: actors.length,
         steerInput: 'direct-cell-click',
         worldAt: state.worldAt,
         momentum,
@@ -294,6 +341,8 @@ export function TrajectoryLab() {
       setNoAxis: () => setPreset(0, null),
       setResponseCurve,
       setRadius: changeRadius,
+      setWalls: (enabled) => { if (Boolean(enabled) !== wallsEnabled) return toggleWalls(); return true },
+      setTargets: (enabled) => { if (Boolean(enabled) !== targetsEnabled) return toggleTargets(); return true },
       setAction: chooseDirectional,
       steerAt: (q, r) => commitDirectional({ q, r }, 'steer'),
       driveAt: (q, r) => commitDirectional({ q, r }, 'drive'),
@@ -320,7 +369,8 @@ export function TrajectoryLab() {
       data-trajectory-path={TRAJECTORY_PATH_RULE}
       data-trajectory-preview={TRAJECTORY_PREVIEW_RULE}
       data-trajectory-reflection={TRAJECTORY_REFLECTION_RULE}
-      data-obstacles={obstaclesEnabled ? 'on' : 'off'}
+      data-walls={wallsEnabled ? 'on' : 'off'}
+      data-targets={targetsEnabled ? 'on' : 'off'}
       data-steer-input="direct-cell-click"
       data-world-at={state.worldAt}
       data-momentum={momentum}
@@ -414,7 +464,7 @@ export function TrajectoryLab() {
             <Board3D
               cells={cells}
               obstacles={obstacles}
-              actors={[]}
+              actors={actors}
               reachableCells={[]}
               state={state}
               previewPlan={previewPlan}
@@ -442,7 +492,7 @@ export function TrajectoryLab() {
               }}
             />
             <div className="trajectory-vector-compass" data-steering-vector={controlledPlan?.valid ? 'visible' : 'hidden'}>
-              <div className="vector-row yellow"><i>➜</i><span>Yellow · Skip/Coast baseline</span></div>
+              <div className="vector-row yellow"><i>➜</i><span>Yellow · Skip/Coast baseline{(skipPlan?.reflectionCount ?? 0) > 0 ? ' · reflected Cells selectable as forward intent' : ''}</span></div>
               <div className="vector-row blue"><i>➜</i><span>Blue · {controlledPlan?.valid ? `${activeTitle} intent ${degreesText(controlledPlan.targetDeltaDeg)}` : (directionalAction ? 'hover Cell to preview' : 'select Move / Drive first')}</span></div>
             </div>
             {ready && momentum > 0 && (
@@ -510,7 +560,8 @@ export function TrajectoryLab() {
               <button type="button" disabled={Boolean(playback)} onClick={() => setPreset(0, null)}>NoAxis · M0</button>
               {[0, 1, 2, 3].map((level) => <button type="button" key={level} disabled={Boolean(playback)} onClick={() => setPreset(level, 'E')}>E · M{level}</button>)}
             </div>
-            <button type="button" data-trajectory-obstacles className={obstaclesEnabled ? 'active wide-button' : 'wide-button'} disabled={Boolean(playback)} onClick={() => setObstaclesEnabled((value) => !value)}>Driving Walls · {obstaclesEnabled ? 'ON' : 'OFF'}</button>
+            <button type="button" data-trajectory-walls className={wallsEnabled ? 'active wide-button' : 'wide-button'} disabled={Boolean(playback)} onClick={toggleWalls}>Walls · {wallsEnabled ? 'ON' : 'OFF'}</button>
+            <button type="button" data-trajectory-targets className={targetsEnabled ? 'active wide-button' : 'wide-button'} disabled={Boolean(playback)} onClick={toggleTargets}>Targets · {targetsEnabled ? `ON · ${actors.length}` : 'OFF'}</button>
             <label className="range-row">
               <span>Board Radius</span>
               <input data-trajectory-board-radius type="range" min={TRAJECTORY_MIN_RADIUS} max={TRAJECTORY_MAX_RADIUS} step="1" value={boardRadius} disabled={Boolean(playback)} onChange={(event) => changeRadius(Number(event.target.value))} />
@@ -538,7 +589,8 @@ export function TrajectoryLab() {
               <div><dt>Drive test</dt><dd>+1M sustain</dd></div>
               <div><dt>Heavy test</dt><dd>+2M sustain</dd></div>
               <div><dt>Wall reflection</dt><dd>Driving v1</dd></div>
-              <div><dt>Strike</dt><dd>deferred</dd></div>
+              <div><dt>Coast intent</dt><dd>reflected path selectable</dd></div>
+              <div><dt>Target Contact</dt><dd>existing Strike / Forced Move</dd></div>
             </dl>
           </section>
 
