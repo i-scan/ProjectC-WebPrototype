@@ -7,7 +7,7 @@ export const TRAJECTORY_READY_RULE = 'action-complete-ready-v1'
 export const TRAJECTORY_STEERING_RULE = 'max-60deg-per-action-v1'
 export const TRAJECTORY_DISSIPATION_RULE = 'persistent-start-m-minus-1-v1'
 export const TRAJECTORY_CELL_AUTHORITY_RULE = 'ready-cell-center-v1'
-export const TRAJECTORY_PATH_RULE = 'canonical-turn-timing-path-v3'
+export const TRAJECTORY_PATH_RULE = 'canonical-turn-timing-path-v4'
 export const TRAJECTORY_PREVIEW_RULE = 'global-tangent-bezier-preview-v4'
 export const TRAJECTORY_REFLECTION_RULE = 'driving-lab-wall-pivot-reflection-v1'
 export const TRAJECTORY_COAST_REFLECTION_INTENT_RULE = 'coast-reflection-path-selectable-intent-v1'
@@ -177,14 +177,12 @@ function rotatedAxisId(axisId, offset) {
   return HEX_DIRECTIONS[(index + offset + count) % count].id
 }
 
-function routeForAxes(startHex, axes, boardRadius, turnAt = null, turnAxis = null) {
+function routeForAxes(startHex, axes, _boardRadius, turnAt = null, turnAxis = null) {
   const path = [{ ...startHex }]
   const segmentAxes = []
   let current = { ...startHex }
   for (const axisId of axes) {
-    const next = addStep(current, axisId)
-    if (axialDistance(next) > boardRadius) break
-    current = next
+    current = addStep(current, axisId)
     path.push({ ...current })
     segmentAxes.push(axisId)
   }
@@ -219,6 +217,10 @@ function buildCenterPath({ state, targetHeading, targetHex, travelSteps, steerin
   if (freeM0Direction) {
     const freeAxis = targetAxis ?? initialAxis
     chosenRoute = routeForAxes(startHex, Array.from({ length: travelSteps }, () => freeAxis), boardRadius)
+  } else if (steeringEnabled && !targetHex && Number.isFinite(targetHeading)) {
+    // Explicit Coast/reflection intent is directional, not destination-driven. Keep authoring the
+    // requested Axis through the board edge and let runCellMotion own the surface reflection.
+    chosenRoute = routeForAxes(startHex, Array.from({ length: travelSteps }, () => initialAxis), boardRadius)
   } else {
     const candidates = [
       routeForAxes(startHex, Array.from({ length: travelSteps }, () => initialAxis), boardRadius),
@@ -491,10 +493,13 @@ export function trajectoryActionPlan({
     reflectionMomentum: ({ momentum }) => ({ momentum, restitution: null }),
   })
 
-  if (startM === 0 && buildM === 0 && motion.collisions.length > 0) {
+  const disallowedM0SurfaceCollision = startM === 0 && buildM === 0
+    ? motion.collisions.find((collision) => collision.kind !== 'boundary')
+    : null
+  if (disallowedM0SurfaceCollision) {
     return {
       valid: false,
-      reason: 'M0 Move cannot initiate a Wall / Surface reflection.',
+      reason: 'M0 Move cannot initiate an internal Wall / Surface reflection.',
       kind: canonicalActionId,
       actionId: canonicalActionId,
       beforeM: startM,
