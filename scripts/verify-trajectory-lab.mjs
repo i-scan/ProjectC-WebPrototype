@@ -47,7 +47,7 @@ try {
   assert(dom.includes('data-trajectory-steering="max-60deg-per-action-v1"'), '60deg/Action steering marker missing')
   assert(dom.includes('data-trajectory-dissipation="persistent-start-m-minus-1-v1"'), 'Passive Dissipation marker missing')
   assert(dom.includes('data-cell-authority="ready-cell-center-v1"'), 'Cell-authoritative Ready marker missing')
-  assert(dom.includes('data-trajectory-path="canonical-turn-timing-path-v3"'), 'Cell-center anchored authority curve marker missing')
+  assert(dom.includes('data-trajectory-path="canonical-turn-timing-path-v4"'), 'Boundary-authoritative path marker missing')
   assert(dom.includes('data-trajectory-preview="global-tangent-bezier-preview-v4"'), 'Visited-Cell corridor preview marker missing')
   assert(dom.includes('data-spatial-mode="discrete"'), 'Trajectory Lab must expose discrete Hex6 authority')
   assert(dom.includes('data-steer-input="direct-cell-click"'), 'Direct Cell-click Steering marker missing')
@@ -71,7 +71,7 @@ try {
   assert(dom.includes('data-motion-freeze="m2"'), 'Default M2 motion-state marker missing')
   assert(dom.includes('data-axis-style="actor-body-screen-arrow-v5"'), 'Board3D Axis HUD did not mount')
 
-  console.log('Trajectory Lab browser smoke verified: reflected Coast polyline, selectable reflection intent, Target/Wall toggles, global curve, Drive/Heavy Drive and Skip are mounted.')
+  console.log('Trajectory Lab browser smoke verified: boundary-authoritative intent, reflected Coast polyline, selectable reflection intent, Target/Wall toggles, global curve, Drive/Heavy Drive and Skip are mounted.')
 } finally {
   if (previewProcess && !previewProcess.killed) previewProcess.kill('SIGTERM')
 }
