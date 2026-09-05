@@ -9,7 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "verify:dist": "node scripts/verify-dist.mjs",
-    "verify:browser": "node scripts/verify-spatial-v1-smoke.mjs && node scripts/verify-target-body-inertia-hud.mjs && node scripts/verify-wall-visual.mjs && node scripts/verify-trajectory-lab.mjs"
+    "verify:browser": "node scripts/verify-spatial-v1-smoke.mjs && node scripts/verify-target-body-inertia-hud.mjs && node scripts/verify-wall-visual.mjs && node scripts/verify-trajectory-lab.mjs && node scripts/verify-control-window-lab.mjs"
   },
   "dependencies": {
     "react": "19.2.8",
