@@ -23,7 +23,10 @@ jobs:
         with:
           node-version: 22
       - name: Apply implementation patch
-        run: python .github/tmp/apply_trajectory_patch.py
+        shell: bash
+        run: |
+          sed -i "s/reuses Driving Lab wall-pivot reflection without an extra M tax/reuses Driving Lab wall-pivot reflection: redirect Axis, no reflection M tax, continue remaining Travel/" .github/tmp/apply_trajectory_patch.py
+          python .github/tmp/apply_trajectory_patch.py
       - name: Install dependencies
         run: pnpm install
       - name: Verify
