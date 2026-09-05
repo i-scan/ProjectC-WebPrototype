@@ -1,17 +1,10 @@
-name: Cleanup stale prototype branches
+name: Cleanup non-backup branches
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
   contents: write
-
-concurrency:
-  group: cleanup-stale-prototype-branches
-  cancel-in-progress: false
 
 jobs:
   cleanup:
@@ -21,36 +14,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      - name: Apply Trajectory M0 edge fix
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('src/labs/trajectory/trajectory-rules.js')
-          text = path.read_text()
-          old = '    initialMomentum: Math.max(startM, builtM),\n'
-          new = (
-              '    // M0 Move still owns one active Travel. Use the action-local motion floor so a boundary Redirect\n'
-              '    // can spend that Travel; persistent M is settled separately after the motion packet.\n'
-              '    initialMomentum: movingM,\n'
-          )
-          if old in text:
-              path.write_text(text.replace(old, new, 1))
-          elif '    initialMomentum: movingM,\n' not in text:
-              raise SystemExit('Trajectory initialMomentum site not found')
-          PY
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/labs/trajectory/trajectory-rules.js
-          if git diff --cached --quiet; then
-            echo 'Trajectory M0 edge fix already applied.'
-          else
-            git commit -m 'Fix Trajectory M0 boundary reflection travel'
-            git push origin HEAD:main
-          fi
 
       - name: Delete all non-main non-backup branches
         shell: bash
