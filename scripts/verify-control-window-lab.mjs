@@ -69,12 +69,15 @@ try {
   assert(dom.includes('data-cw-wander="on"'), 'Target wander should default ON')
   assert(dom.includes('data-cw-board-radius="6"'), 'Default board radius marker missing')
   assert(dom.includes('data-cw-board-radius-slider'), 'Board radius control missing')
+  assert(dom.includes('data-cw-boundary-aim="outside-ring-v1"'), 'Board-edge six-direction aim contract missing')
+  assert(dom.includes('data-cw-boundary-preview="surface-polyline-v1"'), 'Boundary reflection preview contract missing')
+  assert(dom.includes('edge ghost = boundary intent'), 'Board-edge direction legend missing')
   assert(dom.includes('control-window-bidirectional-strike-v2'), 'Bidirectional collision rule marker missing')
   assert(dom.includes('bidirectional collision candidate'), 'Player knockback candidate marker missing')
   assert(dom.includes('data-cw-collision-vfx="logic-event-pulse-v1"'), 'Control Window collision VFX marker missing')
   assert(dom.includes('data-collision-debug-fx="on"'), 'Board3D collision debug VFX was not enabled for Control Window Lab')
 
-  console.log('Control Window Lab v3 browser smoke verified.')
+  console.log('Control Window Lab v3 browser smoke verified: edge direction intent and boundary reflection preview are mounted.')
 } finally {
   if (previewProcess && !previewProcess.killed) previewProcess.kill('SIGTERM')
 }
