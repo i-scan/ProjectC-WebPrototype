@@ -483,7 +483,9 @@ export function trajectoryActionPlan({
   const motion = runCellMotion({
     startHex,
     initialAxisId: pathResult.startAxis ?? state.axisId ?? pathResult.finalTravelAxis,
-    initialMomentum: Math.max(startM, builtM),
+    // M0 Move still owns one active Travel. Use the action-local motion floor so a boundary Redirect
+    // can spend that Travel; persistent M is settled separately after the motion packet.
+    initialMomentum: movingM,
     travelBudget: requestedTravelSteps,
     authoredPathCells: pathResult.path.slice(1),
     obstacles,
