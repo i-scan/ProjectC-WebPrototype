@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { axialDistance, directionIdBetween } from '../../sim/hex.js'
 import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
 import {
   actionPlan,
@@ -75,5 +76,58 @@ describe('Control Window v3 candidate', () => {
     expect(plan.conflictEvents.some((entry) => entry.kind === 'surface-reflection')).toBe(true)
     expect(plan.axisAfter).toBe('W')
     expect(plan.finalState.worldAt).toBe(3)
+  })
+
+  it('allows Move to aim outward at the board edge and resolves the reflected Cell in-board', () => {
+    const state = makeControlWindowState({ hex: { q: 4, r: 0 }, momentum: 0, axisId: 'E', worldAt: 0 })
+    const plan = actionPlan({
+      state,
+      actionId: 'move',
+      aimAxis: 'E',
+      threshold: 1,
+      boardRadius: 4,
+      actors: [],
+      obstacles: [],
+      wanderEnabled: false,
+    })
+    const reflection = plan.conflictEvents.find((entry) => entry.kind === 'surface-reflection' && entry.actorId === 'player')
+
+    expect(plan.valid).toBe(true)
+    expect(reflection).toMatchObject({ obstacleKind: 'boundary', axisBefore: 'E' })
+    expect(reflection.axisAfter).not.toBe('E')
+    expect(plan.travelSteps).toBe(1)
+    expect(plan.traversedCells.every((hex) => axialDistance(hex) <= 4)).toBe(true)
+    expect(directionIdBetween({ q: 4, r: 0 }, plan.traversedCells.at(-1))).toBe(reflection.axisAfter)
+    expect(plan.axisAfter).toBe(reflection.axisAfter)
+    expect(plan.finalM).toBe(0)
+  })
+
+  it('allows Drive to aim outward and previews the full reflected continuation inside the same packet', () => {
+    const state = makeControlWindowState({ hex: { q: 4, r: 0 }, momentum: 1, axisId: 'E', worldAt: 0 })
+    const plan = actionPlan({
+      state,
+      actionId: 'drive',
+      aimAxis: 'E',
+      threshold: 1,
+      boardRadius: 4,
+      actors: [],
+      obstacles: [],
+      wanderEnabled: false,
+    })
+    const reflection = plan.conflictEvents.find((entry) => entry.kind === 'surface-reflection' && entry.actorId === 'player')
+
+    expect(plan.valid).toBe(true)
+    expect(reflection).toMatchObject({ obstacleKind: 'boundary', axisBefore: 'E' })
+    expect(plan.activeSteps).toBe(1)
+    expect(plan.autoSteps).toBe(1)
+    expect(plan.travelSteps).toBe(2)
+    expect(plan.traversedCells).toHaveLength(3)
+    expect(plan.traversedCells.every((hex) => axialDistance(hex) <= 4)).toBe(true)
+    expect(directionIdBetween({ q: 4, r: 0 }, plan.traversedCells[1])).toBe(reflection.axisAfter)
+    expect(plan.samples.some((sample) => {
+      const point = sample.position
+      const contact = plan.motionTrace.find((entry) => entry.kind === 'boundary-reflection')?.collision?.position
+      return contact && Math.hypot(point.x - contact.x, point.z - contact.z) < 0.0001
+    })).toBe(true)
   })
 })
