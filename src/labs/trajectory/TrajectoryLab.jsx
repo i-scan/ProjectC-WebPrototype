@@ -16,6 +16,7 @@ import {
   TRAJECTORY_REFLECTION_RULE,
   TRAJECTORY_RULE,
   TRAJECTORY_STEERING_RULE,
+  coastProjectionPath,
   createTrajectoryTargets,
   makeTrajectoryState,
   resolveTrajectoryTargetContacts,
@@ -78,7 +79,7 @@ function projectionShell(coastPlan) {
   return {
     ...coastPlan,
     samples: holdSamples,
-    actorTrajectories: { ...(coastPlan.actorTrajectories ?? {}), coastProjection: coastPlan.pathCells ?? [] },
+    actorTrajectories: { ...(coastPlan.actorTrajectories ?? {}), coastProjection: coastProjectionPath(coastPlan) },
     actorPlaybackWindows: coastPlan.actorPlaybackWindows ?? {},
     actorTrajectoryPolylineIds: [
       ...(coastPlan.actorTrajectoryPolylineIds ?? []),

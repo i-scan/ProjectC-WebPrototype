@@ -6,6 +6,7 @@ import {
   TRAJECTORY_PATH_RULE,
   TRAJECTORY_PREVIEW_RULE,
   TRAJECTORY_REFLECTION_RULE,
+  coastProjectionPath,
   compatibleStartupMove,
   makeTrajectoryState,
   resolveTrajectoryTargetContacts,
@@ -179,6 +180,17 @@ describe('VAL-012 Process Steering global-curve candidate', () => {
   })
 
 
+
+  it('puts the actual wall contact point into the reflected yellow Coast geometry', () => {
+    const wall = { id: 'coast-wall', hex: { q: 3, r: 0 }, kind: 'hard', wallAxis: 'NS' }
+    const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
+    const coast = plan(state, 'skip', null, { obstacles: [wall] })
+    expect(coast.reflectionCount).toBe(1)
+    const collision = coast.collisions[0]
+    const projection = coastProjectionPath(coast)
+    const worldPoints = projection.map((point) => axialToWorld(point))
+    expect(worldPoints.some((point) => Math.hypot(point.x - collision.position.x, point.z - collision.position.z) < 0.0001)).toBe(true)
+  })
 
   it('preserves the reflected yellow Coast projection as a polyline instead of smoothing through the wall pivot', () => {
     const state = makeTrajectoryState({ hex: { q: 4, r: 0 }, axisId: 'E', momentum: 2 })

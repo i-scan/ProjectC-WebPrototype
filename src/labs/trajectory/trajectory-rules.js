@@ -1,4 +1,4 @@
-import { HEX_DIRECTIONS, axialDistance, axialToWorld, directionIdBetween, directionVector, worldToAxial } from '../../sim/hex.js'
+import { HEX_DIRECTIONS, axialDistance, axialToWorld, directionIdBetween, directionVector, worldToAxial, worldToAxialFraction } from '../../sim/hex.js'
 import { runCellMotion } from '../../sim/cell-motion.js'
 import { createConflictActors, resolveCellConflicts } from '../../sim/conflict.js'
 
@@ -716,6 +716,12 @@ export function trajectoryProjectionPair(options = {}) {
   return { controlled, coast }
 }
 
+export function coastProjectionPath(coastPlan) {
+  if (!coastPlan?.valid) return []
+  if ((coastPlan.reflectionCount ?? 0) <= 0) return (coastPlan.pathCells ?? []).map((hex) => ({ ...hex }))
+  return (coastPlan.samples ?? []).map((sample) => worldToAxialFraction(sample.position))
+}
+
 export function withCoastProjection(controlledPlan, coastPlan) {
   if (!controlledPlan?.valid) return controlledPlan
   return {
@@ -723,7 +729,7 @@ export function withCoastProjection(controlledPlan, coastPlan) {
     samples: previewSamplesForPlan(controlledPlan),
     actorTrajectories: {
       ...(controlledPlan.actorTrajectories ?? {}),
-      ...(coastPlan?.valid ? { coastProjection: coastPlan.pathCells } : {}),
+      ...(coastPlan?.valid ? { coastProjection: coastProjectionPath(coastPlan) } : {}),
     },
     actorPlaybackWindows: controlledPlan.actorPlaybackWindows ?? {},
     actorTrajectoryPolylineIds: [
