@@ -99,7 +99,7 @@ describe('Control Window v3 candidate', () => {
     expect(plan.traversedCells.every((hex) => axialDistance(hex) <= 4)).toBe(true)
     expect(directionIdBetween({ q: 4, r: 0 }, plan.traversedCells.at(-1))).toBe(reflection.axisAfter)
     expect(plan.axisAfter).toBe(reflection.axisAfter)
-    expect(plan.finalM).toBe(0)
+    expect(plan.finalM).toBe(1)
   })
 
   it('allows Drive to aim outward and previews the full reflected continuation inside the same packet', () => {
