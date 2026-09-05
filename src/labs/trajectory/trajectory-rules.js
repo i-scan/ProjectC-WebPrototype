@@ -1,5 +1,6 @@
 import { HEX_DIRECTIONS, axialDistance, axialToWorld, directionIdBetween, directionVector, worldToAxial } from '../../sim/hex.js'
 import { runCellMotion } from '../../sim/cell-motion.js'
+import { createConflictActors, resolveCellConflicts } from '../../sim/conflict.js'
 
 export const TRAJECTORY_RULE = 'val-012-process-steering-ab-v1-candidate'
 export const TRAJECTORY_READY_RULE = 'action-complete-ready-v1'
@@ -9,6 +10,8 @@ export const TRAJECTORY_CELL_AUTHORITY_RULE = 'ready-cell-center-v1'
 export const TRAJECTORY_PATH_RULE = 'canonical-turn-timing-path-v3'
 export const TRAJECTORY_PREVIEW_RULE = 'global-tangent-bezier-preview-v4'
 export const TRAJECTORY_REFLECTION_RULE = 'driving-lab-wall-pivot-reflection-v1'
+export const TRAJECTORY_COAST_REFLECTION_INTENT_RULE = 'coast-reflection-path-selectable-intent-v1'
+export const TRAJECTORY_TARGET_RULE = 'trajectory-target-contact-existing-strike-v1'
 export const TRAJECTORY_MIN_RADIUS = 4
 export const TRAJECTORY_MAX_RADIUS = 10
 export const TRAJECTORY_DEFAULT_RADIUS = 6
@@ -28,6 +31,7 @@ const PREVIEW_END_EXTENSION = 0.34
 const BEZIER_TURN_HANDLE = 0.72
 const BEZIER_STRAIGHT_HANDLE = 0.34
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
+const sameHex = (a, b) => Boolean(a && b && a.q === b.q && a.r === b.r)
 
 function normalizeAngle(angle) {
   let value = angle
@@ -130,6 +134,17 @@ export function trajectoryHeading(state) {
   const speed = Math.hypot(state?.velocity?.x ?? 0, state?.velocity?.z ?? 0)
   if (speed > 0.02) return vectorAngle(state.velocity)
   return Number.isFinite(state?.heading) ? state.heading : null
+}
+
+export function createTrajectoryTargets(boardRadius = TRAJECTORY_DEFAULT_RADIUS) {
+  return createConflictActors('chain')
+    .filter((actor) => axialDistance(actor.hex) <= boardRadius)
+    .map((actor) => ({ ...actor, hex: { ...actor.hex }, velocity: { ...(actor.velocity ?? { x: 0, z: 0 }) }, momentumLevel: 0 }))
+}
+
+export function trajectoryCoastIntentMatches(coastPlan, hex) {
+  if (!coastPlan?.valid || (coastPlan.reflectionCount ?? 0) <= 0 || !hex) return false
+  return (coastPlan.pathCells ?? []).slice(1).some((cell) => sameHex(cell, hex))
 }
 
 export function steeringBearingFromCell(state, selectedHex) {
@@ -428,11 +443,14 @@ export function trajectoryActionPlan({
   responseCurve = 'linear',
   baseDissipationPerAction = TRAJECTORY_BASE_DISSIPATION,
   obstacles = [],
+  intentAxisId = null,
 } = {}) {
   const profile = profileFor(actionId)
   const canonicalActionId = profile.id
   const startM = trajectoryMomentum(state)
-  const targetHeading = profile.needsDirection && selectedHex ? steeringBearingFromCell(state, selectedHex) : null
+  const targetHeading = profile.needsDirection
+    ? (intentAxisId ? axisAngle(intentAxisId) : selectedHex ? steeringBearingFromCell(state, selectedHex) : null)
+    : null
   if (profile.needsDirection && !Number.isFinite(targetHeading)) {
     return { valid: false, reason: 'Hover or click a direction Cell.' }
   }
@@ -450,7 +468,7 @@ export function trajectoryActionPlan({
   const pathResult = buildCenterPath({
     state,
     targetHeading,
-    targetHex: selectedHex,
+    targetHex: intentAxisId ? null : selectedHex,
     travelSteps: requestedTravelSteps,
     steeringEnabled,
     responseCurve,
@@ -598,6 +616,8 @@ export function trajectoryActionPlan({
     pathRule: TRAJECTORY_PATH_RULE,
     previewRule: TRAJECTORY_PREVIEW_RULE,
     reflectionRule: TRAJECTORY_REFLECTION_RULE,
+    coastIntentRule: TRAJECTORY_COAST_REFLECTION_INTENT_RULE,
+    intentAxisId: intentAxisId ?? null,
     reflectionCount: motion.reflectionCount,
     motionTrace: motion.trace,
     travelEndAxis,
@@ -614,6 +634,82 @@ export function trajectoryActionPlan({
   }
 }
 
+
+function contactCurveSamples(plan, resolved) {
+  if (!resolved?.cellConflict || !plan?.samples?.length) return plan?.samples ?? []
+  const contactHex = resolved.cellConflict.playerCell
+  const logicalIndex = Math.max(0, (plan.pathCells ?? []).findIndex((cell) => sameHex(cell, contactHex)))
+  const crossing = plan.crossings?.[logicalIndex]
+  const sampleIndex = clamp(
+    Number.isFinite(crossing?.sampleIndex) ? crossing.sampleIndex : Math.round((logicalIndex / Math.max(1, (plan.pathCells?.length ?? 1) - 1)) * (plan.samples.length - 1)),
+    0,
+    Math.max(0, plan.samples.length - 1),
+  )
+  const samples = plan.samples.slice(0, Math.max(1, sampleIndex + 1)).map((sample) => ({
+    ...sample,
+    position: { ...sample.position },
+    velocity: { ...(sample.velocity ?? { x: 0, z: 0 }) },
+  }))
+  const finalPosition = resolved.finalState.position
+  const last = samples.at(-1) ?? plan.samples[0]
+  const endSample = {
+    ...last,
+    position: { ...finalPosition },
+    velocity: { ...(resolved.finalState.velocity ?? { x: 0, z: 0 }) },
+    axisId: resolved.finalState.axisId ?? last?.axisId ?? null,
+    momentumLevel: resolved.finalM ?? 0,
+    collision: true,
+  }
+  const prior = samples.at(-1)
+  if (!prior || Math.hypot(prior.position.x - finalPosition.x, prior.position.z - finalPosition.z) > 0.001) samples.push(endSample)
+  else samples[samples.length - 1] = endSample
+  return retimeVisualSamples(samples, { ...resolved.finalState, momentumLevel: resolved.finalM ?? 0 })
+}
+
+export function resolveTrajectoryTargetContacts(plan, {
+  actors = [],
+  obstacles = [],
+  boardRadius = TRAJECTORY_DEFAULT_RADIUS,
+} = {}) {
+  if (!plan?.valid) return plan
+  if (!actors.length) return plan
+  const activeM = Math.max(0, plan.beforeM ?? 0, plan.builtM ?? 0)
+  const collisionPlan = {
+    ...plan,
+    spatialMode: 'discrete',
+    traversedCells: (plan.pathCells ?? []).map((hex) => ({ ...hex })),
+    beforeM: activeM,
+    axisBefore: plan.samples?.[0]?.axisId ?? plan.travelEndAxis ?? plan.finalState?.axisId ?? null,
+    axisAfter: plan.finalState?.axisId ?? plan.travelEndAxis ?? null,
+    actionTransaction: {
+      rule: 'trajectory-active-m-until-action-end-v1',
+      fromM: activeM,
+      toM: activeM,
+      cause: 'Active M',
+      status: 'pending',
+    },
+  }
+  const resolved = resolveCellConflicts({ plan: collisionPlan, actors, obstacles, boardRadius })
+  const finalM = resolved.cellConflict ? (resolved.finalM ?? 0) : plan.finalM
+  const finalState = {
+    ...resolved.finalState,
+    momentumLevel: finalM,
+    heading: resolved.finalState?.axisId ? axisAngle(resolved.finalState.axisId) : null,
+  }
+  return {
+    ...resolved,
+    samples: resolved.cellConflict ? contactCurveSamples(plan, { ...resolved, finalState }) : plan.samples,
+    pathCells: (resolved.traversedCells ?? plan.pathCells ?? []).map((hex) => ({ ...hex })),
+    finalHex: worldToAxial(finalState.position),
+    finalState,
+    finalM,
+    spatialMode: 'hybrid',
+    visualCurveAuthoritative: true,
+    targetRule: TRAJECTORY_TARGET_RULE,
+    conflictEvents: [...(plan.conflictEvents ?? []), ...(resolved.conflictEvents ?? [])],
+  }
+}
+
 export function trajectoryProjectionPair(options = {}) {
   const controlled = trajectoryActionPlan(options)
   const coast = trajectoryActionPlan({ ...options, actionId: 'skip', selectedHex: null })
@@ -625,7 +721,16 @@ export function withCoastProjection(controlledPlan, coastPlan) {
   return {
     ...controlledPlan,
     samples: previewSamplesForPlan(controlledPlan),
-    actorTrajectories: coastPlan?.valid ? { coastProjection: coastPlan.pathCells } : {},
+    actorTrajectories: {
+      ...(controlledPlan.actorTrajectories ?? {}),
+      ...(coastPlan?.valid ? { coastProjection: coastPlan.pathCells } : {}),
+    },
+    actorPlaybackWindows: controlledPlan.actorPlaybackWindows ?? {},
+    actorTrajectoryPolylineIds: [
+      ...(controlledPlan.actorTrajectoryPolylineIds ?? []),
+      ...((coastPlan?.reflectionCount ?? 0) > 0 ? ['coastProjection'] : []),
+    ],
+    coastProjectionReflectionCount: coastPlan?.reflectionCount ?? 0,
     previewAxisStub: controlledPlan.finalState?.axisId ?? null,
     previewAxisStubLength: PREVIEW_END_EXTENSION,
     previewRule: TRAJECTORY_PREVIEW_RULE,

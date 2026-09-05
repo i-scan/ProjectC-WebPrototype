@@ -1131,13 +1131,14 @@ export function Board3D({
     }
 
     const wallActors = wallPivotActorIds(previewPlan.conflictEvents ?? [])
-    const wallPolyline = playerUsesWallPivot(previewPlan) || wallActors.size > 0
+    const actorPolylineIds = new Set(previewPlan.actorTrajectoryPolylineIds ?? [])
+    const wallPolyline = playerUsesWallPivot(previewPlan) || wallActors.size > 0 || actorPolylineIds.size > 0
     host.dataset.previewPathMode = wallPolyline ? WALL_REFLECTION_PATH_CONTRACT : 'smooth'
 
     let knockbackCount = 0
     for (const [id, path] of Object.entries(previewPlan.actorTrajectories ?? {})) {
       if (!path || path.length < 2) continue
-      const points = trajectoryPathPoints(path, 0.34, wallActors.has(id))
+      const points = trajectoryPathPoints(path, 0.34, wallActors.has(id) || actorPolylineIds.has(id))
       const line = createDashedPath(points, DUMMY_YELLOW, 1)
       if (line) {
         group.add(line)

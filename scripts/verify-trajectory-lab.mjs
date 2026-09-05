@@ -62,13 +62,16 @@ try {
   assert(dom.includes('Blue is not clamped to Cell centers or Cell borders'), 'Global unclamped visual-curve legend missing')
   assert(dom.includes('Wall contact is a real geometric breakpoint; final stub shows Ready Axis'), 'Reflection breakpoint legend missing')
   assert(dom.includes('data-trajectory-reflection="driving-lab-wall-pivot-reflection-v1"'), 'Driving Lab reflection marker missing')
-  assert(dom.includes('data-trajectory-obstacles'), 'Trajectory Driving Walls toggle missing')
+  assert(dom.includes('data-trajectory-walls'), 'Trajectory Walls toggle missing')
+  assert(dom.includes('data-trajectory-targets'), 'Trajectory Targets toggle missing')
+  assert(dom.includes('data-walls="on"') && dom.includes('data-targets="on"'), 'Trajectory default test toggles must start enabled')
+  assert(dom.includes('reflected Cells selectable as forward intent') || dom.includes('Coast intent'), 'Selectable reflected Coast intent marker missing')
   assert(dom.includes('data-control-model="reachable-shape"') && dom.includes('data-control-model="process-steering"'), 'Reachable Shape / Process Steering A/B controls missing')
   assert(dom.includes('data-trajectory-board-radius'), 'Trajectory board radius control missing')
   assert(dom.includes('data-motion-freeze="m2"'), 'Default M2 motion-state marker missing')
   assert(dom.includes('data-axis-style="actor-body-screen-arrow-v5"'), 'Board3D Axis HUD did not mount')
 
-  console.log('Trajectory Lab browser smoke verified: global tangent curve, discrete Cell authority, Driving wall reflection, free M0 Move, Drive/Heavy Drive and Skip are mounted.')
+  console.log('Trajectory Lab browser smoke verified: reflected Coast polyline, selectable reflection intent, Target/Wall toggles, global curve, Drive/Heavy Drive and Skip are mounted.')
 } finally {
   if (previewProcess && !previewProcess.killed) previewProcess.kill('SIGTERM')
 }

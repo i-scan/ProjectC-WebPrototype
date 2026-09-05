@@ -8,7 +8,9 @@ import {
   TRAJECTORY_REFLECTION_RULE,
   compatibleStartupMove,
   makeTrajectoryState,
+  resolveTrajectoryTargetContacts,
   trajectoryActionPlan,
+  trajectoryCoastIntentMatches,
   withCoastProjection,
 } from './trajectory-rules.js'
 
@@ -176,7 +178,48 @@ describe('VAL-012 Process Steering global-curve candidate', () => {
     expect(Math.hypot(end.x - finalCenter.x, end.z - finalCenter.z)).toBeGreaterThan(0.3)
   })
 
-  it('reuses Driving Lab wall-pivot reflection: redirect Axis, no reflection M tax, continue remaining Travel', () => {
+
+
+  it('preserves the reflected yellow Coast projection as a polyline instead of smoothing through the wall pivot', () => {
+    const state = makeTrajectoryState({ hex: { q: 4, r: 0 }, axisId: 'E', momentum: 2 })
+    const coast = plan(state, 'skip', null, { boardRadius: 4 })
+    expect(coast.reflectionCount).toBeGreaterThan(0)
+    const controlled = plan(state, 'steer', { q: 3, r: 0 }, { boardRadius: 4, intentAxisId: 'E' })
+    const preview = withCoastProjection(controlled, coast)
+    expect(preview.actorTrajectoryPolylineIds).toContain('coastProjection')
+    expect(preview.coastProjectionReflectionCount).toBe(coast.reflectionCount)
+  })
+
+  it('lets Move/Steer and Drive select a reflected Coast Cell as forward reflection intent', () => {
+    const state = makeTrajectoryState({ hex: { q: 4, r: 0 }, axisId: 'E', momentum: 2 })
+    const coast = plan(state, 'skip', null, { boardRadius: 4 })
+    expect(coast.reflectionCount).toBeGreaterThan(0)
+    expect(trajectoryCoastIntentMatches(coast, { q: 3, r: 0 })).toBe(true)
+
+    const steer = plan(state, 'steer', { q: 3, r: 0 }, { boardRadius: 4, intentAxisId: 'E' })
+    expect(steer.reflectionCount).toBeGreaterThan(0)
+    expect(steer.collisions[0].axisBefore).toBe('E')
+
+    const drive = plan(state, 'drive', { q: 3, r: 0 }, { boardRadius: 4, intentAxisId: 'E' })
+    expect(drive.reflectionCount).toBeGreaterThan(0)
+    expect(drive.collisions[0].axisBefore).toBe('E')
+    expect(drive.requestedTravelSteps).toBe(3)
+  })
+
+  it('reuses existing Strike / Forced Move when an enabled Target occupies a logical Trajectory Cell', () => {
+    const state = makeTrajectoryState({ axisId: 'E', momentum: 2 })
+    const base = plan(state, 'steer', { q: 2, r: 0 })
+    const target = { id: 'trajectory-test-target', label: 'T', hex: { q: 1, r: 0 }, velocity: { x: 0, z: 0 }, axisId: null, momentumLevel: 0 }
+    const resolved = resolveTrajectoryTargetContacts(base, { actors: [target], boardRadius: 6, obstacles: [] })
+    expect(resolved.targetRule).toBe('trajectory-target-contact-existing-strike-v1')
+    expect(resolved.cellConflict?.targetActorId).toBe(target.id)
+    expect(resolved.conflictEvents.some((event) => event.kind === 'cell-conflict')).toBe(true)
+    expect(resolved.actorStates[0].hex).not.toEqual(target.hex)
+    expect(resolved.finalM).toBe(0)
+    expect(resolved.visualCurveAuthoritative).toBe(true)
+  })
+
+  it('reuses Driving Lab wall-pivot reflection without an extra M tax', () => {
     const wall = { id: 'trajectory-ns-wall', hex: { q: 2, r: 0 }, kind: 'hard', wallAxis: 'NS' }
     const state = makeTrajectoryState({ axisId: 'E', momentum: 3 })
     const result = plan(state, 'steer', { q: 3, r: 0 }, { obstacles: [wall] })
