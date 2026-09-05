@@ -48,15 +48,21 @@ const ACTIONS = [
 ]
 
 function directionCells(hex) {
-  // Keep all six control-vector intents available at the map edge. The one-ring
-  // ghost Cell outside the board is an input handle only; runCellMotion remains
-  // authoritative for the boundary contact and reflected in-board continuation.
+  // Always expose all six control-vector intents. At the board edge an outside
+  // one-ring Cell is only an input handle; the motion solver remains authoritative
+  // for the real boundary contact and reflected in-board continuation.
   return HEX_DIRECTIONS.map((entry) => ({
     hex: { q: hex.q + entry.q, r: hex.r + entry.r },
     id: entry.id,
     rule: 'control-vector-direction',
-    outsideBoardIntent: true,
   }))
+}
+
+function reflectionAuthoritative(plan) {
+  if (!plan?.valid) return plan
+  return (plan.collisions?.length ?? 0) > 0
+    ? { ...plan, visualCurveAuthoritative: true }
+    : plan
 }
 
 function actorCellList(actors = []) {
@@ -76,7 +82,7 @@ function playbackFromPlan(plan, id, durationMs) {
     summary: plan.summary,
     spatialMode: 'discrete',
     destinationDriven: true,
-    visualCurveAuthoritative: Boolean(plan.visualCurveAuthoritative),
+    visualCurveAuthoritative: Boolean(plan.visualCurveAuthoritative || plan.collisions?.length),
     actorTrajectories: plan.actorTrajectories ?? {},
     actorPlaybackWindows: plan.actorPlaybackWindows ?? {},
     actorStates: plan.actorStates ?? [],
@@ -130,10 +136,10 @@ export function ControlWindowLabV3() {
     if (!windowOpen || playback || !action.aim || !hoverHex || !reachableKeys.has(axialKey(hoverHex))) return null
     const aimAxis = directionIdBetween(currentHex, hoverHex)
     if (!aimAxis) return null
-    return actionPlan({
+    return reflectionAuthoritative(actionPlan({
       state, actionId, aimAxis, threshold, obstacles, actors, boardRadius,
       wanderEnabled: false, wanderSeed,
-    })
+    }))
   }, [windowOpen, playback, action, hoverHex, reachableKeys, currentHex.q, currentHex.r, state, actionId, threshold, obstacles, actors, boardRadius, wanderSeed])
 
   const saveHistory = () => {
@@ -220,7 +226,7 @@ export function ControlWindowLabV3() {
     if (!windowOpen || playback || actionId === 'skip' || !hex || !reachableKeys.has(axialKey(hex))) return false
     const aimAxis = directionIdBetween(currentHex, hex)
     if (!aimAxis) return false
-    const plan = actionPlan({ state, actionId, aimAxis, threshold, obstacles, actors, boardRadius, wanderEnabled, wanderSeed })
+    const plan = reflectionAuthoritative(actionPlan({ state, actionId, aimAxis, threshold, obstacles, actors, boardRadius, wanderEnabled, wanderSeed }))
     if (!plan.valid) return false
     saveHistory()
     setSelectedAimHex({ ...hex })
@@ -378,6 +384,7 @@ export function ControlWindowLabV3() {
       data-cw-wander={wanderEnabled ? 'on' : 'off'}
       data-cw-board-radius={boardRadius}
       data-cw-boundary-aim="outside-ring-v1"
+      data-cw-boundary-preview="surface-polyline-v1"
       data-cw-collision-vfx="logic-event-pulse-v1"
     >
       <header className="prototype-header">
@@ -456,8 +463,7 @@ export function ControlWindowLabV3() {
               playback={playback}
               atVisualMs={atVisualMs}
               axisDisplayOverride="auto"
-              boardRadius={boardRadius}
-              interactionPadding={1}
+              boardRadius={boardRadius + 1}
               viewMode={viewMode}
               cameraResetToken={cameraResetToken}
               hoverHex={hoverHex}
