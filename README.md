@@ -1,237 +1,321 @@
-# ProjectC Web Prototype · Spatial Inertia Control A/B Lab
+# ProjectC Web Prototype · Thermal Clock Lab
 
 本仓库是 ProjectC 的可执行规则实验环境。
 
-当前最高优先级实验：
+当前最高优先级：
 
 ```text
-VAL-012 Process Steering A/B
-
-A = Reachable Shape
-B = Process Steering / Persistent Motion
+VAL-012 Thermal Clock Lab v0
+→ Program05 isolated Thermal Dynamics implementation
+→ coefficient / environment / card tuning
+→ adiabatic Thermal Clock test
 ```
 
-当前 Horizontal A/B 主源：
+当前 Thermal 主实验规范：
 
 ```text
-ProjectC/docs/VAL-012-process-steering-ab.md
+ProjectC/docs/VAL-012-thermal-clock-lab-v0.md
 ```
 
-父级 Spatial 规则：
+程序05交接：
 
 ```text
-ProjectC/docs/VAL-012-spatial-inertia-rules-v1.md
+ProjectC/docs/VAL-012-thermal-clock-lab-program05-handoff.md
 ```
 
-程序交接 / Gate：
+Spatial Momentum / Horizontal Control 暂时保留当前版本；Inertia Driving Lab 与 Trajectory Lab 继续作为已有实验资产，不在本轮重写。
+
+---
+
+## Thermal Clock Lab 目标
+
+验证一个连续 Thermal Inertia 候选是否能同时提供：
+
+- `Temperature T`；
+- `Thermal Drift V`；
+- 固定于 Tactical 内的 `Set Point S`；
+- Action / Event Drift impulse；
+- Environment coupling；
+- Overshoot；
+- 任意 AT 内时刻的精确状态；
+- 绝热情况下可读的 Pendulum phase / Thermal Clock。
+
+本轮不先接：
 
 ```text
-ProjectC/docs/VAL-012-actor-loop-v0-program-handoff.md
-ProjectC/docs/VAL-012-actor-loop-v0-prototype-plan.md
+Spatial M cap
+Hand hot/cold lifecycle
+Cell material phase change
+Weather propagation
+Enemy Thermal state
 ```
 
 ---
 
-## 为什么做这个 A/B
-
-Reachable Shape 已经提供较好的传统战棋落点控制，但测试中仍存在：
-
-- 高 M 转向困难主要由不可达 Cell 表达；
-- M3 Move3 后进入 Ready 很像棋子停下；
-- 高 M 输入窗口限制容易像 Action Lock；
-- Horizontal M 的持续速度 / 身体历史表现不足。
-
-因此 B 不删除 `M + Axis`，而是改写玩家控制方式：
+## Candidate model
 
 ```text
-M / Axis = 已形成的持续运动状态
-Action = 对这段运动施加控制
-Landing = 过程结果
+T' = V
+
+V' =
+  - cEff*V
+  + kS(S-T)
+  + kE(Tenv-T)
+
+cEff = cBase + cEnvGain*kE
+```
+
+Action / Event：
+
+```text
+V(t+) = V(t-) + impulse
+```
+
+其中 `cEnvGain` 明确是实验参数。
+
+---
+
+## Set Point
+
+```text
+S = Actor 长期热平衡基准
+```
+
+环境不在普通 Tactical 中即时改写 S。
+
+Lab 左侧开放 S Slider，只作为 Debug / Build Proxy，方便比较不同角色 / 构筑中心。
+
+---
+
+## Continuous solver / AT
+
+```text
+AT = Global World Time unit
+```
+
+不是 Thermal discrete update tick。
+
+本轮 solver 必须能准确查询：
+
+```text
+T(t)
+V(t)
+```
+
+在任意 `t`。
+
+Preview / Playback / Commit 共享同一解析 / piecewise solver。
+
+禁止只在 Ready 算终点再 `lerp` Pendulum，因为那会丢失：
+
+- Apex；
+- reverse；
+- crossing；
+- AT 中途事件。
+
+---
+
+## Adiabatic Thermal Clock
+
+```text
+Adiabatic = kE == 0
+```
+
+当 Actor 已有：
+
+```text
+T != S
+or
+V != 0
+```
+
+左侧显示真实 solver 预测的：
+
+```text
++1AT
++2AT
++3AT
++4AT
+...
+```
+
+future ghosts。
+
+这项实验专门验证 Pendulum 是否能承担 Thermal Clock 的 phase / AT 计时作用。
+
+`T=S,V=0` 时保持静止是正确行为，不强制永动。
+
+---
+
+## Cards
+
+第一轮全部 1AT：
+
+```text
+Heat I    +0.4 Drift
+Heat II   +0.8
+Heat III  +1.6
+
+Cool I    -0.4
+Cool II   -0.8
+Cool III  -1.6
+
+Skip       0
+```
+
+Small / Medium / Large impulse 可调。
+
+交互：
+
+```text
+select
+→ preview
+→ Commit
+```
+
+Preview 不推进 worldAt；Commit 推进 1AT。
+
+---
+
+## Layout
+
+参考 Inertia Driving Lab 三栏结构，方便以后直接与 Trajectory Lab board 合并。
+
+### Left
+
+```text
+Thermal Pendulum
+Current T / V / S
+Hotward / Coldward
+AT future ghosts
+```
+
+### Center
+
+中上：
+
+```text
+Reserved Board / Future Trajectory Integration
+```
+
+暂时保持空白。
+
+中下：
+
+```text
+Heat I/II/III
+Cool I/II/III
+Skip
+Preview / Commit
+```
+
+### Right
+
+```text
+Environment
+Dynamics coefficients
+Diagnostics
+Presets
+Playback / Reset
+```
+
+至少暴露：
+
+```text
+Tenv
+kE
+kS
+cBase
+cEnvGain
+Clamp
+Preview Horizon
+Playback Speed
 ```
 
 ---
 
-## A · Reachable Shape
+## Diagnostics
 
-继续保留当前可用对照：
+至少显示：
 
 ```text
-M / Axis
-→ legal landing shape
-→ click landing cell
-→ deterministic Cell path
+K = kS+kE
+Teq
+cEff
+D = cEff^2 - 4K
+Regime = Under / Critical / Over
+Adiabatic
 ```
 
-A 不应因为 B 的实现而被悄悄修改或删除。
-
----
-
-## B · Process Steering
-
-### Startup
+underdamped 时额外显示：
 
 ```text
-M0 NoAxis + Move
-→ Move1 / 1AT
-→ M0 Axis
-
-M0 Axis + compatible Move
-→ Move1 / 1AT
-→ Generate M1
+Damped Period
+Amplitude decay
 ```
 
-M1+ 表示 Persistent Horizontal Motion。
-
-### Ready
+有可靠求解时显示：
 
 ```text
-Action complete → Ready
-Ready != stopped motion
-```
-
-Action 内 Cell Crossing 不产生 Input Window。
-
-### Steering
-
-```text
-Yellow Arrow = Current Axis
-Blue Arrow = Steering Intent
-Basic authority = <=60° / Action
-```
-
-不是 `60° / Cell`。
-
-Axis 在整个 Action Duration 内持续朝 Blue 响应。
-
-如果 Passive Dissipation 后 `M→0`，允许额外最多 60° no-travel Axis settlement，保证低 M 灵活性。
-
-### Preview
-
-B 必须同时显示：
-
-```text
-Coast Projection
-Controlled Projection
-```
-
-玩家应该在 Commit 前直接看到“如果不干预会去哪”与“这次 Steering 把未来改到哪里”。
-
----
-
-## Travel / Dissipation baseline
-
-目标 Band：
-
-```text
-M0 active Move = 1 Cell / AT
-M1 ≈ 1 Cell / AT
-M2 ≈ 2 Cells / AT
-M3 ≈ 3 Cells / AT
-```
-
-B 的 Cell Crossing 从 1AT 内运动过程求出，不依赖 A 的 authored Reachable Shape。
-
-第一轮：
-
-```text
-unsustained Action end
-→ Passive Dissipation -1M
-```
-
-```text
-Move / Steer = active direction control, no automatic sustain
-Skip / Coast = no active control, no sustain
-Drive / Build effect = later sustain / build hook
-```
-
-实现需预留 Resistance：
-
-```text
-baseDissipationPerAction
-terrainDissipationModifier
-sustainModifier
-```
-
-Normal baseline=1。
-
-Ice 最终值仍待后续比较：
-
-```text
-Normal1 / Ice0
-vs
-Normal2 / Ice1
+Next Apex
+Next Set Point crossing
 ```
 
 ---
 
-## Dynamic labels
+## Initial candidate values
 
-不新增独立 Coast 卡牌。
-
-```text
-M0:
-Move / Wait
-
-Horizontal M>0:
-Steer / Coast
-```
-
-底层 Action 可以共享，UI 负责表达当前运动语义。
-
----
-
-## Frozen-speed presentation
-
-B 的世界暂停必须尝试表现为“高速摄影冻结”，而不是停车。
-
-最低使用：
-
-- Yellow Axis；
-- M dots；
-- Coast line；
-- previous motion trail / ghost samples；
-- 高 M 更明显的 trail / arrow / stretch；
-- Blue Steering + Controlled line。
-
-网页圆形 Actor 本身就是本轮验证对象：如果这些低成本元素仍无法让 Ready 看起来像持续运动，B 会得到重要负面证据。
-
----
-
-## Down / Spatial parent rules
-
-Down Axis 保留：
+仅用于页面初始可观察，不是冻结值：
 
 ```text
-Horizontal Axis + M = persistent planar motion
-Down Axis + M = grounded / stability commitment
+S = +1
+T = +1
+V = 0
+
+kS = 0.25
+cBase = 0.25
+Tenv = +1
+kE = 0
+cEnvGain = 1.0
 ```
 
-ContactBehavior、Forced Use、Wall、M4 等仍由 `VAL-012-spatial-inertia-rules-v1.md` 负责；它们不需要先全部重构才能测试 B。
-
----
-
-## 当前实现顺序
+Environment quick presets：
 
 ```text
-A/B selector
-→ keep A stable
-→ B startup / persistent motion
-→ Yellow / Blue steering
-→ Coast + Controlled projection
-→ 60° / Action
-→ zero-M settlement
-→ Passive Dissipation / Resistance hook
-→ frozen-speed visual
-→ playtest
+Adiabatic
+Mild Cold
+Strong Cold
+Mild Hot
+Strong Hot
 ```
 
-先不要把范围扩张到完整 Strike / Pierce / Chain / M4 / Ice / Attack / Drive 平衡。
-
-需要高 M 时使用 Debug preset。
+所有值仍可手调。
 
 ---
 
-## Regression
+## Implementation isolation
+
+第一轮建议：
+
+```text
+src/labs/thermal/ThermalClockLab.jsx
+src/labs/thermal/thermal-clock-model.js
+src/labs/thermal/thermal-clock-model.test.js
+```
+
+当前：
+
+```text
+src/sim/thermal.js
+```
+
+只作为历史解析振子参考，不直接被 candidate Lab 覆盖成正式 runtime。
+
+方案确认后再决定合并。
+
+---
+
+## Required regression
 
 ```bash
 pnpm test
@@ -240,18 +324,37 @@ pnpm verify:dist
 pnpm verify:browser
 ```
 
-A/B 第一轮至少验证：
+Thermal 最少测试：
 
-1. M0 startup；
-2. M1/M2/M3 Coast；
-3. M1/M2/M3 Steering；
-4. `<=60° / Action` 与 Cell 数无关；
-5. zero-M settlement 不增加 Travel；
-6. Preview == Commit；
-7. M3 stopping distance；
-8. A/B test isolation；
-9. 当前 board / HUD / playback 基础功能不回归。
+1. `T=S,V=0,kE=0` Skip 静止；
+2. impulse 只瞬时改变 V；
+3. Preview final == Commit final；
+4. arbitrary sample end == segment final；
+5. under / critical / over 不 NaN；
+6. kE=0 时 Tenv 无效；
+7. 相同参数一段 solve == 两段 solve；
+8. mid-segment impulse 可复现；
+9. Hot / Cold 对称；
+10. Preview 不推进 worldAt。
 
-Pages 只有 unit / build / dist / real Chrome / deploy / published commit verification 全部成功后才算落实。
+Pages 仍只有 unit / build / dist / real Chrome / deploy / published commit verification 全通过后才算发布完成。
 
-Process Steering 即使实现成功也仍是 `candidate`，必须通过实际试玩和 A/B 比较后才能决定是否替换 Reachable Shape。
+---
+
+## Existing Spatial Labs
+
+```text
+Inertia Driving Lab · A
+Trajectory Lab · B
+```
+
+继续保留，不因 Thermal 当前优先级而删除。
+
+若重新处理 Spatial，仍以 ProjectC：
+
+```text
+docs/VAL-012-process-steering-ab.md
+docs/VAL-012-spatial-inertia-rules-v1.md
+```
+
+为对应设计依据。
