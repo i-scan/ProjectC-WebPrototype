@@ -1,12 +1,13 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './ui/App.jsx'
-import { ThermalClockLab } from './labs/thermal/ThermalClockLab.jsx'
+import { ThermalClockLab } from './labs/thermal/ThermalClockLabV2.jsx'
 import { TrajectoryLab } from './labs/trajectory/TrajectoryLab.jsx'
 import './styles.css'
 import './ui/cell-world.css'
 import './ui/movement-corrections.css'
 import './labs/thermal/thermal-clock.css'
+import './labs/thermal/thermal-clock-compact.css'
 import './labs/trajectory/trajectory.css'
 
 const BUILD_COMMIT = __BUILD_COMMIT__
