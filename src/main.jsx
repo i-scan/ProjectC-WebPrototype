@@ -1,10 +1,12 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './ui/App.jsx'
+import { ThermalClockLab } from './labs/thermal/ThermalClockLab.jsx'
 import { TrajectoryLab } from './labs/trajectory/TrajectoryLab.jsx'
 import './styles.css'
 import './ui/cell-world.css'
 import './ui/movement-corrections.css'
+import './labs/thermal/thermal-clock.css'
 import './labs/trajectory/trajectory.css'
 
 const BUILD_COMMIT = __BUILD_COMMIT__
@@ -65,11 +67,7 @@ function Root() {
       </div>
       {view === 'inertia' && <App />}
       {view === 'trajectory' && <TrajectoryLab />}
-      {view === 'thermal' && (
-        <PlaceholderLab eyebrow="ProjectC · reserved test space" title="Thermal Clock Lab">
-          当前热力钟摆已经恢复到 Inertia Driving Lab 左栏；这里保留为后续独立热力机制实验空间。
-        </PlaceholderLab>
-      )}
+      {view === 'thermal' && <ThermalClockLab />}
       {view === 'graphics' && (
         <PlaceholderLab eyebrow="ProjectC · archived test space" title="图形性能实验室">
           当前精简运行时暂未重新接入旧 Graphics Lab；入口保留，后续可以独立恢复而不干扰惯性原型。
