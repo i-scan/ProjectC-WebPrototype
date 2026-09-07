@@ -23,6 +23,12 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 const copyState = (state) => ({ ...state })
 const copyConfig = (config) => ({ ...config })
 const copyImpulses = (impulses) => ({ ...impulses })
+const TIMELINE_PAST_WINDOWS = Object.freeze([4, 8, 12, 16])
+const PENDULUM_ZONE_VALUES = Object.freeze([-4, -3, -2, -1, 0, 1, 2, 3, 4])
+const PENDULUM_PIVOT = Object.freeze({ x: 150, y: 25 })
+const PENDULUM_TRACK_RADIUS = 118
+const PENDULUM_BOB_RADIUS = 94
+const PENDULUM_FORECAST_RADIUS = 132
 
 const ENVIRONMENT_PRESETS = Object.freeze([
   { id: 'adiabatic', label: 'Adiabatic', environmentTemperature: 1, environmentCoupling: 0 },
@@ -54,27 +60,55 @@ function thermalDirection(drift) {
   return 'STILL'
 }
 
-function angleForTemperature(temperature, setPoint) {
-  return clamp((temperature - setPoint) * 18, -74, 74)
+function dialAngleForTemperature(temperature, setPoint, shouldClamp = false) {
+  const angle = (temperature - setPoint) * 12
+  return shouldClamp ? clamp(angle, -80, 80) : angle
 }
 
-function pendulumPoint(angleDeg, length = 118) {
+function pendulumPoint(angleDeg, radius = PENDULUM_TRACK_RADIUS) {
   const radians = angleDeg * Math.PI / 180
   return {
-    x: 150 + Math.sin(radians) * length,
-    y: 26 + Math.cos(radians) * length,
+    x: PENDULUM_PIVOT.x + Math.sin(radians) * radius,
+    y: PENDULUM_PIVOT.y + Math.cos(radians) * radius,
   }
 }
 
-function curvePoints(path, clampMin, clampMax, width = 300, height = 110) {
-  if (!path?.length) return ''
-  const range = Math.max(0.001, clampMax - clampMin)
-  return path.map((sample, index) => {
-    const x = (index / Math.max(1, path.length - 1)) * width
-    const normalized = clamp((sample.temperature - clampMin) / range, 0, 1)
-    const y = height - normalized * height
-    return `${x.toFixed(2)},${y.toFixed(2)}`
+function sampledArcPath(startAngle, endAngle, radius = PENDULUM_TRACK_RADIUS) {
+  const steps = Math.max(3, Math.ceil(Math.abs(endAngle - startAngle) / 3))
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const progress = index / steps
+    const point = pendulumPoint(startAngle + (endAngle - startAngle) * progress, radius)
+    return `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
   }).join(' ')
+}
+
+function pendulumForecastPath(samples, setPoint) {
+  if (!samples?.length) return ''
+  return samples.map((sample, index) => {
+    const point = pendulumPoint(dialAngleForTemperature(sample.temperature, setPoint, true), PENDULUM_FORECAST_RADIUS)
+    return `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
+  }).join(' ')
+}
+
+function zoneClass(value) {
+  if (value <= -4 || value >= 4) return 'extreme'
+  if (value === -3) return 'cold-3'
+  if (value === -2) return 'cold-2'
+  if (value === -1) return 'cold-1'
+  if (value === 0) return 'neutral'
+  if (value === 1) return 'hot-1'
+  if (value === 2) return 'hot-2'
+  return 'hot-3'
+}
+
+function sampleFuture(state, config, horizonAt, absoluteStartAt = 0, samplesPerAt = 24) {
+  const horizon = Math.max(0, Number(horizonAt) || 0)
+  const count = Math.max(2, Math.round(horizon * samplesPerAt))
+  return Array.from({ length: count + 1 }, (_, index) => {
+    const relativeAt = horizon * (index / count)
+    const solved = solveThermalSegment(state, config, relativeAt)
+    return { ...solved, at: absoluteStartAt + relativeAt, relativeAt }
+  })
 }
 
 function RangeField({ label, value, min, max, step, onChange, disabled = false, suffix = '' }) {
@@ -91,51 +125,58 @@ function RangeField({ label, value, min, max, step, onChange, disabled = false, 
   )
 }
 
-function ThermalPendulum({ state, selectedPreview, skipPreview, horizon, diagnostics }) {
-  const currentAngle = angleForTemperature(state.temperature, state.setPoint)
-  const current = pendulumPoint(currentAngle)
-  const selectedGhosts = (selectedPreview?.ghosts ?? []).slice(0, Math.min(4, horizon))
-  const skipGhosts = (skipPreview?.ghosts ?? []).slice(0, Math.min(4, horizon))
+function ThermalPendulum({ state, selectedPreview, futureSamples, diagnostics }) {
+  const currentAngle = dialAngleForTemperature(state.temperature, state.setPoint, true)
+  const current = pendulumPoint(currentAngle, PENDULUM_BOB_RADIUS)
+  const selectedGhosts = (selectedPreview?.ghosts ?? []).slice(0, 4)
+  const zonePaths = PENDULUM_ZONE_VALUES.map((value) => ({
+    value,
+    className: zoneClass(value),
+    path: sampledArcPath(
+      dialAngleForTemperature(value - 0.5, state.setPoint),
+      dialAngleForTemperature(value + 0.5, state.setPoint),
+      PENDULUM_TRACK_RADIUS,
+    ),
+  }))
+  const forecastPath = pendulumForecastPath(futureSamples, state.setPoint)
 
   return (
-    <div className="thermal-pendulum" data-thermal-pendulum="temperature-relative-set-point-v1" data-thermal-ghost-count={selectedPreview?.ghosts?.length ?? 0}>
+    <div className="thermal-pendulum" data-thermal-pendulum="temperature-relative-set-point-v2" data-thermal-ghost-count={selectedPreview?.ghosts?.length ?? 0}>
       <div className="thermal-pendulum__header">
         <span className={diagnostics.adiabatic ? 'adiabatic is-on' : 'adiabatic'}>{diagnostics.adiabatic ? 'ADIABATIC' : 'ENV COUPLED'}</span>
         <strong>{thermalDirection(state.drift)}</strong>
       </div>
-      <svg viewBox="0 0 300 190" role="img" aria-label="Thermal Pendulum; position is Temperature and lowest point is Set Point">
-        <defs>
-          <linearGradient id="thermal-clock-arc" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#63b6e7" />
-            <stop offset="50%" stopColor="#a9b8c3" />
-            <stop offset="100%" stopColor="#ef8665" />
-          </linearGradient>
-        </defs>
-        <path className="thermal-pendulum__arc" d="M 38 138 Q 150 8 262 138" />
-        <line className="thermal-pendulum__set-line" x1="150" y1="28" x2="150" y2="155" />
-        <circle className="thermal-pendulum__pivot" cx="150" cy="26" r="6" />
+      <svg viewBox="0 0 300 188" role="img" aria-label="Thermal Pendulum; colored temperature zones follow the physical pendulum track">
+        <g className="thermal-pendulum__zone-track" data-thermal-zone-track="pendulum-arc-v1">
+          {zonePaths.map((zone) => <path key={zone.value} className={`thermal-pendulum__zone ${zone.className}`} d={zone.path} />)}
+        </g>
 
-        {skipGhosts.map((ghost) => {
-          const point = pendulumPoint(angleForTemperature(ghost.temperature, state.setPoint), 104)
-          return <circle key={`skip-${ghost.at}`} className="thermal-pendulum__ghost thermal-pendulum__ghost--skip" cx={point.x} cy={point.y} r="4" />
-        })}
+        {forecastPath && <path className="thermal-pendulum__forecast-path" d={forecastPath} data-thermal-pendulum-forecast="selected-action-dashed-v1" />}
 
         {selectedGhosts.map((ghost) => {
-          const point = pendulumPoint(angleForTemperature(ghost.temperature, state.setPoint), 118)
+          const point = pendulumPoint(dialAngleForTemperature(ghost.temperature, state.setPoint, true), PENDULUM_FORECAST_RADIUS)
           return (
             <g key={`selected-${ghost.at}`} className="thermal-pendulum__ghost-group">
-              <circle className="thermal-pendulum__ghost thermal-pendulum__ghost--selected" cx={point.x} cy={point.y} r="5" />
+              <circle className="thermal-pendulum__ghost thermal-pendulum__ghost--selected" cx={point.x} cy={point.y} r="4.5" />
               <text x={point.x + 7} y={point.y - 5}>+{ghost.at}AT</text>
             </g>
           )
         })}
 
-        <line className="thermal-pendulum__arm" x1="150" y1="26" x2={current.x} y2={current.y} />
-        <circle className="thermal-pendulum__bob" cx={current.x} cy={current.y} r="13" />
-        <text className="thermal-pendulum__cold-label" x="16" y="164">COLD</text>
-        <text className="thermal-pendulum__set-label" x="150" y="176" textAnchor="middle">S {formatThermal(state.setPoint, 1)}</text>
-        <text className="thermal-pendulum__hot-label" x="284" y="164" textAnchor="end">HOT</text>
+        <line className="thermal-pendulum__set-line" x1={PENDULUM_PIVOT.x} y1={PENDULUM_PIVOT.y + 5} x2={PENDULUM_PIVOT.x} y2={PENDULUM_PIVOT.y + PENDULUM_TRACK_RADIUS - 5} />
+        <path className="thermal-pendulum__set-marker" d={`M ${PENDULUM_PIVOT.x - 5} ${PENDULUM_PIVOT.y + PENDULUM_TRACK_RADIUS - 1} L ${PENDULUM_PIVOT.x + 5} ${PENDULUM_PIVOT.y + PENDULUM_TRACK_RADIUS - 1} L ${PENDULUM_PIVOT.x} ${PENDULUM_PIVOT.y + PENDULUM_TRACK_RADIUS + 7} Z`} />
+        <circle className="thermal-pendulum__pivot" cx={PENDULUM_PIVOT.x} cy={PENDULUM_PIVOT.y} r="6" />
+        <line className="thermal-pendulum__arm" x1={PENDULUM_PIVOT.x} y1={PENDULUM_PIVOT.y + 4} x2={current.x} y2={current.y} />
+        <circle className={`thermal-pendulum__bob ${zoneClass(Math.round(clamp(state.temperature, -4, 4)))}`} cx={current.x} cy={current.y} r="12" />
+        <circle className="thermal-pendulum__bob-core" cx={current.x} cy={current.y} r="3.2" />
+        <text className="thermal-pendulum__cold-label" x="14" y="174">COLD</text>
+        <text className="thermal-pendulum__set-label" x="150" y="174" textAnchor="middle">S {formatThermal(state.setPoint, 1)}</text>
+        <text className="thermal-pendulum__hot-label" x="286" y="174" textAnchor="end">HOT</text>
       </svg>
+      <div className="thermal-pendulum__legend">
+        <span><i className="forecast" /> selected action → future free evolution</span>
+        <span><i className="integer" /> integer AT sample</span>
+      </div>
       <div className="thermal-pendulum__readout">
         <div><span>Temperature T</span><strong>{formatThermal(state.temperature, 2)}</strong></div>
         <div><span>Drift V</span><strong>{formatThermal(state.drift, 2)} / AT</strong></div>
@@ -145,15 +186,156 @@ function ThermalPendulum({ state, selectedPreview, skipPreview, horizon, diagnos
   )
 }
 
-function PreviewCurve({ selectedPreview, skipPreview, config }) {
-  const selected = curvePoints(selectedPreview?.path, config.clampMin, config.clampMax)
-  const skip = curvePoints(skipPreview?.path, config.clampMin, config.clampMax)
+function ThermalTimeline({
+  state,
+  history,
+  selectedFuture,
+  skipFuture,
+  selectedGhosts,
+  config,
+  diagnostics,
+  pastWindow,
+  futureWindow,
+  actionLabel,
+}) {
+  const minAt = state.worldAt - pastWindow
+  const maxAt = state.worldAt + futureWindow
+  const historySamples = history
+    .flatMap((entry) => entry.samples ?? [])
+    .filter((sample) => sample.at >= minAt - 1e-6 && sample.at <= state.worldAt + 1e-6)
+  const historicalIntegerPoints = history
+    .map((entry) => entry.finalState)
+    .filter((sample) => sample && sample.worldAt >= minAt - 1e-6 && sample.worldAt <= state.worldAt + 1e-6)
+  const visibleValues = [
+    state.temperature,
+    ...historySamples.map((sample) => sample.temperature),
+    ...selectedFuture.map((sample) => sample.temperature),
+    ...skipFuture.map((sample) => sample.temperature),
+  ].filter(Number.isFinite)
+  const valueMin = visibleValues.length ? Math.min(...visibleValues) : state.setPoint
+  const valueMax = visibleValues.length ? Math.max(...visibleValues) : state.setPoint
+  let minT = Math.min(state.setPoint - 2.5, valueMin - 0.35)
+  let maxT = Math.max(state.setPoint + 2.5, valueMax + 0.35)
+  minT = Math.max(config.clampMin, minT)
+  maxT = Math.min(config.clampMax, maxT)
+  if (maxT - minT < 1) {
+    const center = (maxT + minT) / 2
+    minT = center - 0.5
+    maxT = center + 0.5
+  }
+
+  const width = 760
+  const height = 250
+  const pad = { left: 42, right: 18, top: 18, bottom: 30 }
+  const innerWidth = width - pad.left - pad.right
+  const innerHeight = height - pad.top - pad.bottom
+  const xFor = (at) => pad.left + ((at - minAt) / Math.max(0.001, maxAt - minAt)) * innerWidth
+  const yFor = (temperature) => pad.top + (1 - (temperature - minT) / Math.max(0.001, maxT - minT)) * innerHeight
+  const pointsFor = (samples, atField = 'at') => samples
+    .filter((sample) => Number.isFinite(sample.temperature) && Number.isFinite(sample[atField]))
+    .map((sample) => `${xFor(sample[atField]).toFixed(2)},${yFor(sample.temperature).toFixed(2)}`)
+    .join(' ')
+
+  const historyPolyline = pointsFor(historySamples)
+  const futurePolyline = pointsFor(selectedFuture)
+  const skipPolyline = pointsFor(skipFuture)
+  const xTicks = []
+  for (let tick = Math.ceil(minAt); tick <= Math.floor(maxAt); tick += 1) xTicks.push(tick)
+  const yTicks = Array.from({ length: 5 }, (_, index) => minT + (maxT - minT) * (index / 4))
+  const nowX = xFor(state.worldAt)
+  const setPointY = yFor(state.setPoint)
+  const teqY = Number.isFinite(diagnostics.equilibriumTemperature) ? yFor(diagnostics.equilibriumTemperature) : null
+
   return (
-    <svg className="thermal-preview-curve" viewBox="0 0 300 110" preserveAspectRatio="none" aria-label="Selected action and Skip 1AT thermal trajectories">
-      <line x1="0" y1="55" x2="300" y2="55" />
-      {skip && <polyline className="skip" points={skip} />}
-      {selected && <polyline className="selected" points={selected} />}
-    </svg>
+    <section className="thermal-card thermal-timeline" data-thermal-timeline="history-current-selected-future-v1">
+      <div className="thermal-section-heading">
+        <div><h3>Thermal History + Forecast</h3><p>Past commits are solid. Future = selected card now, then no more impulses.</p></div>
+        <span>−{pastWindow}AT / +{futureWindow}AT</span>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Continuous thermal history and selected-action future forecast">
+        <rect className="thermal-timeline__plot" x={pad.left} y={pad.top} width={innerWidth} height={innerHeight} />
+        {yTicks.map((tick) => (
+          <g key={`y-${tick}`}>
+            <line className="thermal-timeline__grid" x1={pad.left} x2={width - pad.right} y1={yFor(tick)} y2={yFor(tick)} />
+            <text className="thermal-timeline__axis-label" x={pad.left - 7} y={yFor(tick) + 3} textAnchor="end">{formatThermal(tick, 1)}</text>
+          </g>
+        ))}
+        {xTicks.map((tick) => (
+          <g key={`x-${tick}`}>
+            <line className={`thermal-timeline__grid ${Math.abs(tick - state.worldAt) < 1e-6 ? 'now' : ''}`} x1={xFor(tick)} x2={xFor(tick)} y1={pad.top} y2={height - pad.bottom} />
+            <text className="thermal-timeline__axis-label" x={xFor(tick)} y={height - 10} textAnchor="middle">{tick}</text>
+          </g>
+        ))}
+        <line className="thermal-timeline__setpoint" x1={pad.left} x2={width - pad.right} y1={setPointY} y2={setPointY} />
+        <text className="thermal-timeline__setpoint-label" x={width - pad.right - 4} y={setPointY - 5} textAnchor="end">S {formatThermal(state.setPoint, 1)}</text>
+        {teqY !== null && Math.abs((diagnostics.equilibriumTemperature ?? state.setPoint) - state.setPoint) > 0.01 && (
+          <>
+            <line className="thermal-timeline__teq" x1={pad.left} x2={width - pad.right} y1={teqY} y2={teqY} />
+            <text className="thermal-timeline__teq-label" x={pad.left + 5} y={teqY - 5}>Teq {formatThermal(diagnostics.equilibriumTemperature, 1)}</text>
+          </>
+        )}
+        {historyPolyline && <polyline className="thermal-timeline__history" points={historyPolyline} />}
+        {skipPolyline && <polyline className="thermal-timeline__skip" points={skipPolyline} />}
+        {futurePolyline && <polyline className="thermal-timeline__future" points={futurePolyline} />}
+        <line className="thermal-timeline__now" x1={nowX} x2={nowX} y1={pad.top} y2={height - pad.bottom} />
+        <circle className="thermal-timeline__current" cx={nowX} cy={yFor(state.temperature)} r="5" />
+        {historicalIntegerPoints.map((sample) => (
+          <circle key={`past-${sample.worldAt}`} className="thermal-timeline__history-marker" cx={xFor(sample.worldAt)} cy={yFor(sample.temperature)} r="3.2" />
+        ))}
+        <g data-thermal-integer-ghosts="timeline-v1">
+          {selectedGhosts.map((ghost) => {
+            const at = state.worldAt + ghost.at
+            return (
+              <g key={`future-${ghost.at}`}>
+                <circle className="thermal-timeline__future-marker" cx={xFor(at)} cy={yFor(ghost.temperature)} r="4" />
+                <text className="thermal-timeline__future-label" x={xFor(at)} y={yFor(ghost.temperature) - 8} textAnchor="middle">+{ghost.at}</text>
+              </g>
+            )
+          })}
+        </g>
+        <text className="thermal-timeline__now-label" x={nowX + 5} y={pad.top + 12}>NOW</text>
+      </svg>
+      <div className="thermal-timeline__legend">
+        <span><i className="history" /> actual history</span>
+        <span><i className="future" /> {actionLabel} forecast</span>
+        <span><i className="skip" /> Skip / no impulse reference</span>
+        <span><i className="setpoint" /> Set Point</span>
+      </div>
+    </section>
+  )
+}
+
+function ParameterGuide({ diagnostics, config }) {
+  const adiabaticFormula = diagnostics.adiabatic && diagnostics.regime === 'underdamped'
+    ? `P ≈ ${formatAt(diagnostics.dampedPeriodAt)}`
+    : 'Set kE=0 and remain underdamped to use the clock-period formula.'
+  return (
+    <section className="thermal-card thermal-parameter-guide" data-thermal-parameter-guide="v1">
+      <div className="thermal-section-heading"><h3>Parameter Guide</h3><span>what actually changes what</span></div>
+      <div className="thermal-focus-groups">
+        <article><b>Adiabatic Clock</b><span><code>kE=0</code> · tune <code>kS + cBase</code></span></article>
+        <article><b>Environment Feel</b><span><code>Tenv + kE + cEnvGain</code></span></article>
+        <article><b>Card Authority</b><span>impulse size + current <code>T/V</code> phase</span></article>
+      </div>
+      <dl className="thermal-parameter-list">
+        <div><dt>kS</dt><dd>Intrinsic restoring toward S. Higher = faster swing / shorter period. Primary adiabatic period knob.</dd></div>
+        <div><dt>cBase</dt><dd>Intrinsic Drift damping. Higher = amplitude dies faster; enough damping removes oscillation. Also slightly lengthens the underdamped period.</dd></div>
+        <div><dt>kE</dt><dd>Environment coupling. 0 = adiabatic. Higher pulls harder toward Tenv and also adds to total restoring K.</dd></div>
+        <div><dt>Tenv</dt><dd>Environment target temperature. Changes equilibrium direction/offset; does not affect adiabatic motion when kE=0.</dd></div>
+        <div><dt>cEnvGain</dt><dd>Extra damping generated by kE. Has no effect when kE=0. Main A/B knob for making strong environments less oscillatory.</dd></div>
+        <div><dt>S</dt><dd>Actor thermal center. Shifts the pendulum center; in this linear model it does not set the period.</dd></div>
+        <div><dt>T / V</dt><dd>Current position and velocity. They change amplitude and phase, not the system coefficients.</dd></div>
+        <div><dt>Impulse</dt><dd>Heat/Cool changes V instantly. It changes phase/amplitude but not the natural period of an unchanged linear parameter set.</dd></div>
+        <div><dt>Clamp</dt><dd>Debug safety boundary only. If hit, it clips the analytic result and can distort the apparent motion.</dd></div>
+        <div><dt>Playback</dt><dd>Visual speed only. It never changes gameplay AT or the solver.</dd></div>
+      </dl>
+      <div className="thermal-period-help" data-thermal-period-guide="adiabatic-underdamped-v1">
+        <b>To tune the adiabatic pendulum period</b>
+        <span>Set <code>kE = 0</code>. For underdamped motion: <code>P = 2π / √(kS − cBase²/4)</code>.</span>
+        <span>So: raise <code>kS</code> → shorter period; lower <code>kS</code> → longer period. Keep <code>cBase</code> low if you want something close to a simple harmonic pendulum.</span>
+        <span>Current: kS {formatNumber(config.restoringK, 2)} · cBase {formatNumber(config.baseDamping, 2)} · {adiabaticFormula}</span>
+      </div>
+    </section>
   )
 }
 
@@ -163,7 +345,8 @@ export function ThermalClockLab() {
   const [config, setConfig] = useState(() => copyConfig(DEFAULT_THERMAL_CONFIG))
   const [impulses, setImpulses] = useState(() => copyImpulses(DEFAULT_THERMAL_IMPULSES))
   const [selectedAction, setSelectedAction] = useState('heat-ii')
-  const [previewHorizon, setPreviewHorizon] = useState(4)
+  const [previewHorizon, setPreviewHorizon] = useState(12)
+  const [pastWindow, setPastWindow] = useState(8)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const [playback, setPlayback] = useState(null)
   const [history, setHistory] = useState([])
@@ -171,26 +354,13 @@ export function ThermalClockLab() {
   const playbackIdRef = useRef(1)
 
   const diagnostics = useMemo(() => thermalDiagnostics(state, config), [state, config])
-  const selectedPreview = useMemo(() => predictThermalAction({
-    state,
-    config,
-    actionId: selectedAction,
-    impulses,
-    horizonAt: previewHorizon,
-  }), [state, config, selectedAction, impulses, previewHorizon])
-  const skipPreview = useMemo(() => predictThermalAction({
-    state,
-    config,
-    actionId: 'skip',
-    impulses,
-    horizonAt: previewHorizon,
-  }), [state, config, impulses, previewHorizon])
+  const selectedPreview = useMemo(() => predictThermalAction({ state, config, actionId: selectedAction, impulses, horizonAt: previewHorizon }), [state, config, selectedAction, impulses, previewHorizon])
+  const skipPreview = useMemo(() => predictThermalAction({ state, config, actionId: 'skip', impulses, horizonAt: previewHorizon }), [state, config, impulses, previewHorizon])
   const selectedImpulse = actionImpulse(selectedAction, impulses)
   const selectedPostImpulse = useMemo(() => applyThermalImpulse(state, selectedImpulse), [state, selectedImpulse])
-  const eventDiagnostics = useMemo(
-    () => thermalEventDiagnostics(selectedPostImpulse, config, previewHorizon),
-    [selectedPostImpulse, config, previewHorizon],
-  )
+  const selectedFuture = useMemo(() => sampleFuture(selectedPostImpulse, config, previewHorizon, state.worldAt), [selectedPostImpulse, config, previewHorizon, state.worldAt])
+  const skipFuture = useMemo(() => sampleFuture(state, config, previewHorizon, state.worldAt), [state, config, previewHorizon])
+  const eventDiagnostics = useMemo(() => thermalEventDiagnostics(selectedPostImpulse, config, previewHorizon), [selectedPostImpulse, config, previewHorizon])
   const action = THERMAL_ACTIONS.find((entry) => entry.id === selectedAction) ?? THERMAL_ACTIONS.at(-1)
 
   const updateStateField = (key, value) => {
@@ -206,23 +376,19 @@ export function ThermalClockLab() {
   const updateConfigField = (key, value) => {
     if (playback) return
     setConfig((current) => ({ ...current, [key]: value }))
-    setLastEvent(`Dynamics parameter changed: ${key}=${value}. Preview recomputed without advancing AT.`)
+    setLastEvent(`Dynamics parameter changed: ${key}=${value}. Full future curve recomputed without advancing AT.`)
   }
 
   const applyEnvironmentPreset = (preset) => {
     if (playback) return
-    setConfig((current) => ({
-      ...current,
-      environmentTemperature: preset.environmentTemperature,
-      environmentCoupling: preset.environmentCoupling,
-    }))
+    setConfig((current) => ({ ...current, environmentTemperature: preset.environmentTemperature, environmentCoupling: preset.environmentCoupling }))
     setLastEvent(`${preset.label} environment loaded. cEnvGain remains independently tunable.`)
   }
 
   const applyDynamicsPreset = (preset) => {
     if (playback) return
     setConfig((current) => ({ ...current, restoringK: preset.restoringK, baseDamping: preset.baseDamping }))
-    setLastEvent(`${preset.label} dynamics loaded.`)
+    setLastEvent(`${preset.label} dynamics loaded. Timeline forecast updated.`)
   }
 
   const reset = () => {
@@ -233,10 +399,11 @@ export function ThermalClockLab() {
     setConfig(copyConfig(DEFAULT_THERMAL_CONFIG))
     setImpulses(copyImpulses(DEFAULT_THERMAL_IMPULSES))
     setSelectedAction('heat-ii')
-    setPreviewHorizon(4)
+    setPreviewHorizon(12)
+    setPastWindow(8)
     setPlaybackSpeed(1)
     setHistory([])
-    setLastEvent('Stage-1 baseline reset. Heat II preview selected; worldAt = 0.')
+    setLastEvent('Stage-1 baseline reset. Heat II forecast selected; worldAt = 0.')
   }
 
   const undo = () => {
@@ -256,7 +423,8 @@ export function ThermalClockLab() {
     const afterImpulse = applyThermalImpulse(source, impulse)
     const solved = solveThermalSegment(afterImpulse, configSnapshot, 1)
     const finalState = { ...solved, worldAt: source.worldAt + 1 }
-    setHistory((entries) => [...entries, { state: source }].slice(-30))
+    const samples = sampleFuture(afterImpulse, configSnapshot, 1, source.worldAt, 40)
+    setHistory((entries) => [...entries, { state: source, finalState, samples, actionId: selectedAction, impulse }].slice(-60))
     setPlayback({
       id: playbackIdRef.current++,
       source,
@@ -304,18 +472,17 @@ export function ThermalClockLab() {
         impulses: copyImpulses(impulses),
         selectedAction,
         previewHorizon,
+        pastWindow,
         diagnostics: thermalDiagnostics(state, config),
         predictedReady: copyState(selectedPreview.finalState),
         skipReady: copyState(skipPreview.finalState),
+        historySegments: history.length,
         playback: Boolean(playback),
       }),
       reset,
     }
     return () => { delete window.__PROJECTC_THERMAL_CLOCK__ }
   })
-
-  const selectedPath = selectedPreview.path
-  const skipPath = skipPreview.path
 
   return (
     <main
@@ -340,15 +507,15 @@ export function ThermalClockLab() {
           <div><span>Temperature</span><strong>{formatThermal(visualState.temperature, 2)}</strong></div>
           <div><span>Drift</span><strong>{formatThermal(visualState.drift, 2)}</strong></div>
           <div><span>Regime</span><strong>{diagnostics.regime}</strong></div>
-          <div><span>State</span><strong>{playback ? 'RESOLVING' : 'READY'}</strong></div>
+          <div><span>Period</span><strong>{diagnostics.dampedPeriodAt ? formatAt(diagnostics.dampedPeriodAt) : '—'}</strong></div>
         </div>
       </header>
 
       <section className="thermal-clock-grid">
         <aside className="thermal-panel thermal-left">
           <section className="thermal-card thermal-pendulum-card">
-            <div className="thermal-section-heading"><h2>Thermal Pendulum</h2><span>position = T · lowest = S</span></div>
-            <ThermalPendulum state={visualState} selectedPreview={selectedPreview} skipPreview={skipPreview} horizon={previewHorizon} diagnostics={diagnostics} />
+            <div className="thermal-section-heading"><h2>Thermal Pendulum</h2><span>temperature zones follow the swing track</span></div>
+            <ThermalPendulum state={visualState} selectedPreview={selectedPreview} futureSamples={selectedFuture} diagnostics={diagnostics} />
           </section>
 
           <section className="thermal-card" data-thermal-state-debug>
@@ -359,57 +526,48 @@ export function ThermalClockLab() {
             <p className="thermal-proxy-note">Set Point slider = <b>DEBUG / BUILD PROXY</b>. Environment does not rewrite S.</p>
           </section>
 
-          <section className="thermal-card thermal-ghost-readout">
-            <div className="thermal-section-heading"><h3>Thermal Clock</h3><span>{previewHorizon} AT horizon</span></div>
-            <div className="thermal-ghost-table" data-thermal-integer-ghosts>
-              {(selectedPreview.ghosts ?? []).map((ghost) => (
-                <div key={ghost.at}><b>+{ghost.at}AT</b><span>T {formatThermal(ghost.temperature, 2)}</span><span>V {formatThermal(ghost.drift, 2)}</span></div>
-              ))}
-            </div>
+          <section className="thermal-card thermal-next-events">
+            <div className="thermal-section-heading"><h3>Next Events</h3><span>selected action forecast</span></div>
+            <dl>
+              <div><dt>Next Apex</dt><dd>{formatAt(eventDiagnostics.nextApexAt)}</dd></div>
+              <div><dt>Next S crossing</dt><dd>{formatAt(eventDiagnostics.nextSetPointCrossingAt)}</dd></div>
+              <div><dt>Next Ready T</dt><dd>{formatThermal(selectedPreview.finalState.temperature, 2)}</dd></div>
+              <div><dt>Next Ready V</dt><dd>{formatThermal(selectedPreview.finalState.drift, 2)}</dd></div>
+            </dl>
           </section>
         </aside>
 
         <section className="thermal-center">
           <div className={`thermal-status ${playback ? 'is-resolving' : 'is-ready'}`}>
-            <strong>{playback ? 'ACTION IN FLIGHT · ANALYTIC T(t), V(t)' : 'READY · SELECT → PREVIEW → COMMIT'}</strong>
+            <strong>{playback ? 'ACTION IN FLIGHT · ANALYTIC T(t), V(t)' : 'READY · SELECT → FORECAST → COMMIT'}</strong>
             <span>{lastEvent}</span>
           </div>
 
-          <section className="thermal-board-reserved" data-thermal-board-reserved="true">
+          <ThermalTimeline
+            state={visualState}
+            history={history}
+            selectedFuture={selectedFuture}
+            skipFuture={skipFuture}
+            selectedGhosts={selectedPreview.ghosts ?? []}
+            config={config}
+            diagnostics={diagnostics}
+            pastWindow={pastWindow}
+            futureWindow={previewHorizon}
+            actionLabel={action?.label ?? selectedAction}
+          />
+
+          <section className="thermal-board-reserved thermal-board-reserved--compact" data-thermal-board-reserved="true">
             <div className="thermal-board-reserved__grid" />
             <div>
               <p>RESERVED BOARD</p>
               <h2>Future Trajectory Integration</h2>
-              <span>Stage 1 intentionally isolates Thermal Dynamics. No temporary board interaction is added here.</span>
-            </div>
-          </section>
-
-          <section className="thermal-card thermal-projection" data-thermal-projection>
-            <div className="thermal-section-heading"><h3>1AT Projection</h3><span>same solver as Commit</span></div>
-            <PreviewCurve selectedPreview={selectedPreview} skipPreview={skipPreview} config={config} />
-            <div className="thermal-projection-pair">
-              <article className="skip">
-                <b>SKIP / NO IMPULSE</b>
-                <span>T {formatThermal(skipPreview.finalState.temperature, 3)}</span>
-                <span>V {formatThermal(skipPreview.finalState.drift, 3)}</span>
-              </article>
-              <article className="selected">
-                <b>{action?.label?.toUpperCase()}</b>
-                <span>Impulse {formatThermal(selectedImpulse, 2)}</span>
-                <span>T {formatThermal(selectedPreview.finalState.temperature, 3)}</span>
-                <span>V {formatThermal(selectedPreview.finalState.drift, 3)}</span>
-              </article>
-            </div>
-            <div className="thermal-path-debug">
-              <span>Selected path samples: {selectedPath.length}</span>
-              <span>Skip samples: {skipPath.length}</span>
-              <span>Preview worldAt remains {state.worldAt.toFixed(1)} until Commit.</span>
+              <span>Thermal Dynamics remains isolated while the timeline and pendulum are evaluated.</span>
             </div>
           </section>
 
           <section className="thermal-action-hand">
             <div className="thermal-hand-heading">
-              <div><h2>Thermal Actions</h2><p>All stage-1 cards cost 1AT and only apply an instantaneous Drift impulse.</p></div>
+              <div><h2>Thermal Actions</h2><p>Selected card applies one impulse now; the forecast after that is free evolution under the current parameters.</p></div>
               <button type="button" className="thermal-commit" data-thermal-commit disabled={Boolean(playback)} onClick={commit}>Commit 1AT</button>
             </div>
             <div className="thermal-action-row">
@@ -422,7 +580,7 @@ export function ThermalClockLab() {
                   disabled={Boolean(playback)}
                   onClick={() => {
                     setSelectedAction(entry.id)
-                    setLastEvent(`${entry.label} selected. Preview updated; worldAt has not advanced.`)
+                    setLastEvent(`${entry.label} selected. Full future curve updated; worldAt has not advanced.`)
                   }}
                 >
                   <header><strong>{entry.label}</strong><em>1AT</em></header>
@@ -440,7 +598,7 @@ export function ThermalClockLab() {
 
         <aside className="thermal-panel thermal-right">
           <section className="thermal-card" data-thermal-environment>
-            <div className="thermal-section-heading"><h3>Environment</h3><span>acts on Drift / equilibrium, not S</span></div>
+            <div className="thermal-section-heading"><h3>Environment</h3><span>equilibrium + damping</span></div>
             <div className="thermal-preset-row">
               {ENVIRONMENT_PRESETS.map((preset) => <button type="button" key={preset.id} disabled={Boolean(playback)} onClick={() => applyEnvironmentPreset(preset)}>{preset.label}</button>)}
             </div>
@@ -450,12 +608,12 @@ export function ThermalClockLab() {
           </section>
 
           <section className="thermal-card" data-thermal-dynamics>
-            <div className="thermal-section-heading"><h3>Dynamics</h3><span>candidate coefficients</span></div>
+            <div className="thermal-section-heading"><h3>Dynamics</h3><span>period + intrinsic damping</span></div>
             <div className="thermal-preset-row">
               {DYNAMICS_PRESETS.map((preset) => <button type="button" key={preset.id} disabled={Boolean(playback)} onClick={() => applyDynamicsPreset(preset)}>{preset.label}</button>)}
             </div>
-            <RangeField label="kS" value={config.restoringK} min={0} max={2} step={0.01} disabled={Boolean(playback)} onChange={(value) => updateConfigField('restoringK', value)} />
-            <RangeField label="cBase" value={config.baseDamping} min={0} max={3} step={0.01} disabled={Boolean(playback)} onChange={(value) => updateConfigField('baseDamping', value)} />
+            <RangeField label="kS · restoring" value={config.restoringK} min={0} max={2} step={0.01} disabled={Boolean(playback)} onChange={(value) => updateConfigField('restoringK', value)} />
+            <RangeField label="cBase · damping" value={config.baseDamping} min={0} max={3} step={0.01} disabled={Boolean(playback)} onChange={(value) => updateConfigField('baseDamping', value)} />
             <div className="thermal-clamp-row">
               <RangeField label="Clamp Min" value={config.clampMin} min={-12} max={0} step={0.5} disabled={Boolean(playback)} onChange={(value) => updateConfigField('clampMin', value)} />
               <RangeField label="Clamp Max" value={config.clampMax} min={0} max={12} step={0.5} disabled={Boolean(playback)} onChange={(value) => updateConfigField('clampMax', value)} />
@@ -473,14 +631,17 @@ export function ThermalClockLab() {
               <div><dt>Adiabatic</dt><dd>{diagnostics.adiabatic ? 'YES' : 'NO'}</dd></div>
               <div><dt>Damped Period</dt><dd>{diagnostics.dampedPeriodAt ? formatAt(diagnostics.dampedPeriodAt) : '—'}</dd></div>
               <div><dt>Decay / cycle</dt><dd>{Number.isFinite(diagnostics.amplitudeDecayPerCycle) ? `${(diagnostics.amplitudeDecayPerCycle * 100).toFixed(1)}%` : '—'}</dd></div>
-              <div><dt>Next Apex</dt><dd>{formatAt(eventDiagnostics.nextApexAt)}</dd></div>
-              <div><dt>Next S crossing</dt><dd>{formatAt(eventDiagnostics.nextSetPointCrossingAt)}</dd></div>
             </dl>
           </section>
 
           <section className="thermal-card" data-thermal-preview-controls>
-            <div className="thermal-section-heading"><h3>Preview / Playback</h3><span>UI time ≠ AT</span></div>
-            <div className="thermal-choice-row" role="group" aria-label="Preview Horizon">
+            <div className="thermal-section-heading"><h3>Timeline / Playback</h3><span>display window</span></div>
+            <label className="thermal-choice-label">Past history shown</label>
+            <div className="thermal-choice-row" role="group" aria-label="Past History Window" data-thermal-past-window>
+              {TIMELINE_PAST_WINDOWS.map((windowAt) => <button type="button" key={windowAt} className={pastWindow === windowAt ? 'selected' : ''} disabled={Boolean(playback)} onClick={() => setPastWindow(windowAt)}>{windowAt} AT</button>)}
+            </div>
+            <label className="thermal-choice-label">Future forecast shown</label>
+            <div className="thermal-choice-row" role="group" aria-label="Preview Horizon" data-thermal-future-window>
               {THERMAL_PREVIEW_HORIZONS.map((horizon) => <button type="button" key={horizon} className={previewHorizon === horizon ? 'selected' : ''} disabled={Boolean(playback)} onClick={() => setPreviewHorizon(horizon)}>{horizon} AT</button>)}
             </div>
             <RangeField label="Playback speed" value={playbackSpeed} min={0.25} max={2.5} step={0.25} disabled={Boolean(playback)} onChange={setPlaybackSpeed} suffix="×" />
@@ -489,6 +650,8 @@ export function ThermalClockLab() {
               <button type="button" disabled={Boolean(playback)} onClick={reset}>Reset Lab</button>
             </div>
           </section>
+
+          <ParameterGuide diagnostics={diagnostics} config={config} />
         </aside>
       </section>
     </main>
