@@ -78,7 +78,11 @@ const requiredMarkers = [
   'global-continuous-at-v1',
   'preview-commit-shared-solver-v1',
   'integer-at-analytic-ghosts-v1',
-  'temperature-relative-set-point-v1',
+  'temperature-relative-set-point-v2',
+  'pendulum-arc-v1',
+  'selected-action-dashed-v1',
+  'history-current-selected-future-v1',
+  'adiabatic-underdamped-v1',
   'DEBUG / BUILD PROXY',
   'Future Trajectory Integration',
 ]
@@ -93,6 +97,8 @@ const obsoleteMarkers = [
   'chain-decay-prototype',
   'connected-envelope-m-spend-v4',
   'cell-target-curved-composition',
+  'temperature-relative-set-point-v1',
+  '1AT Projection',
   '当前热力钟摆已经恢复到 Inertia Driving Lab 左栏',
 ]
 
