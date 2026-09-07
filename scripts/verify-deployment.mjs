@@ -71,11 +71,16 @@ const requiredMarkers = [
   'data-down-axis-controls',
   'actorPlaybackWindows',
   'playerPlaybackEnd',
-  'data-thermal-period',
-  'setThermalPeriod',
   'ProjectC Web Prototype',
   'Thermal Clock Lab',
-  '热力钟摆',
+  'thermal-clock-continuous-v0-candidate',
+  'piecewise-analytic-second-order-v1',
+  'global-continuous-at-v1',
+  'preview-commit-shared-solver-v1',
+  'integer-at-analytic-ghosts-v1',
+  'temperature-relative-set-point-v1',
+  'DEBUG / BUILD PROXY',
+  'Future Trajectory Integration',
 ]
 
 const obsoleteMarkers = [
@@ -88,6 +93,7 @@ const obsoleteMarkers = [
   'chain-decay-prototype',
   'connected-envelope-m-spend-v4',
   'cell-target-curved-composition',
+  '当前热力钟摆已经恢复到 Inertia Driving Lab 左栏',
 ]
 
 let lastError
@@ -115,7 +121,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (bundle.includes(obsolete)) throw new Error(`published bundle still contains obsolete marker ${obsolete}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · Spatial Inertia v1 candidate runtime and published bundle`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · active Driving / Trajectory / Thermal Clock prototype bundle`)
     process.exit(0)
   } catch (error) {
     lastError = error
