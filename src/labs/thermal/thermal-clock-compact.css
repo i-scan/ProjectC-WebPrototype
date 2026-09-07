@@ -1,0 +1,115 @@
+/* Compact readability pass for Thermal Clock Lab.
+   Loaded after thermal-clock.css so legacy v2 styles can remain available for comparison. */
+
+.thermal-clock-lab .thermal-pendulum--compact svg {
+  height: 172px;
+}
+
+.thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__zone {
+  stroke-width: 10px;
+}
+
+.thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__bob {
+  stroke-width: 1.4;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,.34));
+}
+
+.thermal-pendulum__skip-arrow {
+  fill: none;
+  stroke: #8addef;
+  stroke-width: 2.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  opacity: .94;
+  filter: drop-shadow(0 0 3px rgba(76, 194, 221, .36));
+}
+
+#thermal-skip-arrow-head path {
+  fill: #8addef;
+  stroke: rgba(231, 251, 255, .68);
+  stroke-width: .5;
+}
+
+.thermal-pendulum__skip-next {
+  fill: #8addef;
+  stroke: #e4fbff;
+  stroke-width: 1;
+  opacity: .92;
+}
+
+.thermal-pendulum__skip-idle {
+  fill: rgba(138, 221, 239, .18);
+  stroke: #8addef;
+  stroke-width: 1.2;
+}
+
+.thermal-pendulum__history-ring {
+  fill: none;
+  stroke: rgba(219, 230, 235, .68);
+  stroke-width: 1.6;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+  opacity: .78;
+}
+
+.thermal-pendulum__legend--compact {
+  gap: 14px;
+  padding-top: 0;
+}
+
+.thermal-pendulum__legend--compact i.skip-arrow {
+  border-top-color: #8addef;
+  border-top-style: solid;
+  position: relative;
+}
+
+.thermal-pendulum__legend--compact i.skip-arrow::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -4px;
+  width: 0;
+  height: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-left: 5px solid #8addef;
+}
+
+.thermal-pendulum__legend--compact i.history-ring {
+  width: 8px;
+  height: 8px;
+  border: 1.5px dashed rgba(219, 230, 235, .72);
+  border-radius: 50%;
+  background: transparent;
+}
+
+/* Thermal Diagram is the single temporal readout. */
+.thermal-diagram {
+  border-color: rgba(104, 192, 216, .22);
+}
+
+.thermal-diagram .thermal-section-heading h3 {
+  font-size: 15px;
+}
+
+.thermal-diagram .thermal-timeline__future-marker,
+.thermal-diagram .thermal-timeline__future-label,
+.thermal-diagram .thermal-timeline__future,
+.thermal-diagram .thermal-timeline__now,
+.thermal-diagram .thermal-timeline__current {
+  transition: none;
+}
+
+.thermal-diagram .thermal-timeline__future-marker {
+  filter: drop-shadow(0 0 3px rgba(105, 208, 235, .24));
+}
+
+.thermal-diagram .thermal-timeline__current {
+  filter: drop-shadow(0 0 4px rgba(241, 206, 105, .28));
+}
+
+/* Old left-side forecast/event clutter is intentionally absent in v3. */
+.thermal-clock-lab .thermal-left {
+  align-content: start;
+}
