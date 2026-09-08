@@ -78,12 +78,20 @@ const requiredMarkers = [
   'global-continuous-at-v1',
   'preview-commit-shared-solver-v1',
   'integer-at-analytic-ghosts-v1',
-  'skip-next-history-v3',
+  'inner-bob-outer-skip-v4',
   'pendulum-arc-v2',
-  'next-at-v1',
-  'history-live-forecast-v2',
+  'previous-at-inner-v2',
+  'outer-next-at-v2',
+  'fixed-y-live-forecast-v3',
+  'manual-v1',
   'diagram-live-v2',
   'Thermal Diagram',
+  'shared-live-v1',
+  'thermal-baseline-a',
+  'shared-thermal-profile-runtime-v1-candidate',
+  'gameplay-thermal-integration-v0-candidate',
+  'Gameplay Lab',
+  'Gameplay Actions · Shared Thermal IDs',
   'adiabatic-underdamped-v1',
   'DEBUG / BUILD PROXY',
   'Future Trajectory Integration',
@@ -100,6 +108,8 @@ const obsoleteMarkers = [
   'connected-envelope-m-spend-v4',
   'cell-target-curved-composition',
   'temperature-relative-set-point-v1',
+  'skip-next-history-v3',
+  'history-live-forecast-v2',
   'Thermal History + Forecast',
   '1AT Projection',
   '当前热力钟摆已经恢复到 Inertia Driving Lab 左栏',
@@ -130,7 +140,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
       if (bundle.includes(obsolete)) throw new Error(`published bundle still contains obsolete marker ${obsolete}`)
     }
 
-    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · active Driving / Trajectory / Thermal Clock prototype bundle`)
+    console.log(`Verified production main@${expectedCommit.slice(0, 8)} · active Driving / Trajectory / Thermal Clock / Gameplay candidate bundle`)
     process.exit(0)
   } catch (error) {
     lastError = error
