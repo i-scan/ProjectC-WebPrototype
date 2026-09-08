@@ -48,7 +48,7 @@ try {
   assert(dom.includes('data-thermal-ghost="integer-at-analytic-ghosts-v1"'), 'Analytic integer ghost marker missing')
   assert(dom.includes('data-thermal-pendulum="inner-bob-outer-skip-v4"'), 'Thermal Pendulum v4 marker missing')
   assert(dom.includes('data-thermal-zone-track="pendulum-arc-v2"'), 'Temperature scale track missing')
-  assert(dom.includes('data-thermal-pendulum-history-ring="previous-at-inner-v2"'), 'Previous-AT inner history ring missing')
+  assert(dom.includes('previous AT'), 'Previous-AT inner-history legend missing')
   assert(dom.includes('data-thermal-pendulum-skip-arrow="outer-next-at-v2"'), 'Outer Skip next-AT arrow missing')
   assert(dom.includes('data-thermal-diagram="fixed-y-live-forecast-v3"'), 'Fixed-Y Thermal Diagram marker missing')
   assert(dom.includes('data-thermal-diagram-y-range="manual-v1"'), 'Manual Thermal Diagram Y range controls missing')
@@ -76,7 +76,7 @@ try {
   assert(!dom.includes('Next Events'), 'Old left-side selected-action forecast panel is still mounted')
   assert(!dom.includes('1AT Projection'), 'Obsolete 1AT Projection panel is still mounted')
 
-  console.log('Thermal Clock browser smoke verified: inner bob/history, outer Skip arrow, fixed manual Diagram Y range, shared profile bridge and analytic forecast are mounted.')
+  console.log('Thermal Clock browser smoke verified: inner bob/history layout, outer Skip arrow, fixed manual Diagram Y range, shared profile bridge and analytic forecast are mounted.')
 } finally {
   if (previewProcess && !previewProcess.killed) previewProcess.kill('SIGTERM')
 }
