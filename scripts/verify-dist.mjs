@@ -85,6 +85,14 @@ for (const marker of [
   '热力钟摆',
   'ProjectC Web Prototype',
   'Thermal Clock Lab',
+  'inner-bob-outer-skip-v4',
+  'fixed-y-live-forecast-v3',
+  'shared-live-v1',
+  'shared-thermal-profile-runtime-v1-candidate',
+  'thermal-baseline-a',
+  'Gameplay Lab',
+  'gameplay-thermal-integration-v0-candidate',
+  'Gameplay Actions · Shared Thermal IDs',
 ]) assert(script.includes(marker), `current runtime marker missing: ${marker}`)
 assert(script.includes(expectedCommit), 'bundle commit marker missing')
 
@@ -123,6 +131,9 @@ for (const marker of [
   '.app-switcher',
   '.build-revision',
   '[data-action-id=basic-move]',
+  '.gameplay-lab',
+  '.gameplay-action-row',
+  '.thermal-profile-bar',
 ]) assert(style.includes(marker), `restored UI styling missing: ${marker}`)
 
-console.log(`Verified Spatial Inertia v1 initiative transactions, Strike/Forced Move, Incoming A/B, surface Redirect, and existing Axis/Thermal runtime for ${info.branch}@${info.shortCommit}.`)
+console.log(`Verified active Driving / Trajectory / Thermal Clock / Gameplay candidate bundle for ${info.branch}@${info.shortCommit}.`)
