@@ -9,9 +9,37 @@
   stroke-width: 10px;
 }
 
+/*
+  Pendulum geometry layers around the shared pivot (150, 24):
+  - temperature scale stays on radius 112;
+  - bob / previous-AT ring sit just OUTSIDE the scale, tangent to its outer edge;
+  - Skip direction arrow sits INSIDE / below the scale.
+  The angle is unchanged, so this is presentation-only and does not alter T -> angle mapping.
+*/
+.thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__arm,
+.thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__bob,
+.thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__bob-core {
+  transform-box: view-box;
+  transform-origin: 150px 24px;
+  transform: scale(1.143);
+}
+
 .thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__bob {
+  r: 8.8px;
   stroke-width: 1.4;
   filter: drop-shadow(0 2px 3px rgba(0,0,0,.34));
+}
+
+.thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__bob-core {
+  r: 2.5px;
+}
+
+.thermal-pendulum__skip-arrow,
+.thermal-pendulum__skip-next,
+.thermal-pendulum__skip-idle {
+  transform-box: view-box;
+  transform-origin: 150px 24px;
+  transform: scale(.89);
 }
 
 .thermal-pendulum__skip-arrow {
@@ -32,6 +60,7 @@
 }
 
 .thermal-pendulum__skip-next {
+  r: 2.6px;
   fill: #8addef;
   stroke: #e4fbff;
   stroke-width: 1;
@@ -39,18 +68,23 @@
 }
 
 .thermal-pendulum__skip-idle {
+  r: 3px;
   fill: rgba(138, 221, 239, .18);
   stroke: #8addef;
   stroke-width: 1.2;
 }
 
 .thermal-pendulum__history-ring {
+  r: 7.4px;
   fill: none;
   stroke: rgba(219, 230, 235, .68);
-  stroke-width: 1.6;
+  stroke-width: 1.45;
   stroke-dasharray: 3 3;
   vector-effect: non-scaling-stroke;
-  opacity: .78;
+  opacity: .75;
+  transform-box: view-box;
+  transform-origin: 150px 24px;
+  transform: scale(1.125);
 }
 
 .thermal-pendulum__legend--compact {
