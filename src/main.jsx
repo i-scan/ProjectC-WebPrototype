@@ -1,13 +1,15 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './ui/App.jsx'
-import { ThermalClockLab } from './labs/thermal/ThermalClockLabV2.jsx'
+import { GameplayLab } from './labs/gameplay/GameplayLab.jsx'
+import { ThermalClockLab } from './labs/thermal/ThermalClockLabV3.jsx'
 import { TrajectoryLab } from './labs/trajectory/TrajectoryLab.jsx'
 import './styles.css'
 import './ui/cell-world.css'
 import './ui/movement-corrections.css'
 import './labs/thermal/thermal-clock.css'
 import './labs/thermal/thermal-clock-compact.css'
+import './labs/gameplay/gameplay.css'
 import './labs/trajectory/trajectory.css'
 
 const BUILD_COMMIT = __BUILD_COMMIT__
@@ -16,6 +18,7 @@ const BUILD_BRANCH = __BUILD_BRANCH__
 function viewFromHash() {
   if (window.location.hash === '#trajectory-lab') return 'trajectory'
   if (window.location.hash === '#thermal-lab') return 'thermal'
+  if (window.location.hash === '#gameplay-lab') return 'gameplay'
   if (window.location.hash === '#graphics-lab') return 'graphics'
   return 'inertia'
 }
@@ -44,9 +47,11 @@ function Root() {
       ? 'trajectory-lab'
       : next === 'thermal'
         ? 'thermal-lab'
-        : next === 'graphics'
-          ? 'graphics-lab'
-          : 'hex-prototype'
+        : next === 'gameplay'
+          ? 'gameplay-lab'
+          : next === 'graphics'
+            ? 'graphics-lab'
+            : 'hex-prototype'
   }
 
   return (
@@ -63,12 +68,14 @@ function Root() {
           <button type="button" className={view === 'inertia' ? 'selected' : ''} onClick={() => navigate('inertia')}>Inertia Driving Lab · A</button>
           <button type="button" className={view === 'trajectory' ? 'selected' : ''} onClick={() => navigate('trajectory')}>Trajectory Lab · B</button>
           <button type="button" className={view === 'thermal' ? 'selected' : ''} onClick={() => navigate('thermal')}>Thermal Clock Lab</button>
+          <button type="button" className={view === 'gameplay' ? 'selected' : ''} onClick={() => navigate('gameplay')}>Gameplay Lab</button>
           <button type="button" className={view === 'graphics' ? 'selected' : ''} onClick={() => navigate('graphics')}>图形性能实验室</button>
         </nav>
       </div>
       {view === 'inertia' && <App />}
       {view === 'trajectory' && <TrajectoryLab />}
       {view === 'thermal' && <ThermalClockLab />}
+      {view === 'gameplay' && <GameplayLab />}
       {view === 'graphics' && (
         <PlaceholderLab eyebrow="ProjectC · archived test space" title="图形性能实验室">
           当前精简运行时暂未重新接入旧 Graphics Lab；入口保留，后续可以独立恢复而不干扰惯性原型。
