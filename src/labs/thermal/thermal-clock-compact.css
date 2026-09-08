@@ -1,5 +1,5 @@
 /* Compact readability pass for Thermal Clock Lab.
-   Loaded after thermal-clock.css so legacy v2 styles can remain available for comparison. */
+   Loaded after thermal-clock.css so legacy styles can remain available for comparison. */
 
 .thermal-clock-lab .thermal-pendulum--compact svg {
   height: 172px;
@@ -9,37 +9,11 @@
   stroke-width: 10px;
 }
 
-/*
-  Pendulum geometry layers around the shared pivot (150, 24):
-  - temperature scale stays on radius 112;
-  - bob / previous-AT ring sit just OUTSIDE the scale, tangent to its outer edge;
-  - Skip direction arrow sits INSIDE / below the scale.
-  The angle is unchanged, so this is presentation-only and does not alter T -> angle mapping.
-*/
-.thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__arm,
-.thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__bob,
-.thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__bob-core {
-  transform-box: view-box;
-  transform-origin: 150px 24px;
-  transform: scale(1.143);
-}
-
+/* v4 geometry is explicit in JSX:
+   scale radius 112; bob/history inside; Skip forecast outside. */
 .thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__bob {
-  r: 8.8px;
   stroke-width: 1.4;
   filter: drop-shadow(0 2px 3px rgba(0,0,0,.34));
-}
-
-.thermal-clock-lab .thermal-pendulum--compact .thermal-pendulum__bob-core {
-  r: 2.5px;
-}
-
-.thermal-pendulum__skip-arrow,
-.thermal-pendulum__skip-next,
-.thermal-pendulum__skip-idle {
-  transform-box: view-box;
-  transform-origin: 150px 24px;
-  transform: scale(.89);
 }
 
 .thermal-pendulum__skip-arrow {
@@ -53,14 +27,13 @@
   filter: drop-shadow(0 0 3px rgba(76, 194, 221, .36));
 }
 
-#thermal-skip-arrow-head path {
+#thermal-skip-arrow-head-v4 path {
   fill: #8addef;
   stroke: rgba(231, 251, 255, .68);
   stroke-width: .5;
 }
 
 .thermal-pendulum__skip-next {
-  r: 2.6px;
   fill: #8addef;
   stroke: #e4fbff;
   stroke-width: 1;
@@ -68,23 +41,18 @@
 }
 
 .thermal-pendulum__skip-idle {
-  r: 3px;
   fill: rgba(138, 221, 239, .18);
   stroke: #8addef;
   stroke-width: 1.2;
 }
 
 .thermal-pendulum__history-ring {
-  r: 7.4px;
   fill: none;
   stroke: rgba(219, 230, 235, .68);
   stroke-width: 1.45;
   stroke-dasharray: 3 3;
   vector-effect: non-scaling-stroke;
   opacity: .75;
-  transform-box: view-box;
-  transform-origin: 150px 24px;
-  transform: scale(1.125);
 }
 
 .thermal-pendulum__legend--compact {
@@ -118,6 +86,70 @@
   background: transparent;
 }
 
+.thermal-profile-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1700px;
+  margin: 0 auto 12px;
+  padding: 9px 12px;
+  border: 1px solid rgba(106, 193, 215, .24);
+  border-radius: 11px;
+  background: rgba(15, 36, 50, .92);
+  box-shadow: 0 10px 24px rgba(0,0,0,.12);
+}
+
+.thermal-profile-bar > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+}
+
+.thermal-profile-bar span {
+  color: #7f9bad;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.thermal-profile-bar strong {
+  color: #d9f1f6;
+  font-size: 11px;
+}
+
+.thermal-profile-bar em {
+  color: #e8c66d;
+  font-size: 8px;
+  font-style: normal;
+  letter-spacing: .08em;
+}
+
+.thermal-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.thermal-profile-actions button {
+  padding: 6px 8px;
+  border: 1px solid rgba(124, 191, 211, .24);
+  border-radius: 7px;
+  background: rgba(6, 19, 30, .74);
+  color: #a8dce8;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.thermal-profile-actions button:first-child {
+  border-color: rgba(105, 208, 235, .55);
+  color: #c9f6ff;
+  background: rgba(60, 153, 179, .17);
+}
+
 /* Thermal Diagram is the single temporal readout. */
 .thermal-diagram {
   border-color: rgba(104, 192, 216, .22);
@@ -143,7 +175,19 @@
   filter: drop-shadow(0 0 4px rgba(241, 206, 105, .28));
 }
 
-/* Old left-side forecast/event clutter is intentionally absent in v3. */
 .thermal-clock-lab .thermal-left {
   align-content: start;
+}
+
+@media (max-width: 920px) {
+  .thermal-profile-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .thermal-profile-bar > div:first-child {
+    flex-wrap: wrap;
+  }
+  .thermal-profile-actions {
+    justify-content: flex-start;
+  }
 }
