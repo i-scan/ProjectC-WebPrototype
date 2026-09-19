@@ -6,7 +6,7 @@ import {
   thermalStateFromProfile,
   withThermalTuning,
 } from './thermal-profile.js'
-import { resolveThermalStep } from './thermal-runtime.js'
+import { resolveThermalImpulseStep, resolveThermalStep } from './thermal-runtime.js'
 
 describe('shared Thermal Profile', () => {
   it('resolves Heat II and Cool II from one shared medium tier', () => {
@@ -42,6 +42,21 @@ describe('shared Thermal Profile', () => {
     expect(result.profileRevision).toBe(7)
     expect(result.action.id).toBe('heat-ii')
     expect(result.action.impulse).toBeCloseTo(0.65, 10)
+    expect(result.finalState.worldAt).toBeCloseTo(1, 10)
+  })
+  it('resolves an explicit Gameplay Momentum impulse through the same shared solver', () => {
+    const state = thermalStateFromProfile(BASELINE_THERMAL_PROFILE)
+    const result = resolveThermalImpulseStep({
+      state,
+      profile: BASELINE_THERMAL_PROFILE,
+      impulse: -0.75,
+      sourceId: 'active-h-spend',
+      environmentId: 'adiabatic',
+      durationAt: 1,
+    })
+    expect(result.action.id).toBe('active-h-spend')
+    expect(result.action.impulse).toBeCloseTo(-0.75, 10)
+    expect(result.profileRevision).toBe(BASELINE_THERMAL_PROFILE.revision)
     expect(result.finalState.worldAt).toBeCloseTo(1, 10)
   })
 })
