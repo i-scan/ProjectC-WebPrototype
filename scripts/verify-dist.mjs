@@ -91,8 +91,10 @@ for (const marker of [
   'shared-thermal-profile-runtime-v1-candidate',
   'thermal-baseline-a',
   'Gameplay Lab',
-  'gameplay-thermal-integration-v0-candidate',
-  'Gameplay Actions · Shared Thermal IDs',
+  'gameplay-momentum-thermal-v1-candidate',
+  'Gameplay Actions · Momentum v1',
+  'HM0 Axis → No Axis → DM0 Skip chain',
+  'v1 Experiment Controls',
 ]) assert(script.includes(marker), `current runtime marker missing: ${marker}`)
 assert(script.includes(expectedCommit), 'bundle commit marker missing')
 
