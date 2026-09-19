@@ -12,6 +12,7 @@ await mkdir('public', { recursive: true })
 await writeFile('public/build-info.json', `${JSON.stringify({
   schemaVersion: 5,
   implementation: 'spatial-inertia-v1-candidate',
+  gameplayTimeline: 'gameplay-at-plan-p0-candidate',
   commit,
   shortCommit: commit === 'local' ? 'local' : commit.slice(0, 8),
   branch,

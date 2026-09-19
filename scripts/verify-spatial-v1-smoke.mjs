@@ -203,7 +203,7 @@ let previewProcess
 let chromeProcess
 let client
 try {
-  previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4180', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
+  previewProcess = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4180', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
   await waitFor('Vite preview', async () => {
     const response = await fetch(pageUrl)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)

@@ -1,15 +1,21 @@
-# ProjectC Web Prototype · Thermal Clock Lab
+# ProjectC Web Prototype · Gameplay Playback / Timeline P0
 
 本仓库是 ProjectC 的可执行规则实验环境。
 
-当前最高优先级：
+当前最高优先级（2026-09-20）：
 
 ```text
-VAL-012 Thermal Clock Lab v0
-→ Program05 isolated Thermal Dynamics implementation
-→ coefficient / environment / card tuning
-→ adiabatic Thermal Clock test
+Gameplay Lab · Playback / Timeline P0
+→ hover Preview / click target to play
+→ frozen GameplayATPlan / timed events / piecewise Thermal
+→ render inside 1AT / commit only at Ready
 ```
+
+[当前原型入口](https://i-scan.github.io/ProjectC-WebPrototype/#gameplay-lab) · [P0 架构、验证与未完成边界](docs/gameplay-playback-p0.md)
+
+Gameplay 规则主源：`ProjectC/docs/VAL-012-gameplay-momentum-thermal-validation-v1.md`。
+本轮只改执行架构和交互，不晋升 HM/DM、Clash、Encounter 等 candidate 为正式规则。
+Inertia / Trajectory / Thermal 三个 Lab 继续保留。以下内容为 Thermal 实验规范与历史隔离基线；Gameplay 已通过 Shared Thermal Runtime 复用其解析 solver。
 
 当前 Thermal 主实验规范：
 

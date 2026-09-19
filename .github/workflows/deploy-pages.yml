@@ -51,7 +51,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: spatial-inertia-v1-evidence-${{ github.sha }}
-          path: artifacts/wall-visible-reflection.*
+          path: |
+            artifacts/wall-visible-reflection.*
+            artifacts/gameplay-*.png
+            artifacts/gameplay-playback.json
           if-no-files-found: warn
           retention-days: 30
       - uses: actions/configure-pages@v5

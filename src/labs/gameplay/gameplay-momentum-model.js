@@ -162,11 +162,12 @@ function pathSteered(start, currentAxis, aimAxis, distance, radius) {
 }
 
 export function reachableTargets(actor, actionId, boardRadius = 5, actors = []) {
+  if (actor.hp <= 0 || (['launch', 'release'].includes(actionId) && (!isDownSide(actor) || actor.downM <= 0))) return []
   const occupied = new Set(actors.filter((entry) => entry.id !== actor.id).map((entry) => axialKey(entry.hex)))
   if (actionId === 'brace' || actionId === 'skip') return []
   if (actionId === 'release') {
     return actors
-      .filter((entry) => entry.id !== actor.id && axialDistance(actor.hex, entry.hex) === 1)
+      .filter((entry) => entry.id !== actor.id && entry.hp > 0 && axialDistance(actor.hex, entry.hex) === 1)
       .map((entry) => ({ hex: cloneHex(entry.hex), rule: 'release-adjacent-actor-v1', actorId: entry.id }))
   }
   if (actionId === 'attack') {
@@ -411,7 +412,7 @@ function findActorAt(actors, hex, ignoreId = null) {
   return actors.find((entry) => entry.id !== ignoreId && axialKey(entry.hex) === axialKey(hex)) ?? null
 }
 
-function forcedDisplace(target, incomingH, axisId, actors, boardRadius) {
+export function forcedDisplace(target, incomingH, axisId, actors, boardRadius) {
   const next = createMomentumActor(target)
   const trace = []
   const thermal = []
@@ -538,6 +539,7 @@ export function resolveGameplayAction({
       targetUpdate = forced.actor
       dissipatedM += forced.dissipatedM
       result.trace.push({ source: 'Encounter', cause: 'Collision Snapshot', actorId: target.id, incomingH: incoming })
+      result.targetPath = forced.path
       result.trace.push(...forced.trace)
       result.thermal.push(...forced.thermal)
       const vacated = axialKey(forced.actor.hex) !== axialKey(target.hex)

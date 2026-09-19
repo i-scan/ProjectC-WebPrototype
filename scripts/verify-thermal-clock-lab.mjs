@@ -31,7 +31,7 @@ async function waitForPreview(attempts = 180) {
 
 let previewProcess
 try {
-  previewProcess = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', '4180', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
+  previewProcess = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4180', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] })
   await waitForPreview()
 
   const result = spawnSync(chromeExecutable(), [

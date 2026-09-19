@@ -11,6 +11,35 @@ import {
 
 export const SHARED_THERMAL_RUNTIME = 'shared-thermal-profile-runtime-v1-candidate'
 
+// Exact, queryable segments. Impulses at the same instant are applied in stable
+// input order; temperature is continuous and drift is right-continuous.
+export function thermalTimeline({ state, config, events = [], durationAt = 1 }) {
+  const segments = []
+  let current = { ...state }
+  let currentConfig = { ...config }
+  let cursor = 0
+  const ordered = events.filter((event) => event.t >= 0 && event.t <= durationAt)
+    .slice().sort((a, b) => a.t - b.t)
+  for (const event of ordered) {
+    if (event.t > cursor) {
+      segments.push({ start: cursor, end: event.t, state: { ...current }, config: { ...currentConfig } })
+      current = { ...solveThermalSegment(current, currentConfig, event.t - cursor), worldAt: (state.worldAt ?? 0) + event.t }
+    }
+    current = applyThermalImpulse(current, event.impulse ?? 0)
+    if (event.config) currentConfig = { ...currentConfig, ...event.config }
+    cursor = event.t
+  }
+  segments.push({ start: cursor, end: durationAt, state: { ...current }, config: { ...currentConfig } })
+  const finalState = solveThermalSegment(current, currentConfig, durationAt - cursor)
+  return { segments, finalState: { ...finalState, worldAt: (state.worldAt ?? 0) + durationAt } }
+}
+
+export function sampleThermalTimeline(segments, t) {
+  const segment = segments.findLast((entry) => entry.start <= t) ?? segments[0]
+  const duration = Math.max(0, Math.min(t, segment.end) - segment.start)
+  return { ...solveThermalSegment(segment.state, segment.config, duration), worldAt: (segment.state.worldAt ?? 0) + duration }
+}
+
 export function resolveThermalStep({
   state,
   profile,

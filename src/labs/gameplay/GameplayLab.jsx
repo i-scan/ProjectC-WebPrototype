@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { playbackFromPlan, playbackProgress } from '../../sim/plan-playback.js'
+import { buildGameplayATPlan, GAMEPLAY_TIMELINE, sampleGameplayATPlan } from './gameplay-at-plan.js'
 import { Board3D } from '../../ui/Board3D.jsx'
 import { createCellWorld } from '../../sim/world.js'
 import { axialKey } from '../../sim/hex.js'
@@ -14,22 +16,17 @@ import {
 } from '../../thermal/thermal-profile-store.js'
 import {
   SHARED_THERMAL_RUNTIME,
-  resolveThermalImpulseStep,
 } from '../../thermal/thermal-runtime.js'
 import {
   GAMEPLAY_ACTIONS_V1,
   GAMEPLAY_V1,
   actorBoardRecord,
   actorSpatialState,
-  advanceTelegraphedEnemies,
   createDefaultEnemies,
   createMomentumActor,
   isDownSide,
   momentumBand,
   reachableTargets,
-  resolveDomainNaturalBuild,
-  resolveGameplayAction,
-  resolveThermalEvents,
 } from './gameplay-momentum-model.js'
 
 const BOARD_RADIUS = 5
@@ -122,50 +119,11 @@ function GameplayThermalPendulum({ thermal, config, previousThermal }) {
   )
 }
 
-function replaceActor(actors, update) {
-  if (!update) return actors
-  return actors.map((entry) => entry.id === update.id ? update : entry)
-}
-
-function previewPlanFromResolution(player, enemies, result, worldAt) {
-  if (!result?.valid) return null
-  const startState = actorSpatialState(player, worldAt)
-  const finalState = actorSpatialState(result.actor, worldAt + 1)
-  const path = result.path ?? []
-  const cells = [player.hex, ...path]
-  const samples = cells.map((hex, index) => {
-    const state = actorSpatialState({ ...result.actor, hex }, worldAt + (cells.length <= 1 ? 0 : index / Math.max(1, cells.length - 1)))
-    return { t: cells.length <= 1 ? 0 : index / Math.max(1, cells.length - 1), position: state.position, velocity: state.velocity, axisId: state.axisId }
-  })
-  if (samples.length < 2) samples.push({ t: 1, position: finalState.position, velocity: finalState.velocity, axisId: finalState.axisId })
-
-  const actorTrajectories = {}
-  if (result.targetUpdate && result.targetPath?.length) {
-    const before = enemies.find((entry) => entry.id === result.targetUpdate.id)
-    actorTrajectories[result.targetUpdate.id] = [before?.hex ?? result.targetUpdate.hex, ...result.targetPath]
-  }
-
-  return {
-    valid: true,
-    reason: '',
-    spatialMode: 'discrete',
-    destinationDriven: true,
-    samples,
-    traversedCells: cells,
-    collisions: result.dissipatedM > 0 ? [{ kind: 'actor', t: 0.6 }] : [],
-    actorTrajectories,
-    finalState: {
-      ...finalState,
-      actors: replaceActor(enemies, result.targetUpdate).map(actorBoardRecord),
-    },
-  }
-}
-
 function traceSummary(result, thermalEvents, domainTrace) {
   if (!result?.valid) return result?.reason || 'Select a valid target.'
   const parts = []
   for (const entry of result.trace ?? []) {
-    if (entry.from && entry.to) parts.push(`${entry.from}→${entry.to} · ${entry.cause}`)
+    if (entry.from && entry.to) parts.push(`${entry.actorId ? `${entry.actorId}: ` : ''}${entry.from}→${entry.to} · ${entry.cause}`)
     else if (entry.cause) parts.push(entry.actorId ? `${entry.cause}(${entry.actorId})` : entry.cause)
   }
   for (const entry of thermalEvents) {
@@ -198,6 +156,13 @@ export function GameplayLab() {
   const [collisionHeatFactor, setCollisionHeatFactor] = useState(0.8)
   const [collisionDamage, setCollisionDamage] = useState(false)
   const [domainNaturalBuild, setDomainNaturalBuild] = useState(true)
+  const [atVisualMs, setAtVisualMs] = useState(950)
+  const [playback, setPlayback] = useState(null)
+  const [progress, setProgress] = useState(0)
+  const [lastPlan, setLastPlan] = useState(null)
+  const playbackRef = useRef(null)
+  const playbackId = useRef(0)
+  const ready = !playback
 
   const cells = useMemo(() => createCellWorld(BOARD_RADIUS), [])
   const actions = GAMEPLAY_ACTIONS_V1
@@ -210,78 +175,41 @@ export function GameplayLab() {
     [player, selectedActionId, allActors],
   )
   const reachableKeys = useMemo(() => new Set(reachable.map((entry) => axialKey(entry.hex))), [reachable])
-  const targetHex = selectedHex || hoverHex
+  const targetHex = hoverHex ?? selectedHex
   const requiresTarget = selectedAction.target !== 'none'
-  const canCommit = !requiresTarget || Boolean(selectedHex)
-
-  const previewResolution = useMemo(() => {
-    if (requiresTarget && !targetHex) return null
-    return resolveGameplayAction({
-      actor: player,
-      actionId: selectedActionId,
-      targetHex,
-      actors: allActors,
-      boardRadius: BOARD_RADIUS,
-      collisionDamage,
-    })
-  }, [player, selectedActionId, targetHex?.q, targetHex?.r, allActors, collisionDamage, requiresTarget])
-
-  const previewThermalEvents = useMemo(
-    () => previewResolution?.valid
-      ? resolveThermalEvents(previewResolution.thermal, { momentumFactor, collisionHeatFactor })
-      : [],
-    [previewResolution, momentumFactor, collisionHeatFactor],
-  )
-  const previewSourceImpulse = previewThermalEvents
-    .filter((entry) => entry.scope === 'source' || entry.scope === 'both')
-    .reduce((sum, entry) => sum + entry.impulse, 0)
-  const previewThermal = useMemo(
-    () => resolveThermalImpulseStep({
-      state: thermal,
-      profile,
-      impulse: previewSourceImpulse,
-      sourceId: 'momentum-events-v1',
-      environmentId,
-      durationAt: 1,
-    }),
-    [thermal, profile, previewSourceImpulse, environmentId],
-  )
-  const previewSpentH = previewThermalEvents.some((entry) => entry.source === 'Active H Spend')
-  const previewSpentD = previewThermalEvents.some((entry) => entry.source === 'Active D Spend / Convert')
-  const previewDomain = previewResolution?.valid
-    ? resolveDomainNaturalBuild(previewResolution.actor, thermalDomain(previewThermal.finalState.temperature), {
-      enabled: domainNaturalBuild,
-      spentH: previewSpentH,
-      spentD: previewSpentD,
-      hadHorizontalTravel: Boolean(previewResolution.path?.length),
-      stable: !previewResolution.path?.length && !previewResolution.actor.axisId,
-    })
-    : { actor: player, trace: [] }
-  const previewPlan = previewPlanFromResolution(player, enemies, previewResolution, worldAt)
-  const playerSpatial = actorSpatialState(player, worldAt)
-  const boardActors = enemies.filter((entry) => entry.hp > 0).map(actorBoardRecord)
-  const axisDisplayOverride = isDownSide(player) ? `down-${player.downM}` : 'auto'
+  const planInput = useMemo(() => ({ player, enemies, thermal, profile, worldAt, environmentId,
+    boardRadius: BOARD_RADIUS, collisionDamage, momentumFactor, collisionHeatFactor, domainNaturalBuild }),
+  [player, enemies, thermal, profile, worldAt, environmentId, collisionDamage, momentumFactor, collisionHeatFactor, domainNaturalBuild])
+  const previewPlan = useMemo(() => requiresTarget && !targetHex ? null
+    : buildGameplayATPlan({ ...planInput, actionId: selectedActionId, targetHex }),
+  [planInput, selectedActionId, targetHex?.q, targetHex?.r, requiresTarget])
+  const shownPlan = playback ?? previewPlan
+  const previewThermalEvents = shownPlan?.sourceThermalEvents ?? []
+  const previewSourceImpulse = previewThermalEvents.reduce((sum, entry) => sum + entry.impulse, 0)
+  const previewThermal = { finalState: shownPlan?.finalState?.thermal ?? thermal }
+  const previewDomain = { actor: shownPlan?.finalState?.player ?? player, trace: shownPlan?.domainTrace ?? [] }
+  const previewResolution = shownPlan ? { valid: shownPlan.valid, reason: shownPlan.reason,
+    trace: shownPlan.events?.filter((entry) => entry.type === 'MomentumTransaction').flatMap((entry) => entry.trace.map((trace) => ({ ...trace, actorId: entry.actorId }))) ?? [] } : null
+  const visual = useMemo(() => playback ? sampleGameplayATPlan(playback, progress) : null, [playback, progress])
+  const displayThermal = visual?.thermal ?? thermal
+  const displayPlayer = visual?.player.actor ?? player
+  const displayEnemies = visual ? enemies.map((actor) => visual.actors[actor.id].actor) : enemies
+  const displayConfig = playback?.config ?? thermalConfig
+  const playerSpatial = useMemo(() => actorSpatialState(player, worldAt), [player, worldAt])
+  const boardActors = useMemo(() => enemies.filter((entry) => entry.hp > 0).map(actorBoardRecord), [enemies])
+  const axisDisplayOverride = isDownSide(displayPlayer) ? `down-${displayPlayer.downM}` : 'auto'
 
   const clearAim = () => {
     setHoverHex(null)
     setSelectedHex(null)
   }
 
-  const commit = () => {
-    if (!canCommit) return
-    const result = resolveGameplayAction({
-      actor: player,
-      actionId: selectedActionId,
-      targetHex: selectedHex,
-      actors: allActors,
-      boardRadius: BOARD_RADIUS,
-      collisionDamage,
-    })
-    if (!result.valid) {
-      setLastTrace(result.reason)
-      return
-    }
-
+  const beginAction = (actionId, hex = null) => {
+    if (playbackRef.current) return false
+    const plan = actionId === selectedActionId && previewPlan?.valid &&
+      ((!hex && !targetHex) || (hex && targetHex && axialKey(hex) === axialKey(targetHex)))
+      ? previewPlan : buildGameplayATPlan({ ...planInput, actionId, targetHex: hex })
+    if (!plan?.valid) { setLastTrace(plan?.reason || 'No legal target.'); return false }
     const before = {
       player: clone(player),
       enemies: clone(enemies),
@@ -290,52 +218,44 @@ export function GameplayLab() {
       worldAt,
       lastTrace,
     }
-
-    const thermalEvents = resolveThermalEvents(result.thermal, { momentumFactor, collisionHeatFactor })
-    const sourceImpulse = thermalEvents
-      .filter((entry) => entry.scope === 'source' || entry.scope === 'both')
-      .reduce((sum, entry) => sum + entry.impulse, 0)
-    const thermalResult = resolveThermalImpulseStep({
-      state: thermal,
-      profile,
-      impulse: sourceImpulse,
-      sourceId: 'momentum-events-v1',
-      environmentId,
-      durationAt: 1,
-    })
-
-    let nextEnemies = replaceActor(enemies, result.targetUpdate)
-    let nextPlayer = result.actor
-    const spentH = thermalEvents.some((entry) => entry.source === 'Active H Spend')
-    const spentD = thermalEvents.some((entry) => entry.source === 'Active D Spend / Convert')
-    const domain = resolveDomainNaturalBuild(nextPlayer, thermalDomain(thermalResult.finalState.temperature), {
-      enabled: domainNaturalBuild,
-      spentH,
-      spentD,
-      hadHorizontalTravel: Boolean(result.path?.length),
-      stable: !result.path?.length && !nextPlayer.axisId,
-    })
-    nextPlayer = domain.actor
-
-    const enemyStep = advanceTelegraphedEnemies(nextEnemies, nextPlayer, BOARD_RADIUS)
-    nextEnemies = enemyStep.enemies
-    nextPlayer = enemyStep.player
-
     setHistory((entries) => [...entries, before].slice(-40))
-    setPreviousThermal(thermal)
-    setThermal(thermalResult.finalState)
-    setPlayer(nextPlayer)
-    setEnemies(nextEnemies)
-    setWorldAt((value) => value + 1)
-    setLastTrace(traceSummary(
-      { ...result, trace: [...(result.trace ?? []), ...(enemyStep.trace ?? [])] },
-      thermalEvents,
-      domain.trace,
-    ))
-    clearAim()
+    const next = playbackFromPlan(plan, ++playbackId.current, atVisualMs)
+    playbackRef.current = next
+    setPlayback(next)
+    setProgress(0)
+    setSelectedActionId(actionId)
+    setSelectedHex(hex)
+    setHoverHex(null)
+    return true
   }
 
+  useEffect(() => {
+    if (!playback) return undefined
+    let frame
+    const tick = (now) => {
+      if (playbackRef.current?.id !== playback.id) return
+      const t = playbackProgress(playback, now)
+      setProgress(t)
+      if (t < 1) { frame = requestAnimationFrame(tick); return }
+      // Only this boundary mutates the authoritative Ready state.
+      setPreviousThermal(thermal)
+      setPlayer(playback.finalState.player)
+      setEnemies(playback.finalState.enemies)
+      setThermal(playback.finalState.thermal)
+      setWorldAt(playback.finalState.worldAt)
+      setLastPlan(playback)
+      setLastTrace(playback.events.filter((event) => !['Declare', 'Ready'].includes(event.type))
+        .map((event) => `${event.t.toFixed(2)}AT ${event.type}${event.type === 'ThermalImpulse' ? ` · ${event.source} ${event.impulse >= 0 ? '+' : ''}${event.impulse.toFixed(2)}V` : ''}`).join(' · '))
+      playbackRef.current = null
+      setPlayback(null)
+      clearAim()
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [playback])
+
   const undo = () => {
+    if (playbackRef.current) return
     const previous = history.at(-1)
     if (!previous) return
     setHistory((entries) => entries.slice(0, -1))
@@ -345,10 +265,12 @@ export function GameplayLab() {
     setPreviousThermal(previous.previousThermal)
     setWorldAt(previous.worldAt)
     setLastTrace(previous.lastTrace)
+    setLastPlan(null)
     clearAim()
   }
 
   const reset = () => {
+    if (playbackRef.current) return
     setPlayer(createMomentumActor({ id: 'player' }))
     setEnemies(createDefaultEnemies())
     setThermal(thermalStateFromProfile(profile))
@@ -357,6 +279,7 @@ export function GameplayLab() {
     setSelectedActionId('move')
     setEnvironmentId('adiabatic')
     setHistory([])
+    setLastPlan(null)
     setLastTrace(`Reset from ${profile.label} r${profile.revision}.`)
     clearAim()
   }
@@ -377,6 +300,13 @@ export function GameplayLab() {
         predictedThermal: clone(previewThermal.finalState),
         previewThermalEvents: clone(previewThermalEvents),
         worldAt,
+        timeline: GAMEPLAY_TIMELINE,
+        ready,
+        progress,
+        visual: visual ? clone(visual) : null,
+        previewFinal: previewPlan?.valid ? clone(previewPlan.finalState) : null,
+        playbackFinal: playback ? clone(playback.finalState) : null,
+        events: clone((playback ?? previewPlan ?? lastPlan)?.events ?? []),
         historyEntries: history.length,
       }),
       reset,
@@ -394,15 +324,18 @@ export function GameplayLab() {
       data-gameplay-action-id={selectedActionId}
       data-momentum-band={momentumBand(player)}
       data-world-at={worldAt.toFixed(1)}
+      data-gameplay-timeline={GAMEPLAY_TIMELINE}
+      data-playback-state={ready ? 'ready' : 'playing'}
+      data-playback-at={ready ? '0' : progress.toFixed(3)}
     >
       <header className="prototype-header">
         <div className="brand"><p>ProjectC · Gameplay × Momentum × Thermal v1</p><h1>Gameplay Lab</h1></div>
         <div className="headline-state">
-          <div><span>World Time</span><strong>{worldAt.toFixed(1)} AT</strong></div>
-          <div><span>Momentum</span><strong>{momentumBand(player)}</strong></div>
-          <div className={`thermal-${thermalDomain(thermal.temperature).toLowerCase()}`}><span>Thermal</span><strong>{thermalDomain(thermal.temperature)} · T {formatThermal(thermal.temperature, 2)}</strong></div>
-          <div><span>Drift</span><strong>{formatThermal(thermal.drift, 2)} / AT</strong></div>
-          <div><span>Cell</span><strong>{player.hex.q},{player.hex.r}</strong></div>
+          <div><span>{ready ? 'Ready · World Time' : 'Playback · World Time'}</span><strong>{(worldAt + (ready ? 0 : progress)).toFixed(2)} AT</strong></div>
+          <div><span>Momentum</span><strong>{momentumBand(displayPlayer)}</strong></div>
+          <div className={`thermal-${thermalDomain(displayThermal.temperature).toLowerCase()}`}><span>Thermal</span><strong>{thermalDomain(displayThermal.temperature)} · T {formatThermal(displayThermal.temperature, 2)}</strong></div>
+          <div><span>Drift</span><strong>{formatThermal(displayThermal.drift, 2)} / AT</strong></div>
+          <div><span>Cell</span><strong>{displayPlayer.hex.q},{displayPlayer.hex.r}</strong></div>
         </div>
       </header>
 
@@ -414,17 +347,17 @@ export function GameplayLab() {
           </section>
 
           <section className="panel-card actor-vitals">
-            <div className="section-heading"><h3>Actor State</h3><span>{momentumBand(player)}</span></div>
-            <div className="vital-row"><span>HP</span><i><b style={{ width: `${player.hp}%` }} /></i><strong>{player.hp}/100</strong></div>
+            <div className="section-heading"><h3>Actor State</h3><span>{momentumBand(displayPlayer)}</span></div>
+            <div className="vital-row"><span>HP</span><i><b style={{ width: `${displayPlayer.hp}%` }} /></i><strong>{displayPlayer.hp}/100</strong></div>
             <div className="momentum-state-grid">
-              <div><span>Horizontal</span><strong>{player.axisId ? `H${player.hM} · ${player.axisId}` : '—'}</strong></div>
-              <div><span>Down</span><strong>{isDownSide(player) ? `D${player.downM}` : '—'}</strong></div>
+              <div><span>Horizontal</span><strong>{displayPlayer.axisId ? `H${displayPlayer.hM} · ${displayPlayer.axisId}` : '—'}</strong></div>
+              <div><span>Down</span><strong>{isDownSide(displayPlayer) ? `D${displayPlayer.downM}` : '—'}</strong></div>
             </div>
-            <GameplayThermalPendulum thermal={thermal} config={thermalConfig} previousThermal={previousThermal} />
+            <GameplayThermalPendulum thermal={displayThermal} config={displayConfig} previousThermal={previousThermal} />
             <dl className="state-list actor-state-list">
-              <div><dt>Temperature</dt><dd>{formatThermal(thermal.temperature, 2)}</dd></div>
-              <div><dt>Drift</dt><dd>{formatThermal(thermal.drift, 2)}</dd></div>
-              <div><dt>Set Point</dt><dd>{formatThermal(thermal.setPoint, 2)}</dd></div>
+              <div><dt>Temperature</dt><dd>{formatThermal(displayThermal.temperature, 2)}</dd></div>
+              <div><dt>Drift</dt><dd>{formatThermal(displayThermal.drift, 2)}</dd></div>
+              <div><dt>Set Point</dt><dd>{formatThermal(displayThermal.setPoint, 2)}</dd></div>
               <div><dt>Environment</dt><dd>{environment.label}</dd></div>
             </dl>
           </section>
@@ -449,7 +382,7 @@ export function GameplayLab() {
         <section className="center-column">
           <div className="board-strip">
             <strong>{selectedAction.label} · 1AT</strong>
-            <span>{requiresTarget
+            <span>{!ready ? `PLAYING ${progress.toFixed(2)} / 1 AT · input locked` : requiresTarget
               ? (selectedHex ? `Target ${axialKey(selectedHex)} selected` : (reachable.length ? 'Choose a highlighted target / direction' : 'Current state has no legal target'))
               : selectedAction.short}</span>
           </div>
@@ -459,7 +392,7 @@ export function GameplayLab() {
               <button type="button" className={viewMode === 'top' ? 'active' : ''} onClick={() => setViewMode('top')}>Top</button>
               <button type="button" onClick={() => setCameraResetToken((value) => value + 1)}>Reset View</button>
             </div>
-            <div className="session-buttons"><button type="button" disabled={!history.length} onClick={undo}>Undo</button><button type="button" onClick={reset}>Reset</button></div>
+            <div className="session-buttons"><button type="button" disabled={!ready || !history.length} onClick={undo}>Undo</button><button type="button" disabled={!ready} onClick={reset}>Reset</button></div>
           </div>
 
           <div className="board-frame gameplay-board-frame">
@@ -467,11 +400,11 @@ export function GameplayLab() {
               cells={cells}
               obstacles={[]}
               actors={boardActors}
-              reachableCells={reachable}
+              reachableCells={ready ? reachable : []}
               state={playerSpatial}
-              previewPlan={previewPlan}
-              playback={null}
-              atVisualMs={650}
+              previewPlan={ready ? previewPlan : null}
+              playback={playback}
+              atVisualMs={atVisualMs}
               axisDisplayOverride={axisDisplayOverride}
               boardRadius={BOARD_RADIUS}
               viewMode={viewMode}
@@ -481,13 +414,13 @@ export function GameplayLab() {
               showWeather
               showThermal
               onHoverHex={(hex) => {
+                if (playbackRef.current) return
                 if (!hex || !requiresTarget || !reachableKeys.has(axialKey(hex))) return setHoverHex(null)
                 setHoverHex(hex)
               }}
               onClickHex={(hex) => {
-                if (!hex || !requiresTarget || !reachableKeys.has(axialKey(hex))) return
-                setSelectedHex({ ...hex })
-                setHoverHex(null)
+                if (playbackRef.current || !hex || !requiresTarget || !reachableKeys.has(axialKey(hex))) return
+                beginAction(selectedActionId, { ...hex })
               }}
             />
             <div className="board-legend">
@@ -500,7 +433,7 @@ export function GameplayLab() {
           <section className="action-hand gameplay-action-hand">
             <div className="hand-heading">
               <div><h2>Gameplay Actions · Momentum v1</h2><p>Move / Drive push Horizontal; Brace / Skip settle toward Down; Launch / Release cash Down back into Horizontal pressure.</p></div>
-              <button type="button" className="gameplay-commit" disabled={!canCommit || (requiresTarget && !reachable.length)} onClick={commit}>Commit 1AT</button>
+              <span className="gameplay-ready-label" role="status">{ready ? 'READY · select → hover → click target' : `PLAYING · ${(progress * 100).toFixed(0)}%`}</span>
             </div>
             <div className="action-row gameplay-action-row">
               {actions.map((entry) => (
@@ -509,11 +442,16 @@ export function GameplayLab() {
                   key={entry.id}
                   className={`action-card ${entry.id === selectedActionId ? 'selected' : ''} gameplay-action-${entry.id}`}
                   data-gameplay-action-id={entry.id}
-                  onClick={() => { setSelectedActionId(entry.id); clearAim() }}
+                  disabled={!ready || player.hp <= 0}
+                  onClick={() => {
+                    if (playbackRef.current) return
+                    if (entry.target === 'none') beginAction(entry.id)
+                    else { setSelectedActionId(entry.id); clearAim() }
+                  }}
                 >
                   <header><strong>{entry.label}</strong><em>{entry.badge}</em></header>
                   <p>{entry.short}</p>
-                  <span>1AT · {entry.target === 'none' ? 'no target' : entry.target}</span>
+                  <span>1AT · {entry.target === 'none' ? 'click to play' : entry.target}</span>
                 </button>
               ))}
             </div>
@@ -521,20 +459,21 @@ export function GameplayLab() {
         </section>
 
         <aside className="side-panel right-panel gameplay-right-panel">
-          <section className="panel-card gameplay-controls-card">
+          <fieldset disabled={!ready} className="panel-card gameplay-controls-card">
             <div className="section-heading"><h3>v1 Experiment Controls</h3><span>LIVE</span></div>
+            <label><span>Playback / AT</span><input aria-label="Gameplay AT playback duration" type="range" min="200" max="3000" step="25" value={atVisualMs} onChange={(event) => setAtVisualMs(Number(event.target.value))} /><strong>{(atVisualMs / 1000).toFixed(2)}s</strong></label>
             <label><span>M-T Factor</span><input aria-label="M-T Factor" type="range" min="0" max="1.6" step="0.05" value={momentumFactor} onChange={(event) => setMomentumFactor(Number(event.target.value))} /><strong>{momentumFactor.toFixed(2)}</strong></label>
             <label><span>Collision Heat</span><input aria-label="Collision Heat Factor" type="range" min="0" max="1.6" step="0.05" value={collisionHeatFactor} onChange={(event) => setCollisionHeatFactor(Number(event.target.value))} /><strong>{collisionHeatFactor.toFixed(2)}</strong></label>
             <div className="gameplay-toggle-row">
               <button type="button" className={collisionDamage ? 'chosen' : ''} onClick={() => setCollisionDamage((value) => !value)}>Collision Damage {collisionDamage ? 'ON' : 'OFF'}</button>
               <button type="button" className={domainNaturalBuild ? 'chosen' : ''} onClick={() => setDomainNaturalBuild((value) => !value)}>Domain Build {domainNaturalBuild ? 'ON' : 'OFF'}</button>
             </div>
-          </section>
+          </fieldset>
 
           <section className="panel-card gameplay-enemy-card">
             <div className="section-heading"><h3>Telegraphed Enemies</h3><span>deterministic</span></div>
             <div className="enemy-intent-list">
-              {enemies.map((enemy) => (
+              {displayEnemies.map((enemy) => (
                 <div key={enemy.id} className={enemy.hp <= 0 ? 'is-dead' : ''}>
                   <strong>{enemy.id}</strong>
                   <span>HP {enemy.hp} · {momentumBand(enemy)}</span>
@@ -544,7 +483,7 @@ export function GameplayLab() {
             </div>
           </section>
 
-          <section className="panel-card">
+          <fieldset disabled={!ready} className="panel-card gameplay-environment-card">
             <div className="section-heading"><h3>Environment Context</h3><span>Weather hook</span></div>
             <div className="gameplay-environment-buttons">
               {Object.values(profile.environments).map((entry) => <button type="button" key={entry.id} className={environmentId === entry.id ? 'chosen' : ''} onClick={() => setEnvironmentId(entry.id)}>{entry.label}</button>)}
@@ -555,11 +494,16 @@ export function GameplayLab() {
               <div><dt>cEff</dt><dd>{thermalDiagnostics(thermal, thermalConfig).cEff.toFixed(3)}</dd></div>
               <div><dt>Profile</dt><dd>{profile.id} r{profile.revision}</dd></div>
             </dl>
-          </section>
+          </fieldset>
 
           <section className="panel-card" data-gameplay-resolution-trace="momentum-thermal-v1">
             <div className="section-heading"><h3>Resolution Trace</h3><span>cause-aware</span></div>
             <p className="gameplay-resolution-text">{lastTrace}</p>
+            <ol className="gameplay-timeline" aria-label="AT event timeline">
+              {(playback ?? previewPlan ?? lastPlan)?.events?.map((event) => <li key={event.id} data-event-type={event.type} className={playback && event.t <= progress ? 'is-elapsed' : ''}>
+                <time>{event.t.toFixed(2)}</time> {event.type} <small>{event.actorId ?? ''}{event.targetId ? ` → ${event.targetId}` : ''}{event.source ? ` · ${event.source}` : ''}</small>
+              </li>)}
+            </ol>
             <small>Trace distinguishes Active H/D Build/Spend, Incoming H, Collision dissipatedM, Domain Natural Build and same-AT suppression.</small>
           </section>
 
@@ -573,6 +517,8 @@ export function GameplayLab() {
               <li>M ↔ Thermal + Domain Natural Build</li>
               <li>2 deterministic telegraphed enemies</li>
               <li>Deflect / Link / full AI still deferred</li>
+              <li>P0: simultaneous contested Cell holds both; full settlement / chained resolution deferred</li>
+              <li>Clash is a visible hook, not a frozen damage rule</li>
             </ul>
           </section>
         </aside>
