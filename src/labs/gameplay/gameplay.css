@@ -165,3 +165,141 @@
     min-height: 460px;
   }
 }
+
+
+.gameplay-lab .momentum-state-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin: 9px 0 2px;
+}
+
+.gameplay-lab .momentum-state-grid > div {
+  padding: 8px 9px;
+  border: 1px solid rgba(132, 163, 182, .16);
+  border-radius: 8px;
+  background: rgba(7, 18, 29, .62);
+}
+
+.gameplay-lab .momentum-state-grid span,
+.gameplay-lab .momentum-state-grid strong {
+  display: block;
+}
+
+.gameplay-lab .momentum-state-grid span {
+  color: #718a9a;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.gameplay-lab .momentum-state-grid strong {
+  margin-top: 3px;
+  color: #cceef5;
+  font-size: 12px;
+}
+
+.gameplay-controls-card label {
+  display: grid;
+  grid-template-columns: 92px 1fr 38px;
+  align-items: center;
+  gap: 7px;
+  margin: 8px 0;
+  color: #8fa5b2;
+  font-size: 10px;
+}
+
+.gameplay-controls-card input[type="range"] {
+  width: 100%;
+}
+
+.gameplay-controls-card label strong {
+  color: #c9edf5;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.gameplay-toggle-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.gameplay-toggle-row button {
+  padding: 7px 6px;
+  border: 1px solid rgba(132, 163, 182, .2);
+  border-radius: 7px;
+  background: rgba(7, 19, 30, .75);
+  color: #8fa5b2;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.gameplay-toggle-row button.chosen {
+  border-color: #6ac7df;
+  color: #c6f0fb;
+  background: rgba(73, 157, 184, .15);
+}
+
+.enemy-intent-list {
+  display: grid;
+  gap: 7px;
+}
+
+.enemy-intent-list > div {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid rgba(132, 163, 182, .16);
+  border-radius: 8px;
+  background: rgba(7, 18, 29, .62);
+}
+
+.enemy-intent-list strong {
+  color: #d7edf2;
+  font-size: 10px;
+}
+
+.enemy-intent-list span {
+  color: #7892a2;
+  font-size: 9px;
+}
+
+.enemy-intent-list em {
+  color: #efcb72;
+  font-size: 9px;
+  font-style: normal;
+}
+
+.enemy-intent-list .is-dead {
+  opacity: .42;
+}
+
+.gameplay-action-row .action-card.gameplay-action-drive,
+.gameplay-action-row .action-card.gameplay-action-launch {
+  box-shadow: inset 0 2px rgba(224, 105, 74, .28);
+}
+
+.gameplay-action-row .action-card.gameplay-action-brace,
+.gameplay-action-row .action-card.gameplay-action-release {
+  box-shadow: inset 0 2px rgba(81, 163, 216, .32);
+}
+
+.gameplay-action-row .action-card.selected {
+  border-color: #77d2e8;
+  background: rgba(58, 129, 153, .16);
+}
+
+@media (max-width: 920px) {
+  .gameplay-toggle-row,
+  .gameplay-lab .momentum-state-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .enemy-intent-list > div {
+    grid-template-columns: 1fr;
+  }
+}
