@@ -260,7 +260,7 @@ export function GameplayLab() {
   const previewPlan = previewPlanFromResolution(player, enemies, previewResolution, worldAt)
   const playerSpatial = actorSpatialState(player, worldAt)
   const boardActors = enemies.filter((entry) => entry.hp > 0).map(actorBoardRecord)
-  const axisDisplayOverride = isDownSide(player) ? `down-${Math.max(1, player.downM)}` : 'auto'
+  const axisDisplayOverride = isDownSide(player) ? `down-${player.downM}` : 'auto'
 
   const clearAim = () => {
     setHoverHex(null)
