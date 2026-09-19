@@ -221,7 +221,8 @@ function projectedPoint(point, camera, width, height) {
 
 function downOverrideLevel(override) {
   if (!String(override ?? '').startsWith('down-')) return null
-  return clamp(Number(String(override).split('-')[1]) || 1, 1, 3)
+  const parsed = Number(String(override).split('-')[1])
+  return clamp(Number.isFinite(parsed) ? parsed : 0, 0, 3)
 }
 
 function setScreenArrow(line, source, dx, dy, startOffset = 3) {
@@ -240,7 +241,7 @@ function updateActorAxisHud(hud, camera, width, height, visualState, spatialMode
   const sourceWorld = new THREE.Vector3(visualState.position.x, AXIS_BODY_Y, visualState.position.z)
   const source = projectedPoint(sourceWorld, camera, width, height)
 
-  if (downLevel) {
+  if (downLevel !== null) {
     hud.horizontal.style.display = 'none'
     hud.down.style.display = ''
     const downWorld = sourceWorld.clone().add(new THREE.Vector3(0, -1, 0))
