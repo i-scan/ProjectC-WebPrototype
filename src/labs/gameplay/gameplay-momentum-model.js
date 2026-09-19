@@ -212,12 +212,13 @@ export function reachableTargets(actor, actionId, boardRadius = 5, actors = []) 
   return [...unique.values()]
 }
 
-function thermalEvent(source, amount, polarity, factorKind = 'momentum') {
+function thermalEvent(source, amount, polarity, factorKind = 'momentum', scope = 'source') {
   return {
     source,
     amount,
     polarity,
     factorKind,
+    scope,
   }
 }
 
@@ -442,7 +443,7 @@ function forcedDisplace(target, incomingH, axisId, actors, boardRadius) {
   }
 
   const gained = remaining
-  if (gained > 0) thermal.push(thermalEvent('Incoming H', gained, 'hotward'))
+  if (gained > 0) thermal.push(thermalEvent('Incoming H', gained, 'hotward', 'momentum', 'target'))
 
   const path = []
   if (remaining > 0) {
@@ -561,7 +562,7 @@ export function resolveGameplayAction({
     }
   }
 
-  if (dissipatedM > 0) result.thermal.push(thermalEvent('Collision dissipatedM', dissipatedM, 'hotward', 'collision'))
+  if (dissipatedM > 0) result.thermal.push(thermalEvent('Collision dissipatedM', dissipatedM, 'hotward', 'collision', 'both'))
 
   return {
     ...result,
