@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { buildGameplayATPlan, sampleGameplayATPlan } from './gameplay-at-plan.js'
 import { createDefaultEnemies, createMomentumActor } from './gameplay-momentum-model.js'
-import { BASELINE_THERMAL_PROFILE, thermalStateFromProfile } from '../../thermal/thermal-profile.js'
+import { BASELINE_THERMAL_PROFILE, thermalConfigFromProfile, thermalStateFromProfile } from '../../thermal/thermal-profile.js'
+import { thermalTimeline } from '../../thermal/thermal-runtime.js'
+import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
+import { TRAJECTORY_BASE_DISSIPATION, TRAJECTORY_DEFAULT_RADIUS, makeTrajectoryState, trajectoryActionPlan } from '../trajectory/trajectory-rules.js'
 import { playbackClockSample, playbackFromPlan, playbackProgress, playbackRemainingMs, sampleTimedRecord } from '../../sim/plan-playback.js'
 import { encounterFxSpecs } from '../../ui/encounter-fx.js'
 
@@ -21,13 +24,13 @@ describe('Gameplay AT plan: a frozen, queryable 1AT', () => {
     expect(result.intents[1].targetHex).toEqual({ q: 2, r: 0 })
   })
 
-  it('moves during the AT without reading finalState or pre-applying HM / heat', () => {
+  it('uses Trajectory visual samples while Thermal impulse still enters at the Gameplay event time', () => {
     const result = plan()
     const firstTravel = result.events.find((event) => event.type === 'Travel')
     const middle = sampleGameplayATPlan(result, 0.4)
     expect(middle.player.position.x).toBeGreaterThan(0)
     expect(middle.player.position.x).toBeLessThan(result.finalState.position.x)
-    expect(middle.player.actor.hM).toBe(0)
+    expect(middle.player.actor.hM).toBe(1)
     expect(middle.thermal.drift).toBe(0)
     const impulses = result.events.filter((event) => event.type === 'ThermalImpulse')
     expect(impulses).toHaveLength(1)
@@ -62,18 +65,65 @@ describe('Gameplay AT plan: a frozen, queryable 1AT', () => {
     expect(result.profileSnapshot.revision).not.toBe(input.profile.revision)
   })
 
-  it('preserves the Skip chain and once-per-AT semantics', () => {
-    let player = createMomentumActor({ hM: 1, axisId: 'E' })
-    const bands = []
-    for (let index = 0; index < 6; index += 1) {
-      const result = plan({ player, actionId: 'skip', targetHex: null })
-      player = result.finalState.player
-      bands.push([player.hM, player.axisId, player.downPrepared, player.downM])
-      expect(result.sourceThermalEvents).toEqual([])
-      expect(result.events.filter((event) => event.type === 'MomentumTransaction')).toHaveLength(1)
+  it('inherits Horizontal Skip semantics from Trajectory; Down entry remains an explicit Gameplay extension', () => {
+    const coast = plan({ player: createMomentumActor({ hM: 1, axisId: 'E' }), actionId: 'skip', targetHex: null })
+    expect([coast.finalState.player.hM, coast.finalState.player.axisId, coast.finalState.player.downPrepared]).toEqual([0, 'E', false])
+    expect(coast.sourceThermalEvents).toEqual([])
+
+    const hold = plan({ player: coast.finalState.player, actionId: 'skip', targetHex: null })
+    expect([hold.finalState.player.hM, hold.finalState.player.axisId, hold.finalState.player.downPrepared]).toEqual([0, 'E', false])
+
+    const brace = plan({ player: hold.finalState.player, actionId: 'brace', targetHex: null })
+    expect([brace.finalState.player.hM, brace.finalState.player.axisId, brace.finalState.player.downPrepared, brace.finalState.player.downM])
+      .toEqual([0, null, true, 0])
+  })
+
+  it('matches Trajectory Lab wall reflection, path and M settlement exactly', () => {
+    const boardRadius = TRAJECTORY_DEFAULT_RADIUS
+    const obstacles = collisionObstaclesFromCells(createCellWorld(boardRadius)).filter((entry) => entry.wallAxis)
+    const player = createMomentumActor({ hex: { q: 2, r: 0 }, hM: 3, axisId: 'E' })
+    const targetHex = { q: 3, r: 0 }
+    const expected = trajectoryActionPlan({
+      state: makeTrajectoryState({ hex: player.hex, axisId: player.axisId, momentum: player.hM, worldAt: 0 }),
+      actionId: 'steer',
+      selectedHex: targetHex,
+      boardRadius,
+      obstacles,
+      responseCurve: 'linear',
+      baseDissipationPerAction: TRAJECTORY_BASE_DISSIPATION,
+    })
+    const result = plan({ player, targetHex, actionId: 'move', boardRadius, obstacles })
+
+    expect(expected.reflectionCount).toBeGreaterThan(0)
+    expect(result.spatialAuthority).toBe(expected.valid ? 'val-012-process-steering-ab-v1-candidate' : '')
+    expect(result.finalState.player.hex).toEqual(expected.finalHex)
+    expect(result.finalState.player.hM).toBe(expected.finalM)
+    expect(result.finalState.player.axisId).toBe(expected.finalState.axisId)
+    expect(result.traversedCells).toEqual(expected.pathCells)
+    expect(result.conflictEvents).toEqual(expected.conflictEvents)
+    expect(result.samples.map((sample) => [sample.t, sample.position, sample.axisId, sample.momentumLevel]))
+      .toEqual(expected.samples.map((sample) => [sample.t, sample.position, sample.axisId, sample.momentumLevel]))
+  })
+
+  it('uses the exact Thermal Clock config and thermalTimeline for the M→T bridge', () => {
+    const config = {
+      ...thermalConfigFromProfile(BASELINE_THERMAL_PROFILE, 'adiabatic'),
+      restoringK: 0.73,
+      baseDamping: 0.41,
+      environmentTemperature: -2.2,
+      environmentCoupling: 0.27,
+      environmentDampingGain: 1.35,
     }
-    expect(bands).toEqual([[0, 'E', false, 0], [0, null, false, 0], [0, null, true, 0],
-      [0, null, true, 1], [0, null, true, 2], [0, null, true, 3]])
+    const input = make({ thermalConfigOverride: config })
+    const result = buildGameplayATPlan(input)
+    const expected = thermalTimeline({
+      state: { ...input.thermal, worldAt: input.thermal.worldAt ?? 0 },
+      config,
+      events: result.sourceThermalEvents,
+    })
+    expect(result.config).toEqual(config)
+    expect(result.finalState.thermal.temperature).toBeCloseTo(expected.finalState.temperature, 10)
+    expect(result.finalState.thermal.drift).toBeCloseTo(expected.finalState.drift, 10)
   })
 
   it('converts D to H once, never adds a second H Build impulse', () => {
@@ -83,8 +133,8 @@ describe('Gameplay AT plan: a frozen, queryable 1AT', () => {
     expect(result.sourceThermalEvents[0]).toMatchObject({ source: 'Active D Spend / Convert', impulse: 1.6, t: 0.2 })
   })
 
-  it('rejects invalid targets and Down Basic Move without spending an AT', () => {
-    expect(plan({ targetHex: { q: 5, r: 0 } }).valid).toBe(false)
+  it('accepts Trajectory direction cells, but keeps Down Basic Move and invalid Release guarded', () => {
+    expect(plan({ targetHex: { q: 5, r: 0 } }).valid).toBe(true)
     expect(plan({ player: createMomentumActor({ downM: 1 }), actionId: 'move' }).valid).toBe(false)
     expect(plan({ actionId: 'release' }).valid).toBe(false)
   })
