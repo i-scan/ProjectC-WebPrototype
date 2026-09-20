@@ -3,9 +3,11 @@ import { playbackFromPlan, playbackProgress, playbackRemainingMs } from '../../s
 import { buildGameplayATPlan, buildGameplaySpatialPreview, GAMEPLAY_TIMELINE, sampleGameplayATPlan } from './gameplay-at-plan.js'
 import { ThermalPendulum } from '../thermal/ThermalClockLabV3.jsx'
 import { Board3D } from '../../ui/Board3D.jsx'
-import { createCellWorld } from '../../sim/world.js'
+import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
 import { axialKey } from '../../sim/hex.js'
-import { formatThermal, thermalDiagnostics } from '../thermal/thermal-clock-model.js'
+import { AT_VISUAL_MS } from '../../sim/solver.js'
+import { TRAJECTORY_DEFAULT_RADIUS, TRAJECTORY_RULE } from '../trajectory/trajectory-rules.js'
+import { THERMAL_CLOCK_SOLVER, formatThermal, thermalDiagnostics } from '../thermal/thermal-clock-model.js'
 import {
   thermalConfigFromProfile,
   thermalEnvironment,
@@ -29,9 +31,14 @@ import {
   momentumBand,
   reachableTargets,
 } from './gameplay-momentum-model.js'
+import {
+  GAMEPLAY_SPATIAL_AUTHORITY,
+  GAMEPLAY_SPATIAL_PATH_RULE,
+  GAMEPLAY_SPATIAL_REFLECTION_RULE,
+  usesTrajectoryRuntime,
+} from './gameplay-lab-runtime.js'
 
-const BOARD_RADIUS = 5
-const EMPTY_OBSTACLES = Object.freeze([])
+const BOARD_RADIUS = TRAJECTORY_DEFAULT_RADIUS
 const EMPTY_REACHABLE = Object.freeze([])
 const clone = (value) => JSON.parse(JSON.stringify(value))
 
@@ -78,7 +85,10 @@ export function GameplayLab() {
   const [collisionHeatFactor, setCollisionHeatFactor] = useState(0.8)
   const [collisionDamage, setCollisionDamage] = useState(false)
   const [domainNaturalBuild, setDomainNaturalBuild] = useState(true)
-  const [atVisualMs, setAtVisualMs] = useState(950)
+  const [wallsEnabled, setWallsEnabled] = useState(true)
+  const [responseCurve, setResponseCurve] = useState('linear')
+  const [thermalConfigOverride, setThermalConfigOverride] = useState(null)
+  const [atVisualMs, setAtVisualMs] = useState(AT_VISUAL_MS)
   const [playback, setPlayback] = useState(null)
   const [uiProgress, setUiProgress] = useState(0)
   const [fullPreviewEntry, setFullPreviewEntry] = useState(null)
@@ -89,10 +99,18 @@ export function GameplayLab() {
   const ready = !playback
 
   const cells = useMemo(() => createCellWorld(BOARD_RADIUS), [])
+  const obstacles = useMemo(() => wallsEnabled
+    ? collisionObstaclesFromCells(cells).filter((entry) => entry.wallAxis)
+    : [], [cells, wallsEnabled])
   const actions = GAMEPLAY_ACTIONS_V1
   const selectedAction = actions.find((entry) => entry.id === selectedActionId) ?? actions[0]
   const environment = thermalEnvironment(profile, environmentId)
-  const thermalConfig = thermalConfigFromProfile(profile, environmentId)
+  const liveThermalConfig = useMemo(() => thermalConfigFromProfile(profile, environmentId), [profile, environmentId])
+  const thermalConfig = thermalConfigOverride ?? liveThermalConfig
+  const tuneThermal = (key, value) => setThermalConfigOverride((current) => ({
+    ...(current ?? liveThermalConfig),
+    [key]: Number(value),
+  }))
   const allActors = useMemo(() => [player, ...enemies], [player, enemies])
   const reachable = useMemo(
     () => reachableTargets(player, selectedActionId, BOARD_RADIUS, allActors),
@@ -101,14 +119,20 @@ export function GameplayLab() {
   const reachableKeys = useMemo(() => new Set(reachable.map((entry) => axialKey(entry.hex))), [reachable])
   const targetHex = hoverHex ?? selectedHex
   const requiresTarget = selectedAction.target !== 'none'
+  const trajectoryTargetInput = requiresTarget && usesTrajectoryRuntime(player, selectedActionId)
   const planInput = useMemo(() => ({ player, enemies, thermal, profile, worldAt, environmentId,
-    boardRadius: BOARD_RADIUS, collisionDamage, momentumFactor, collisionHeatFactor, domainNaturalBuild }),
-  [player, enemies, thermal, profile, worldAt, environmentId, collisionDamage, momentumFactor, collisionHeatFactor, domainNaturalBuild])
+    boardRadius: BOARD_RADIUS, obstacles, responseCurve, thermalConfigOverride: thermalConfig,
+    collisionDamage, momentumFactor, collisionHeatFactor, domainNaturalBuild }),
+  [player, enemies, thermal, profile, worldAt, environmentId, obstacles, responseCurve, thermalConfig,
+    collisionDamage, momentumFactor, collisionHeatFactor, domainNaturalBuild])
   const previewKey = requiresTarget && targetHex ? `${selectedActionId}:${axialKey(targetHex)}` : null
   const lightPreviewPlan = useMemo(() => previewKey
-    ? buildGameplaySpatialPreview({ player, enemies, worldAt, actionId: selectedActionId, targetHex, boardRadius: BOARD_RADIUS })
+    ? buildGameplaySpatialPreview({
+      player, enemies, worldAt, actionId: selectedActionId, targetHex,
+      boardRadius: BOARD_RADIUS, obstacles, responseCurve,
+    })
     : null,
-  [previewKey, player, enemies, worldAt, selectedActionId, targetHex?.q, targetHex?.r])
+  [previewKey, player, enemies, worldAt, selectedActionId, targetHex?.q, targetHex?.r, obstacles, responseCurve])
   const fullPreviewPlan = fullPreviewEntry?.key === previewKey ? fullPreviewEntry.plan : null
 
   useEffect(() => {
@@ -242,6 +266,10 @@ export function GameplayLab() {
     setWorldAt(0)
     setSelectedActionId('move')
     setEnvironmentId('adiabatic')
+    setWallsEnabled(true)
+    setResponseCurve('linear')
+    setThermalConfigOverride(null)
+    setAtVisualMs(AT_VISUAL_MS)
     setHistory([])
     setLastPlan(null)
     setLastTrace(`Reset from ${profile.label} r${profile.revision}.`)
@@ -259,6 +287,13 @@ export function GameplayLab() {
         momentumBand: momentumBand(player),
         enemies: clone(enemies),
         environmentId,
+        spatialAuthority: GAMEPLAY_SPATIAL_AUTHORITY,
+        spatialPathRule: GAMEPLAY_SPATIAL_PATH_RULE,
+        spatialReflectionRule: GAMEPLAY_SPATIAL_REFLECTION_RULE,
+        thermalAuthority: THERMAL_CLOCK_SOLVER,
+        wallsEnabled,
+        responseCurve,
+        thermalConfig: clone(thermalConfig),
         factors: { momentumFactor, collisionHeatFactor, collisionDamage, domainNaturalBuild },
         thermal: clone(thermal),
         predictedThermal: clone(previewThermal.finalState),
@@ -290,6 +325,11 @@ export function GameplayLab() {
       data-momentum-band={momentumBand(player)}
       data-world-at={worldAt.toFixed(1)}
       data-gameplay-timeline={GAMEPLAY_TIMELINE}
+      data-spatial-authority={GAMEPLAY_SPATIAL_AUTHORITY}
+      data-spatial-path-rule={GAMEPLAY_SPATIAL_PATH_RULE}
+      data-spatial-reflection-rule={GAMEPLAY_SPATIAL_REFLECTION_RULE}
+      data-thermal-authority={THERMAL_CLOCK_SOLVER}
+      data-walls={wallsEnabled ? 'on' : 'off'}
       data-playback-state={ready ? 'ready' : 'playing'}
       data-playback-at={ready ? '0' : uiProgress.toFixed(3)}
     >
@@ -350,7 +390,7 @@ export function GameplayLab() {
           <div className="board-strip">
             <strong>{selectedAction.label} · 1AT</strong>
             <span>{!ready ? `PLAYING ${uiProgress.toFixed(2)} / 1 AT · input locked` : requiresTarget
-              ? (selectedHex ? `Target ${axialKey(selectedHex)} selected` : (reachable.length ? 'Choose a highlighted target / direction' : 'Current state has no legal target'))
+              ? (selectedHex ? `Target ${axialKey(selectedHex)} selected` : (trajectoryTargetInput ? 'Choose any direction Cell · Trajectory Lab authority' : (reachable.length ? 'Choose a highlighted target / direction' : 'Current state has no legal target')))
               : selectedAction.short}</span>
           </div>
           <div className="board-toolbar">
@@ -365,15 +405,15 @@ export function GameplayLab() {
           <div className="board-frame gameplay-board-frame">
             <Board3D
               cells={cells}
-              obstacles={EMPTY_OBSTACLES}
+              obstacles={obstacles}
               actors={boardActors}
-              reachableCells={ready ? reachable : EMPTY_REACHABLE}
+              reachableCells={ready && !trajectoryTargetInput ? reachable : EMPTY_REACHABLE}
               state={playerSpatial}
               previewPlan={ready ? previewPlan : null}
               playback={playback}
               atVisualMs={atVisualMs}
               axisDisplayOverride={axisDisplayOverride}
-              boardRadius={BOARD_RADIUS}
+              boardRadius={BOARD_RADIUS + 1}
               viewMode={viewMode}
               cameraResetToken={cameraResetToken}
               hoverHex={hoverHex}
@@ -382,18 +422,20 @@ export function GameplayLab() {
               showThermal
               onHoverHex={(hex) => {
                 if (playbackRef.current) return
-                if (!hex || !requiresTarget || !reachableKeys.has(axialKey(hex))) return setHoverHex(null)
+                if (!hex || !requiresTarget || axialKey(hex) === axialKey(player.hex)) return setHoverHex(null)
+                if (!trajectoryTargetInput && !reachableKeys.has(axialKey(hex))) return setHoverHex(null)
                 setHoverHex(hex)
               }}
               onClickHex={(hex) => {
-                if (playbackRef.current || !hex || !requiresTarget || !reachableKeys.has(axialKey(hex))) return
+                if (playbackRef.current || !hex || !requiresTarget || axialKey(hex) === axialKey(player.hex)) return
+                if (!trajectoryTargetInput && !reachableKeys.has(axialKey(hex))) return
                 beginAction(selectedActionId, { ...hex })
               }}
             />
             <div className="board-legend">
-              <span><i className="terrain" />Bright outline = legal action target</span>
-              <span><i className="trajectory" />Dashed path = current Momentum preview</span>
-              <span><i className="momentum-axis" />HM0 keeps Axis arrow; No Axis removes it</span>
+              <span><i className="terrain" />Move / Drive direction input uses Trajectory Lab cells</span>
+              <span><i className="trajectory" />Blue path = Trajectory Lab curve / reflection</span>
+              <span><i className="momentum-axis" />Horizontal M / Axis settlement comes from Trajectory runtime</span>
             </div>
           </div>
 
@@ -429,6 +471,10 @@ export function GameplayLab() {
           <fieldset disabled={!ready} className="panel-card gameplay-controls-card">
             <div className="section-heading"><h3>v1 Experiment Controls</h3><span>LIVE</span></div>
             <label><span>Playback / AT</span><input aria-label="Gameplay AT playback duration" type="range" min="200" max="3000" step="25" value={atVisualMs} onChange={(event) => setAtVisualMs(Number(event.target.value))} /><strong>{(atVisualMs / 1000).toFixed(2)}s</strong></label>
+            <div className="gameplay-toggle-row">
+              <button type="button" className={wallsEnabled ? 'chosen' : ''} onClick={() => setWallsEnabled((value) => !value)}>Trajectory Walls {wallsEnabled ? 'ON' : 'OFF'}</button>
+              <button type="button" onClick={() => setResponseCurve((value) => value === 'linear' ? 'smoothstep' : 'linear')}>Curve {responseCurve}</button>
+            </div>
             <label><span>M-T Factor</span><input aria-label="M-T Factor" type="range" min="0" max="1.6" step="0.05" value={momentumFactor} onChange={(event) => setMomentumFactor(Number(event.target.value))} /><strong>{momentumFactor.toFixed(2)}</strong></label>
             <label><span>Collision Heat</span><input aria-label="Collision Heat Factor" type="range" min="0" max="1.6" step="0.05" value={collisionHeatFactor} onChange={(event) => setCollisionHeatFactor(Number(event.target.value))} /><strong>{collisionHeatFactor.toFixed(2)}</strong></label>
             <div className="gameplay-toggle-row">
@@ -453,14 +499,20 @@ export function GameplayLab() {
           <fieldset disabled={!ready} className="panel-card gameplay-environment-card">
             <div className="section-heading"><h3>Environment Context</h3><span>Weather hook</span></div>
             <div className="gameplay-environment-buttons">
-              {Object.values(profile.environments).map((entry) => <button type="button" key={entry.id} className={environmentId === entry.id ? 'chosen' : ''} onClick={() => setEnvironmentId(entry.id)}>{entry.label}</button>)}
+              {Object.values(profile.environments).map((entry) => <button type="button" key={entry.id} className={environmentId === entry.id ? 'chosen' : ''} onClick={() => { setEnvironmentId(entry.id); setThermalConfigOverride(null) }}>{entry.label}</button>)}
             </div>
             <dl className="state-list compact">
-              <div><dt>Tenv</dt><dd>{environment.environmentTemperature.toFixed(1)}</dd></div>
-              <div><dt>kE</dt><dd>{environment.environmentCoupling.toFixed(2)}</dd></div>
+              <div><dt>Tenv</dt><dd>{thermalConfig.environmentTemperature.toFixed(1)}</dd></div>
+              <div><dt>kE</dt><dd>{thermalConfig.environmentCoupling.toFixed(2)}</dd></div>
               <div><dt>cEff</dt><dd>{thermalDiagnostics(thermal, thermalConfig).cEff.toFixed(3)}</dd></div>
-              <div><dt>Profile</dt><dd>{profile.id} r{profile.revision}</dd></div>
+              <div><dt>Profile</dt><dd>{profile.id} r{profile.revision}{thermalConfigOverride ? ' · LOCAL' : ' · LIVE'}</dd></div>
             </dl>
+            <label><span>kS · restoring</span><input aria-label="Gameplay Thermal restoringK" type="range" min="0" max="2" step="0.01" value={thermalConfig.restoringK} onChange={(event) => tuneThermal('restoringK', event.target.value)} /><strong>{thermalConfig.restoringK.toFixed(2)}</strong></label>
+            <label><span>cBase · damping</span><input aria-label="Gameplay Thermal baseDamping" type="range" min="0" max="3" step="0.01" value={thermalConfig.baseDamping} onChange={(event) => tuneThermal('baseDamping', event.target.value)} /><strong>{thermalConfig.baseDamping.toFixed(2)}</strong></label>
+            <label><span>Tenv</span><input aria-label="Gameplay Thermal environmentTemperature" type="range" min="-6" max="6" step="0.1" value={thermalConfig.environmentTemperature} onChange={(event) => tuneThermal('environmentTemperature', event.target.value)} /><strong>{thermalConfig.environmentTemperature.toFixed(1)}</strong></label>
+            <label><span>kE · coupling</span><input aria-label="Gameplay Thermal environmentCoupling" type="range" min="0" max="1" step="0.01" value={thermalConfig.environmentCoupling} onChange={(event) => tuneThermal('environmentCoupling', event.target.value)} /><strong>{thermalConfig.environmentCoupling.toFixed(2)}</strong></label>
+            <label><span>cEnvGain</span><input aria-label="Gameplay Thermal environmentDampingGain" type="range" min="0" max="4" step="0.05" value={thermalConfig.environmentDampingGain} onChange={(event) => tuneThermal('environmentDampingGain', event.target.value)} /><strong>{thermalConfig.environmentDampingGain.toFixed(2)}</strong></label>
+            <div className="gameplay-toggle-row"><button type="button" disabled={!thermalConfigOverride} onClick={() => setThermalConfigOverride(null)}>Use Live Thermal Profile</button></div>
           </fieldset>
 
           <section className="panel-card" data-gameplay-resolution-trace="momentum-thermal-v1">
@@ -477,7 +529,8 @@ export function GameplayLab() {
           <section className="panel-card gameplay-scope-card">
             <div className="section-heading"><h3>v1 Scope</h3><span>candidate</span></div>
             <ul>
-              <li>HM0 Axis → No Axis → DM0 Skip chain</li>
+              <li>Horizontal Move / Drive / Skip are Trajectory Lab authoritative</li>
+              <li>Wall reflection / Cell path / M settlement use Trajectory runtime unchanged</li>
               <li>Drive / Brace symmetric fast establish</li>
               <li>HM2→DM0 and DM2→HM0 cross-channel candidate</li>
               <li>Launch / Release 1:1</li>
