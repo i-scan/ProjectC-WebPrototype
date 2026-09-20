@@ -41,6 +41,10 @@ try {
 
   assert(result.status === 0, `Chrome Gameplay Lab smoke failed: ${result.stderr || result.stdout}`)
   const dom = result.stdout
+  if (!dom.includes('data-implementation="gameplay-momentum-thermal-v1-candidate"')) {
+    console.error('Gameplay DOM diagnostic:', dom.slice(0, 6000))
+    console.error('Gameplay Chrome stderr:', result.stderr)
+  }
   assert(dom.includes('data-implementation="gameplay-momentum-thermal-v1-candidate"'), 'Gameplay v1 implementation marker missing')
   assert(dom.includes('data-shared-thermal-runtime="shared-thermal-profile-runtime-v1-candidate"'), 'Shared Thermal runtime marker missing')
   assert(dom.includes('data-profile-id="thermal-baseline-a"'), 'Active Thermal Profile id missing')

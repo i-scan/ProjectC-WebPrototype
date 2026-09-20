@@ -318,7 +318,9 @@ export function GameplayLab() {
               <div><span>Horizontal</span><strong>{displayPlayer.axisId ? `H${displayPlayer.hM} · ${displayPlayer.axisId}` : '—'}</strong></div>
               <div><span>Down</span><strong>{isDownSide(displayPlayer) ? `D${displayPlayer.downM}` : '—'}</strong></div>
             </div>
-            <ThermalPendulum state={displayThermal} config={displayConfig} previousState={previousThermal} className="gameplay-thermal-pendulum" />
+            <div data-gameplay-thermal-pendulum="shared-runtime-v1">
+              <ThermalPendulum state={displayThermal} config={displayConfig} previousState={previousThermal} className="gameplay-thermal-pendulum" />
+            </div>
             <dl className="state-list actor-state-list">
               <div><dt>Temperature</dt><dd>{formatThermal(displayThermal.temperature, 2)}</dd></div>
               <div><dt>Drift</dt><dd>{formatThermal(displayThermal.drift, 2)}</dd></div>
