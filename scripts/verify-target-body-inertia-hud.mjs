@@ -157,11 +157,15 @@ try {
   await client.send('Runtime.enable')
   await client.send('Page.navigate', { url: pageUrl })
 
-  let value = await idle(client, 0)
+  await idle(client, 0)
+  let value = await waitFor('default Target body HUDs', async () => {
+    const current = await state(client)
+    if (current.targetHudActorCount !== 3 || current.hud.length !== 3) throw new Error(JSON.stringify(current))
+    return current
+  })
   assert(value.targetMomentumStyle === 'actor-momentum-dots-v1', 'Target M must use Actor momentum-dot style', value)
   assert(value.targetAxisStyle === 'actor-body-screen-arrow-v5', 'Target Axis must use Actor arrow style', value)
   assert(value.legacyOverlay === false, 'Legacy corner Target inertia panel must be removed', value)
-  assert(value.targetHudActorCount === 3 && value.hud.length === 3, 'Every default Target must own a body HUD', value)
   for (const entry of value.hud) assert(entry.m === 0 && entry.axis === 'none' && entry.dots === 3 && entry.active === 0 && !entry.visible, 'Reset targets must show M0 dots with no Axis arrow', entry)
 
   assert(await evaluate(client, `window.__PROJECTC_PROTOTYPE__.setConflictScenario('wall')`), 'wall scenario rejected')
