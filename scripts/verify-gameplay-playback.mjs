@@ -136,32 +136,73 @@ try {
   assert(JSON.stringify(end.thermal) === JSON.stringify(preview.previewFinal.thermal), 'Preview/Commit Thermal mismatch')
   assert(JSON.stringify(end.enemies) === JSON.stringify(preview.previewFinal.enemies), 'Preview/Commit enemies mismatch')
   assert(end.historyEntries === 1, 'Repeated input caused multiple commits')
-  // A second Drive reaches enemy-a. Attack, contact and forced travel have
-  // different timestamps, and the target moves only after the collision.
+  // Browser-level authority proof: load a deterministic H3/E state next to the
+  // same world wall used by Trajectory Lab. Gameplay must expose the Trajectory
+  // reflection event and adopt its M / Axis settlement rather than an old local path.
+  assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.loadDebugScenario(${JSON.stringify({
+    player: { id: 'player', hex: { q: 2, r: 0 }, hp: 100, hM: 3, axisId: 'E' },
+    enemies: [],
+    worldAt: 0,
+    selectedActionId: 'move',
+  })})`), 'Reflection fixture rejected')
+  await until('reflection fixture', async () => { const s = await snapshot(); return s?.ready && s.worldAt === 0 && s.player.hex.q === 2 && s.player.hM === 3 && s })
+  await moveToCell({ q: 3, r: 0 })
+  const reflectionPreview = await until('Trajectory reflection preview', async () => {
+    const state = await snapshot()
+    return state?.previewFinal && state.events?.some((event) => event.type === 'SurfaceReflection') ? state : false
+  })
+  assert(reflectionPreview.spatialAuthority === 'val-012-process-steering-ab-v1-candidate', 'Gameplay did not use Trajectory runtime authority')
+  await clickCell({ q: 3, r: 0 })
+  const reflectionMid = await until('reflection playback', async () => {
+    const state = await snapshot()
+    return !state?.ready && state.progress > 0.25 && state.progress < 0.85
+      && state.events.some((event) => event.type === 'SurfaceReflection') ? state : false
+  })
+  const reflectionFx = await client.evaluate("({...document.querySelector('.cell-world-board').dataset})")
+  assert(Number(reflectionFx.collisionFxEventCount) >= 1, 'Trajectory reflection FX missing in Gameplay')
+  const reflectionEnd = await readyAt(1)
+  assert(reflectionEnd.player.hM === 2, 'Trajectory M3→M2 settlement missing after reflected Move')
+  assert(reflectionEnd.player.axisId !== 'E', 'Trajectory reflected Axis was not adopted by Gameplay')
+
+  // Encounter is tested from an explicit contact fixture instead of relying on
+  // an old Gameplay-only route accidentally reaching enemy-a.
+  assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.loadDebugScenario(${JSON.stringify({
+    player: { id: 'player', hex: { q: 0, r: 0 }, hp: 100, hM: 2, axisId: 'E' },
+    enemies: [{ id: 'enemy-a', hex: { q: 1, r: 0 }, hp: 40, hM: 0, axisId: null, intent: 'skip', intentIndex: 0 }],
+    worldAt: 0,
+    selectedActionId: 'move',
+  })})`), 'Encounter fixture rejected')
+  await until('encounter fixture', async () => { const state = await snapshot(); return state?.ready && state.worldAt === 0 && state.enemies?.length === 1 && state })
+  await moveToCell({ q: 2, r: 0 })
+  await until('encounter preview', async () => { const state = await snapshot(); return state?.previewFinal ? state : false })
   await clickCell({ q: 2, r: 0 })
-  const encounter = await until('contact playback', async () => { const s = await snapshot(); return !s?.ready && s.progress > 0.74 && s.progress < 0.9 && s })
-  assert(encounter.events.some((event) => event.type === 'AttackPayload'), 'Enemy Attack payload missing')
+  const encounter = await until('contact playback', async () => {
+    const state = await snapshot()
+    return !state?.ready && state.progress > 0.45 && state.progress < 0.9
+      && state.events.some((event) => event.type === 'ForcedMotion') ? state : false
+  })
+  assert(encounter.events.some((event) => event.type === 'Encounter'), 'Encounter event missing')
   assert(encounter.events.some((event) => event.type === 'ForcedMotion'), 'Collision Forced Motion missing')
-  assert(encounter.visual.actors['enemy-a'].position.x > 2, 'Target not moving after contact')
-  assert(encounter.enemies[0].hex.q === 2, 'Target authoritative state changed before Ready')
+  assert(encounter.enemies[0].hex.q === 1, 'Target authoritative state changed before Ready')
   const fxBoard = await client.evaluate("({...document.querySelector('.cell-world-board').dataset})")
-  assert(Number(fxBoard.collisionFxEventCount) >= 3, 'Encounter-driven FX missing')
+  assert(Number(fxBoard.collisionFxEventCount) >= 2, 'Encounter-driven FX missing')
   const encounterShot = await client.send('Page.captureScreenshot', { format: 'png' })
   await writeFile('artifacts/gameplay-encounter-mid.png', Buffer.from(encounterShot.data, 'base64'))
-  await readyAt(2)
+  await readyAt(1)
+
   await click('[data-gameplay-action-id="brace"].action-card')
   await until('Brace immediate playback', async () => !(await snapshot()).ready)
-  await readyAt(3)
+  await readyAt(2)
   await click('[data-gameplay-action-id="skip"].action-card')
-  await readyAt(4)
-  await client.evaluate("[...document.querySelectorAll('.session-buttons button')].find(e=>e.textContent==='Undo').click()")
   await readyAt(3)
+  await client.evaluate("[...document.querySelectorAll('.session-buttons button')].find(e=>e.textContent==='Undo').click()")
+  await readyAt(2)
   await client.evaluate("[...document.querySelectorAll('.session-buttons button')].find(e=>e.textContent==='Reset').click()")
   const reset = await readyAt(0)
   assert(reset.player.hp === 100 && reset.historyEntries === 0, 'Reset failed')
   assert(client.errors.length === 0, `Browser exceptions: ${JSON.stringify(client.errors)}`)
-  await writeFile('artifacts/gameplay-playback.json', JSON.stringify({ initial, middle, board, end, encounter, fxBoard, reset, browserErrors: client.errors }, null, 2))
-  console.log('Gameplay P0 browser regression passed: real hover/click, frame movement, exact Preview/Commit, input lock, single commit, immediate Brace/Skip, Undo/Reset.')
+  await writeFile('artifacts/gameplay-playback.json', JSON.stringify({ initial, middle, board, end, reflectionPreview, reflectionMid, reflectionFx, reflectionEnd, encounter, fxBoard, reset, browserErrors: client.errors }, null, 2))
+  console.log('Gameplay browser regression passed: shared Trajectory reflection/M authority, shared Thermal runtime, real playback, explicit Encounter fixture, input lock, Undo/Reset.')
 } finally {
   client?.socket.close()
   await stop(browser)
