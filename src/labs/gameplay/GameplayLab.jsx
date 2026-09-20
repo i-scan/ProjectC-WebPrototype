@@ -125,12 +125,43 @@ export function GameplayLab() {
   const targetHex = hoverHex ?? selectedHex
   const requiresTarget = selectedAction.target !== 'none'
   const trajectoryTargetInput = requiresTarget && usesTrajectoryRuntime(player, selectedActionId)
+  const previewContextKey = useMemo(() => JSON.stringify({
+    worldAt,
+    player: {
+      id: player.id, hex: player.hex, hp: player.hp, hM: player.hM, axisId: player.axisId,
+      downM: player.downM, downPrepared: player.downPrepared,
+    },
+    enemies: enemies.map((actor) => ({
+      id: actor.id, hex: actor.hex, hp: actor.hp, hM: actor.hM, axisId: actor.axisId,
+      downM: actor.downM, downPrepared: actor.downPrepared,
+      intent: actor.intent, intentIndex: actor.intentIndex,
+    })),
+    thermal: {
+      temperature: thermal.temperature, drift: thermal.drift, setPoint: thermal.setPoint,
+    },
+    profile: { id: profile.id, revision: profile.revision },
+    environmentId,
+    wallsEnabled,
+    responseCurve,
+    thermalConfig,
+    momentumFactor,
+    collisionHeatFactor,
+    collisionDamage,
+    domainNaturalBuild,
+  }), [
+    worldAt, player, enemies, thermal, profile.id, profile.revision, environmentId,
+    wallsEnabled, responseCurve, thermalConfig, momentumFactor, collisionHeatFactor,
+    collisionDamage, domainNaturalBuild,
+  ])
+  const previewKeyFor = (actionId, hex) => hex
+    ? `${previewContextKey}|${actionId}:${axialKey(hex)}`
+    : `${previewContextKey}|${actionId}:none`
   const planInput = useMemo(() => ({ player, enemies, thermal, profile, worldAt, environmentId,
     boardRadius: BOARD_RADIUS, obstacles, responseCurve, thermalConfigOverride: thermalConfig,
     collisionDamage, momentumFactor, collisionHeatFactor, domainNaturalBuild }),
   [player, enemies, thermal, profile, worldAt, environmentId, obstacles, responseCurve, thermalConfig,
     collisionDamage, momentumFactor, collisionHeatFactor, domainNaturalBuild])
-  const previewKey = requiresTarget && targetHex ? `${selectedActionId}:${axialKey(targetHex)}` : null
+  const previewKey = requiresTarget && targetHex ? previewKeyFor(selectedActionId, targetHex) : null
   const lightPreviewPlan = useMemo(() => previewKey
     ? buildGameplaySpatialPreview({
       player, enemies, worldAt, actionId: selectedActionId, targetHex,
@@ -185,7 +216,7 @@ export function GameplayLab() {
 
   const beginAction = (actionId, hex = null) => {
     if (playbackRef.current) return false
-    const actionKey = hex ? `${actionId}:${axialKey(hex)}` : null
+    const actionKey = previewKeyFor(actionId, hex)
     let plan = fullPreviewEntry?.key === actionKey ? fullPreviewEntry.plan : null
     if (!plan) {
       const started = performance.now()
@@ -259,6 +290,7 @@ export function GameplayLab() {
     setWorldAt(previous.worldAt)
     setLastTrace(previous.lastTrace)
     setLastPlan(null)
+    setFullPreviewEntry(null)
     clearAim()
   }
 
@@ -277,6 +309,7 @@ export function GameplayLab() {
     setAtVisualMs(AT_VISUAL_MS)
     setHistory([])
     setLastPlan(null)
+    setFullPreviewEntry(null)
     setLastTrace(`Reset from ${profile.label} r${profile.revision}.`)
     clearAim()
   }
@@ -296,6 +329,7 @@ export function GameplayLab() {
     setSelectedActionId(nextActionId)
     setHistory([])
     setLastPlan(null)
+    setFullPreviewEntry(null)
     setLastTrace('Debug scenario loaded for deterministic browser validation.')
     clearAim()
     return true
