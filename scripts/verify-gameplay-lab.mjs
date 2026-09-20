@@ -137,7 +137,12 @@ try {
       domainBuildOn: text.includes('Domain Build ON'),
       enemies: Boolean(document.querySelector('.gameplay-enemy-card .enemy-intent-list')),
       resolutionTrace: Boolean(document.querySelector('[data-gameplay-resolution-trace="momentum-thermal-v1"]')),
-      skipChain: text.includes('HM0 Axis → No Axis → DM0 Skip chain'),
+      spatialAuthority: root?.dataset.spatialAuthority ?? '',
+      spatialReflectionRule: root?.dataset.spatialReflectionRule ?? '',
+      thermalAuthority: root?.dataset.thermalAuthority ?? '',
+      walls: root?.dataset.walls ?? '',
+      thermalControls: Boolean(document.querySelector('[aria-label="Gameplay Thermal restoringK"]')) && Boolean(document.querySelector('[aria-label="Gameplay Thermal environmentCoupling"]')),
+      authorityCopy: text.includes('Horizontal Move / Drive / Skip are Trajectory Lab authoritative'),
       board: Boolean(board),
       boardRebuildCount: Number(board?.dataset.boardRebuildCount ?? 0),
     }
@@ -157,7 +162,11 @@ try {
   assert(mounted.enemies, 'Telegraphed enemy panel missing')
   assert(snapshot.enemies?.some((enemy) => enemy.intent === 'move') && snapshot.enemies?.some((enemy) => enemy.intent === 'brace'), 'Initial telegraphed enemy intents missing')
   assert(mounted.resolutionTrace, 'Cause-aware Resolution Trace missing')
-  assert(mounted.skipChain, 'Skip chain scope marker missing')
+  assert(mounted.spatialAuthority === 'val-012-process-steering-ab-v1-candidate', 'Trajectory runtime authority marker missing')
+  assert(mounted.spatialReflectionRule === 'driving-lab-wall-pivot-reflection-v1', 'Trajectory reflection authority marker missing')
+  assert(mounted.thermalAuthority === 'piecewise-analytic-second-order-v1', 'Thermal Clock solver authority marker missing')
+  assert(mounted.walls === 'on', 'Gameplay must mount Trajectory walls by default')
+  assert(mounted.thermalControls && mounted.authorityCopy, 'Lab-authority Gameplay controls/copy missing')
   assert(mounted.board && mounted.boardRebuildCount >= 1, 'Board3D did not mount')
   assert(snapshot.ready && snapshot.worldAt === 0, 'Gameplay initial Ready snapshot changed')
   assert(client.errors.length === 0, `Browser exceptions: ${JSON.stringify(client.errors)}`)
