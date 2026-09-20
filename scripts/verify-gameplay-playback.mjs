@@ -164,31 +164,42 @@ try {
   assert(reflectionEnd.player.hM === 2, 'Trajectory M3→M2 settlement missing after reflected Move')
   assert(reflectionEnd.player.axisId !== 'E', 'Trajectory reflected Axis was not adopted by Gameplay')
 
-  // Encounter is tested from an explicit contact fixture instead of relying on
-  // an old Gameplay-only route accidentally reaching enemy-a.
+  // Exact regression reported during manual playtest: an HM3 player and a
+  // moving M0 enemy cross the same edge at the same timeline instant. Resolve
+  // them from one snapshot; M0 must never cancel HM3 merely by actor-id order.
   assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.loadDebugScenario(${JSON.stringify({
-    player: { id: 'player', hex: { q: 0, r: 0 }, hp: 100, hM: 2, axisId: 'E' },
-    enemies: [{ id: 'enemy-a', hex: { q: 1, r: 0 }, hp: 40, hM: 0, axisId: null, intent: 'skip', intentIndex: 0 }],
+    player: { id: 'player', hex: { q: 0, r: 0 }, hp: 100, hM: 3, axisId: 'E' },
+    enemies: [{ id: 'enemy-a', hex: { q: 3, r: 0 }, hp: 40, hM: 0, axisId: 'W', intent: 'move', intentIndex: 0 }],
     worldAt: 0,
     selectedActionId: 'move',
-  })})`), 'Encounter fixture rejected')
-  await until('encounter fixture', async () => { const state = await snapshot(); return state?.ready && state.worldAt === 0 && state.enemies?.length === 1 && state })
-  await moveToCell({ q: 2, r: 0 })
-  await until('encounter preview', async () => { const state = await snapshot(); return state?.previewFinal ? state : false })
-  await clickCell({ q: 2, r: 0 })
-  const encounter = await until('contact playback', async () => {
+  })})`), 'HM3/M0 crossing fixture rejected')
+  await until('HM3/M0 fixture', async () => {
     const state = await snapshot()
-    return !state?.ready && state.progress > 0.45 && state.progress < 0.9
+    return state?.ready && state.worldAt === 0 && state.player.hM === 3 && state.enemies?.[0]?.hM === 0 && state
+  })
+  await moveToCell({ q: 3, r: 0 })
+  await until('HM3/M0 preview', async () => {
+    const state = await snapshot()
+    return state?.previewFinal?.player?.hex?.q === 3
+      && state.events.some((event) => event.type === 'Encounter' && event.kind === 'EdgeCrossing') ? state : false
+  })
+  await clickCell({ q: 3, r: 0 })
+  const encounter = await until('HM3/M0 crossing playback', async () => {
+    const state = await snapshot()
+    return !state?.ready && state.progress > 0.68 && state.progress < 0.94
+      && state.events.some((event) => event.type === 'Encounter' && event.kind === 'EdgeCrossing')
       && state.events.some((event) => event.type === 'ForcedMotion') ? state : false
   })
-  assert(encounter.events.some((event) => event.type === 'Encounter'), 'Encounter event missing')
-  assert(encounter.events.some((event) => event.type === 'ForcedMotion'), 'Collision Forced Motion missing')
-  assert(encounter.enemies[0].hex.q === 1, 'Target authoritative state changed before Ready')
+  assert(encounter.events.some((event) => event.type === 'MomentumTransfer' && event.actorId === 'player'), 'HM3 transfer missing')
+  assert(encounter.events.some((event) => event.type === 'ForcedMotion' && event.actorId === 'enemy-a'), 'M0 Forced Motion missing')
+  assert(encounter.player.hex.q === 0 && encounter.enemies[0].hex.q === 3, 'Authoritative Ready state mutated during playback')
   const fxBoard = await client.evaluate("({...document.querySelector('.cell-world-board').dataset})")
   assert(Number(fxBoard.collisionFxEventCount) >= 2, 'Encounter-driven FX missing')
   const encounterShot = await client.send('Page.captureScreenshot', { format: 'png' })
   await writeFile('artifacts/gameplay-encounter-mid.png', Buffer.from(encounterShot.data, 'base64'))
-  await readyAt(1)
+  const encounterEnd = await readyAt(1)
+  assert(encounterEnd.player.hex.q === 3 && encounterEnd.player.hM === 0, 'HM3 source did not settle into collision Cell as M0')
+  assert(encounterEnd.enemies[0].hex.q > 3, 'M0 target was not displaced by HM3')
 
   await click('[data-gameplay-action-id="brace"].action-card')
   await until('Brace immediate playback', async () => !(await snapshot()).ready)
@@ -201,8 +212,8 @@ try {
   const reset = await readyAt(0)
   assert(reset.player.hp === 100 && reset.historyEntries === 0, 'Reset failed')
   assert(client.errors.length === 0, `Browser exceptions: ${JSON.stringify(client.errors)}`)
-  await writeFile('artifacts/gameplay-playback.json', JSON.stringify({ initial, middle, board, end, reflectionPreview, reflectionMid, reflectionFx, reflectionEnd, encounter, fxBoard, reset, browserErrors: client.errors }, null, 2))
-  console.log('Gameplay browser regression passed: shared Trajectory reflection/M authority, shared Thermal runtime, real playback, explicit Encounter fixture, input lock, Undo/Reset.')
+  await writeFile('artifacts/gameplay-playback.json', JSON.stringify({ initial, middle, board, end, reflectionPreview, reflectionMid, reflectionFx, reflectionEnd, encounter, encounterEnd, fxBoard, reset, browserErrors: client.errors }, null, 2))
+  console.log('Gameplay browser regression passed: shared Trajectory reflection/M authority, HM3-vs-M0 snapshot settlement, shared Thermal runtime, real playback, input lock, Undo/Reset.')
 } finally {
   client?.socket.close()
   await stop(browser)
