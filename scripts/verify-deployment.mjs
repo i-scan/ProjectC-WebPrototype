@@ -90,6 +90,7 @@ const requiredMarkers = [
   'thermal-baseline-a',
   'shared-thermal-profile-runtime-v1-candidate',
   'gameplay-momentum-thermal-v1-candidate',
+  'gameplay-at-plan-p0-candidate',
   'Gameplay Lab',
   'Gameplay Actions · Momentum v1',
   'HM0 Axis → No Axis → DM0 Skip chain',
@@ -125,6 +126,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const info = JSON.parse(infoText)
     if (info.commit !== expectedCommit) throw new Error(`published commit is ${info.commit}`)
     if (info.implementation !== 'spatial-inertia-v1-candidate') throw new Error(`published implementation is ${info.implementation}`)
+    if (info.gameplayTimeline !== 'gameplay-at-plan-p0-candidate') throw new Error('published Gameplay timeline is stale')
 
     const html = await fresh(baseUrl, attempt)
     const matches = [...html.matchAll(/<script[^>]+src="([^"]+\.js)"/g)]

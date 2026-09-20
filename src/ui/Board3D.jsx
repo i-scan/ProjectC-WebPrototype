@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
+import { sampleTimedRecord } from '../sim/plan-playback.js'
+import { encounterFxSpecs } from './encounter-fx.js'
 import { AT_VISUAL_MS, momentumLevel, playbackElapsedMs } from '../sim/solver.js'
 import { HEX_RADIUS, axialDistance, axialToWorld, directionVector, worldToAxial } from '../sim/hex.js'
 import {
@@ -500,10 +502,26 @@ function createCollisionDebugMarker(spec, index, count) {
   flash.renderOrder = 94
   group.add(flash)
 
+  if (spec.style && spec.style !== 'ring') {
+    const points = spec.style === 'cross'
+      ? [[-0.5, -0.5], [0.5, 0.5], [-0.5, 0.5], [0.5, -0.5]]
+      : spec.style === 'arrow'
+        ? [[-0.7, 0], [0.7, 0], [0.7, 0], [0.3, -0.3], [0.7, 0], [0.3, 0.3]]
+        : [[-0.6, -0.3], [0.6, 0.3]]
+    const geometry = new THREE.BufferGeometry().setFromPoints(points.map(([x, z]) => new THREE.Vector3(x, 0.4, z)))
+    const glyph = new THREE.LineSegments(geometry, flashMaterial)
+    if (spec.axisId) { const axis = directionVector(spec.axisId); glyph.rotation.y = -Math.atan2(axis.z, axis.x) }
+    glyph.renderOrder = 95
+    group.add(glyph)
+    if (spec.style === 'shield') { ring.rotation.x = 0; ring.position.y = 0.55 }
+    else { ring.visible = false; disc.visible = false }
+  }
+
   const label = createDebugFxLabel(spec.label, spec.color)
   if (label) group.add(label)
 
-  group.userData.debugFxCenter = count <= 1 ? 0.5 : 0.3 + (index / Math.max(1, count - 1)) * 0.45
+  group.userData.eventTime = spec.t
+  group.userData.debugFxCenter = spec.t ?? (count <= 1 ? 0.5 : 0.3 + (index / Math.max(1, count - 1)) * 0.45)
   group.userData.debugFxMaterials = [discMaterial, ringMaterial, flashMaterial, ...(label ? [label.material] : [])]
   group.userData.debugFxBaseOpacities = group.userData.debugFxMaterials.map((material) => material.opacity)
   group.userData.debugFxLabel = spec.label
@@ -525,7 +543,9 @@ function updateCollisionDebugFx(group, progress) {
   if (!group) return
   for (const marker of group.children) {
     const center = marker.userData.debugFxCenter ?? 0.5
-    const intensity = clamp(1 - Math.abs(progress - center) / 0.18, 0, 1)
+    const intensity = marker.userData.eventTime !== undefined
+      ? (progress < center ? 0 : clamp(1 - (progress - center) / 0.18, 0, 1))
+      : clamp(1 - Math.abs(progress - center) / 0.18, 0, 1)
     marker.visible = intensity > 0.01
     if (!marker.visible) continue
     marker.scale.setScalar(0.72 + intensity * 0.9)
@@ -740,6 +760,13 @@ export function Board3D({
     }
     applyResize()
     updateCamera()
+    // Read-only projection bridge for real pointer-driven browser regression.
+    host.projectCell = (hex) => {
+      const world = axialToWorld(hex)
+      const point = projectedPoint(new THREE.Vector3(world.x, 0, world.z), camera, viewportWidth, viewportHeight)
+      const rect = renderer.domElement.getBoundingClientRect()
+      return { x: rect.left + point.x, y: rect.top + point.y }
+    }
     const observer = new ResizeObserver(applyResize)
     observer.observe(host)
 
@@ -865,7 +892,9 @@ export function Board3D({
             actorPoints,
           }
           clearCollisionDebugFx(collisionFxGroupRef.current)
-          const fxSpecs = showDebugCollisionFxRef.current
+          const fxSpecs = activePlayback.events
+            ? encounterFxSpecs(activePlayback.events)
+            : showDebugCollisionFxRef.current
             ? collisionDebugFxSpecs(activePlayback.conflictEvents ?? [])
             : []
           fxSpecs.forEach((spec, index) => collisionFxGroupRef.current?.add(createCollisionDebugMarker(spec, index, fxSpecs.length)))
@@ -873,14 +902,17 @@ export function Board3D({
         }
         const playerEnd = clamp(activePlayback.playerPlaybackEnd ?? 1, 0.05, 1)
         const playerProgress = clamp(progress / playerEnd, 0, 1)
-        const sampled = sampleRecord(activePlayback.samples, playerProgress)
-        const pathPosition = samplePoint(playbackCacheRef.current.playerPoints, playerProgress)
+        const sampled = activePlayback.actorSamples
+          ? sampleTimedRecord(activePlayback.samples, progress)
+          : sampleRecord(activePlayback.samples, playerProgress)
+        const pathPosition = activePlayback.actorSamples ? null : samplePoint(playbackCacheRef.current.playerPoints, playerProgress)
         if (sampled) {
           visualState = {
             ...stateRef.current,
             position: pathPosition ? { x: pathPosition.x, z: pathPosition.z } : sampled.position,
             velocity: sampled.velocity,
-            axisId: sampled.axisId ?? (playerProgress > 0.65 ? activePlayback.finalState?.axisId : stateRef.current.axisId),
+            axisId: activePlayback.actorSamples ? sampled.axisId : sampled.axisId ?? (playerProgress > 0.65 ? activePlayback.finalState?.axisId : stateRef.current.axisId),
+            gameplayActor: sampled.actor,
           }
         }
         host.dataset.playbackProgress = progress.toFixed(3)
@@ -904,7 +936,9 @@ export function Board3D({
       }
 
       const playerObject = playerRef.current
-      const overrideLevel = downOverrideLevel(axisDisplayOverrideRef.current)
+      const liveActor = visualState.gameplayActor
+      const liveOverride = liveActor ? (liveActor.downPrepared || liveActor.downM > 0 ? `down-${liveActor.downM}` : 'auto') : axisDisplayOverrideRef.current
+      const overrideLevel = downOverrideLevel(liveOverride)
       const actualLevel = momentumLevel(Math.hypot(visualState.velocity?.x ?? 0, visualState.velocity?.z ?? 0))
       if (playerObject) {
         playerObject.position.set(visualState.position.x, 0.1, visualState.position.z)
@@ -919,7 +953,7 @@ export function Board3D({
         viewportHeight,
         visualState,
         spatialMode,
-        axisDisplayOverrideRef.current,
+        liveOverride,
       )
       host.dataset.axisDirection = renderedAxis
       host.dataset.axisQuantization = spatialMode === 'discrete' ? 'hex6' : 'continuous'
@@ -937,7 +971,11 @@ export function Board3D({
         let position = axialToWorld(actor.hex)
         let y = 0.1
         let actorProgress = 0
-        if (activePlayback) {
+        const timedActor = activePlayback?.actorSamples?.[actor.id]
+          ? sampleTimedRecord(activePlayback.actorSamples[actor.id], progress) : null
+        if (timedActor) {
+          position = timedActor.position
+        } else if (activePlayback) {
           const points = playbackCacheRef.current.actorPoints.get(actor.id)
           if (points?.length > 1) {
             const window = activePlayback.actorPlaybackWindows?.[actor.id]
@@ -952,7 +990,7 @@ export function Board3D({
         object.position.set(position.x, y, position.z)
 
         const finalActor = finalActorById.get(actor.id)
-        const displayActor = activePlayback && actorProgress > 0.01 && finalActor ? finalActor : actor
+        const displayActor = timedActor ? { ...timedActor.actor, momentumLevel: timedActor.actor.hM } : activePlayback && actorProgress > 0.01 && finalActor ? finalActor : actor
         const displayM = Number.isFinite(displayActor?.momentumLevel)
           ? Math.max(0, Math.round(displayActor.momentumLevel))
           : momentumLevel(Math.hypot(displayActor?.velocity?.x ?? 0, displayActor?.velocity?.z ?? 0))
@@ -986,6 +1024,7 @@ export function Board3D({
       disposeObject(collisionFxGroup)
       disposeObject(player)
       renderer.dispose()
+      delete host.projectCell
       host.replaceChildren()
     }
   }, [boardRadius])
@@ -1122,7 +1161,7 @@ export function Board3D({
     if (!previewPlan?.valid || previewPlan.samples?.length < 2) return
 
     const group = new THREE.Group()
-    const playerPoints = planPathPoints(previewPlan, 0.27)
+    const playerPoints = previewPlan.actorSamples ? uniqueWorldPoints(previewPlan.samples, 0.27) : planPathPoints(previewPlan, 0.27)
     const playerPath = createDashedPath(playerPoints, PLAYER_PATH_BLUE)
     if (playerPath) {
       group.add(playerPath)
@@ -1139,7 +1178,7 @@ export function Board3D({
     let knockbackCount = 0
     for (const [id, path] of Object.entries(previewPlan.actorTrajectories ?? {})) {
       if (!path || path.length < 2) continue
-      const points = trajectoryPathPoints(path, 0.34, wallActors.has(id) || actorPolylineIds.has(id))
+      const points = trajectoryPathPoints(path, 0.34, Boolean(previewPlan.actorSamples) || wallActors.has(id) || actorPolylineIds.has(id))
       const line = createDashedPath(points, DUMMY_YELLOW, 1)
       if (line) {
         group.add(line)

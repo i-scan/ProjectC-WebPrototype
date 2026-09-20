@@ -303,3 +303,11 @@
     grid-template-columns: 1fr;
   }
 }
+.gameplay-ready-label { color: #91dfed; font-size: 11px; }
+.gameplay-lab fieldset { min-width: 0; margin: 0; }
+.gameplay-lab fieldset:disabled { opacity: .65; }
+.gameplay-timeline { padding-left: 0; list-style: none; max-height: 230px; overflow: auto; font-size: 11px; }
+.gameplay-timeline li { padding: 4px 5px; border-left: 2px solid #43515e; }
+.gameplay-timeline li.is-elapsed { border-left-color: #8bddf1; background: #16333c; }
+.gameplay-timeline time { color: #8bddf1; font-variant-numeric: tabular-nums; }
+.gameplay-timeline small { display: block; color: #acbac6; }

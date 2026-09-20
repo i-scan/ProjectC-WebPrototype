@@ -3,6 +3,7 @@ import { Board3D } from '../../ui/Board3D.jsx'
 import { axialKey, worldToAxial } from '../../sim/hex.js'
 import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
 import { AT_VISUAL_MS } from '../../sim/solver.js'
+import { playbackFromPlan } from '../../sim/plan-playback.js'
 import {
   TRAJECTORY_BASE_DISSIPATION,
   TRAJECTORY_CELL_AUTHORITY_RULE,
@@ -34,23 +35,6 @@ function actionTitle(actionId, momentum) {
   if (actionId === 'heavy-drive') return 'Heavy Drive'
   if (actionId === 'skip') return 'Skip'
   return momentum > 0 ? 'Steer' : 'Move'
-}
-
-function playbackFromPlan(plan, id, durationMs) {
-  return {
-    ...plan,
-    id,
-    startedAt: performance.now(),
-    pausedAt: null,
-    pausedTotal: 0,
-    durationMs,
-    spatialMode: 'hybrid',
-    destinationDriven: false,
-    actorTrajectories: plan.actorTrajectories ?? {},
-    actorPlaybackWindows: plan.actorPlaybackWindows ?? {},
-    actorStates: plan.actorStates ?? [],
-    playerPlaybackEnd: plan.playerPlaybackEnd ?? 1,
-  }
 }
 
 function presetState(level, axisId = 'E') {
@@ -182,7 +166,7 @@ export function TrajectoryLab() {
   const beginPlan = (plan) => {
     if (playback || !plan?.valid) return false
     saveHistory()
-    setPlayback(playbackFromPlan(plan, playbackIdRef.current++, atVisualMs))
+    setPlayback(playbackFromPlan({ ...plan, spatialMode: 'hybrid', destinationDriven: false }, playbackIdRef.current++, atVisualMs))
     setLastEvent(`${plan.summary} · resolving ${plan.travelSteps} center-to-center Cell segment${plan.travelSteps === 1 ? '' : 's'} inside this 1 AT.`)
     return true
   }

@@ -23,3 +23,13 @@ jobs:
       - run: pnpm build
       - run: pnpm verify:dist
       - run: pnpm verify:browser
+      - name: Upload Gameplay playback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gameplay-playback-${{ github.sha }}
+          path: |
+            artifacts/gameplay-*.png
+            artifacts/gameplay-playback.json
+          if-no-files-found: warn
+          retention-days: 14
