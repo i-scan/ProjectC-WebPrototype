@@ -9,6 +9,7 @@ import {
 import {
   GAMEPLAY_SPATIAL_AUTHORITY,
   GAMEPLAY_SPATIAL_REFLECTION_RULE,
+  gameplayActorToTrajectoryState,
   resolveTrajectoryGameplayAction,
   trajectoryPreviewForGameplay,
   usesTrajectoryRuntime,
@@ -368,7 +369,7 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     conflictEvents: trajectoryConflictEvents,
     traversedCells: playerPlan?.trajectoryPlan?.pathCells ?? tracks[player.id].map((record) => record.actor.hex),
     collisions: [...(playerPlan?.trajectoryPlan?.collisions ?? []), ...events.filter((event) => event.type === 'Collision')],
-    finalState: { ...actorSpatialState(finalPlayer, worldAt + 1), actors: finalEnemies.map(actorBoardRecord),
+    finalState: { ...gameplayActorToTrajectoryState(finalPlayer, worldAt + 1), actors: finalEnemies.map(actorBoardRecord),
       player: clone(finalPlayer), enemies: clone(finalEnemies), thermal: timeline.finalState },
     domainTrace: domain.trace,
   }
