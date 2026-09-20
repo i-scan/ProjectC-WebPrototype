@@ -336,6 +336,12 @@ export function GameplayLab() {
       }),
       reset,
       loadDebugScenario,
+      setWalls: (enabled) => {
+        if (playbackRef.current) return false
+        setWallsEnabled(Boolean(enabled))
+        clearAim()
+        return true
+      },
     }
     return () => { delete window.__PROJECTC_GAMEPLAY_LAB__ }
   })
