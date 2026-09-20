@@ -281,6 +281,26 @@ export function GameplayLab() {
     clearAim()
   }
 
+  const loadDebugScenario = ({
+    player: nextPlayer,
+    enemies: nextEnemies = [],
+    thermal: nextThermal = null,
+    worldAt: nextWorldAt = 0,
+    selectedActionId: nextActionId = 'move',
+  } = {}) => {
+    if (playbackRef.current || !nextPlayer) return false
+    setPlayer(createMomentumActor(nextPlayer))
+    setEnemies(nextEnemies.map(createMomentumActor))
+    if (nextThermal) setThermal({ ...nextThermal })
+    setWorldAt(Number(nextWorldAt) || 0)
+    setSelectedActionId(nextActionId)
+    setHistory([])
+    setLastPlan(null)
+    setLastTrace('Debug scenario loaded for deterministic browser validation.')
+    clearAim()
+    return true
+  }
+
   useEffect(() => {
     window.__PROJECTC_GAMEPLAY_LAB__ = {
       snapshot: () => ({
@@ -315,6 +335,7 @@ export function GameplayLab() {
         historyEntries: history.length,
       }),
       reset,
+      loadDebugScenario,
     }
     return () => { delete window.__PROJECTC_GAMEPLAY_LAB__ }
   })
