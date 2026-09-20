@@ -35,6 +35,7 @@ import {
   GAMEPLAY_SPATIAL_AUTHORITY,
   GAMEPLAY_SPATIAL_PATH_RULE,
   GAMEPLAY_SPATIAL_REFLECTION_RULE,
+  gameplayActorToTrajectoryState,
   usesTrajectoryRuntime,
 } from './gameplay-lab-runtime.js'
 
@@ -173,7 +174,7 @@ export function GameplayLab() {
   const displayPlayer = visual?.player.actor ?? player
   const displayEnemies = visual ? enemies.map((actor) => visual.actors[actor.id].actor) : enemies
   const displayConfig = playback?.config ?? thermalConfig
-  const playerSpatial = useMemo(() => actorSpatialState(player, worldAt), [player, worldAt])
+  const playerSpatial = useMemo(() => gameplayActorToTrajectoryState(player, worldAt), [player, worldAt])
   const boardActors = useMemo(() => enemies.filter((entry) => entry.hp > 0).map(actorBoardRecord), [enemies])
   const axisDisplayOverride = isDownSide(displayPlayer) ? `down-${displayPlayer.downM}` : 'auto'
 
