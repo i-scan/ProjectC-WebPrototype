@@ -5,7 +5,7 @@ import { ThermalPendulum } from '../thermal/ThermalClockLabV3.jsx'
 import { Board3D } from '../../ui/Board3D.jsx'
 import { createCellWorld } from '../../sim/world.js'
 import { axialKey } from '../../sim/hex.js'
-import { formatThermal } from '../thermal/thermal-clock-model.js'
+import { formatThermal, thermalDiagnostics } from '../thermal/thermal-clock-model.js'
 import {
   thermalConfigFromProfile,
   thermalEnvironment,

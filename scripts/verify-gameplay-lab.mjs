@@ -113,6 +113,7 @@ try {
   await client.send('Page.navigate', { url: pageUrl })
 
   const snapshot = await until('Gameplay runtime', async () => {
+    if (client.errors.length) throw new Error(JSON.stringify(client.errors.at(-1)))
     const value = await client.evaluate('window.__PROJECTC_GAMEPLAY_LAB__?.snapshot?.()')
     return value?.implementation === 'gameplay-momentum-thermal-v1-candidate' ? value : false
   })
