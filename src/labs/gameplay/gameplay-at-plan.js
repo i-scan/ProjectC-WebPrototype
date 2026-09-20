@@ -23,6 +23,33 @@ const momentumFields = (actor) => ({ hM: actor.hM, axisId: actor.axisId, downM: 
 const neighborToward = (from, to) => HEX_DIRECTIONS.map((dir) => ({ q: from.q + dir.q, r: from.r + dir.r }))
   .sort((a, b) => axialDistance(a, to) - axialDistance(b, to))[0]
 
+function mergeTrajectoryUntilEncounter(trajectorySamples, logicalTrack, encounterAt) {
+  if (!trajectorySamples?.length || !logicalTrack?.length || !Number.isFinite(encounterAt)) return logicalTrack
+  const prefix = trajectorySamples
+    .filter((sample) => Number(sample.t ?? 0) < encounterAt)
+    .map((sample) => ({ ...sample, actor: sample.actor ? clone(sample.actor) : undefined }))
+  const spatialContact = sampleTimedRecord(trajectorySamples, encounterAt)
+  const logicalContact = sampleTimedRecord(logicalTrack, encounterAt)
+  const contact = spatialContact && logicalContact
+    ? {
+      ...spatialContact,
+      t: encounterAt,
+      actor: clone(logicalContact.actor),
+    }
+    : (logicalContact ?? spatialContact)
+  const suffix = logicalTrack
+    .filter((sample) => Number(sample.t ?? 0) > encounterAt)
+    .map((sample) => clone(sample))
+  const merged = [...prefix, ...(contact ? [contact] : []), ...suffix]
+  const deduped = []
+  for (const sample of merged) {
+    const prior = deduped.at(-1)
+    if (prior && Math.abs((prior.t ?? 0) - (sample.t ?? 0)) < 1e-8) deduped[deduped.length - 1] = sample
+    else deduped.push(sample)
+  }
+  return deduped
+}
+
 // All telegraphs aim at the SAME Ready snapshot, never a player's future result.
 export function snapshotGameplayIntents(player, enemies, actionId, targetHex) {
   return [{ actorId: player.id, actionId, targetHex: targetHex ? { ...targetHex } : null },
@@ -215,17 +242,27 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     }
   }
   const force = (source, target, amount, axisId, t) => {
-    const forced = forcedDisplace(target, amount, axisId, [...actors.values()], boardRadius)
-    const stops = forced.trace.filter((entry) => ['Boundary stop', 'Chained Encounter hook'].includes(entry.cause))
-    const terminalLoss = stops.reduce((sum, entry) => sum + entry.amount, 0)
+    const forced = forcedDisplace(target, amount, axisId, [...actors.values()], boardRadius, obstacles)
+    const stops = forced.trace.filter((entry) => ['Chained Encounter hook', 'Surface stop'].includes(entry.cause))
+    const terminalLoss = stops.reduce((sum, entry) => sum + (entry.amount ?? 0), 0)
     const contactLoss = Math.max(0, forced.dissipatedM - terminalLoss)
     const next = actors.get(target.id)
     cancelled.add(target.id)
     for (let index = queue.length - 1; index >= 0; index -= 1) {
       if (queue[index].actorId === target.id && ['forced', 'terminal-stop'].includes(queue[index].kind)) queue.splice(index, 1)
     }
-    Object.assign(next, momentumFields(forced.actor))
-    if (forced.path.length) next.hM = forced.gainedIncomingH
+
+    // Contact snapshot: Incoming H exists immediately; Forced Use is applied on
+    // the first successful Travel by the shared CellMotion runtime.
+    next.downM = forced.actor.downM
+    next.downPrepared = forced.actor.downPrepared
+    if (forced.gainedIncomingH > 0) {
+      next.axisId = axisId
+      next.hM = forced.gainedIncomingH
+    } else {
+      Object.assign(next, momentumFields(forced.actor))
+    }
+
     emit('Collision', t, { actorId: source.id, targetId: target.id, hex: target.hex,
       axisId, incomingH: amount, dissipatedM: contactLoss })
     if (forced.trace.some((entry) => entry.cause === 'Down M resistance')) {
@@ -240,17 +277,47 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       emit('ImpactPayload', t, { actorId: source.id, targetId: target.id, hex: target.hex, damage })
     }
     record(target.id, t)
-    if (forced.path.length) {
-      emit('ForcedMotion', t, { actorId: target.id, hex: target.hex, axisId, path: forced.path })
-      forced.path.forEach((hex, index) => queue.push({ kind: 'forced', t: t + (0.94 - t) * (index + 1) / forced.path.length,
-        actorId: target.id, hex, start: t, momentum: momentumFields(forced.actor) }))
+
+    for (const collision of forced.motion?.collisions ?? []) {
+      const reflectionAt = t + (0.94 - t) * Math.max(0, Math.min(1, Number(collision.t ?? 0)))
+      emit('SurfaceReflection', reflectionAt, {
+        actorId: target.id,
+        hex: collision.contactCell ?? target.hex,
+        axisId: collision.axisAfter ?? axisId,
+        authority: GAMEPLAY_SPATIAL_REFLECTION_RULE,
+        forced: true,
+      })
     }
+
+    const pathStates = forced.pathStates?.length
+      ? forced.pathStates
+      : forced.path.map((hex) => ({ hex, ...momentumFields(forced.actor) }))
+    let firstMoveAt = null
+    if (pathStates.length) {
+      emit('ForcedMotion', t, { actorId: target.id, hex: target.hex, axisId, path: forced.path,
+        reflectionCount: forced.motion?.reflectionCount ?? 0 })
+      pathStates.forEach((state, index) => {
+        const moveAt = t + (0.94 - t) * (index + 1) / pathStates.length
+        if (firstMoveAt === null) firstMoveAt = moveAt
+        queue.push({ kind: 'forced', t: moveAt, actorId: target.id, hex: state.hex, start: t,
+          momentum: {
+            hM: state.hM,
+            axisId: state.axisId,
+            downM: 0,
+            downPrepared: false,
+          } })
+      })
+    } else {
+      Object.assign(next, momentumFields(forced.actor))
+    }
+
     for (const entry of stops) {
-      queue.push({ kind: 'terminal-stop', t: forced.path.length ? 0.94 : t,
+      queue.push({ kind: 'terminal-stop', t: pathStates.length ? 0.94 : t,
         actorId: target.id, sourceId: source.id, stop: entry, axisId })
     }
-    return forced.path.length > 0
+    return { moved: pathStates.length > 0, forced, firstMoveAt }
   }
+
   queue.push({ kind: 'attack-check', t: 0.15 }, { kind: 'attack-check', t: 0.85 })
   while (queue.length) {
     queue.sort((a, b) => a.t - b.t || (a.actorId ?? '').localeCompare(b.actorId ?? ''))
@@ -300,26 +367,97 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       record(id, t)
       continue
     }
-    // Same-time competing claims are an explicit unresolved candidate, not an
-    // array-order winner. Hold both and expose the Encounter snapshot.
+    // Resolve the already-documented opposing-H settlement instead of the old
+    // P0 "hold both" placeholder. Equal H cancels to zero and both keep their
+    // pre-contact Cells; unequal H transfers the winner's residual into Forced Motion.
     const competing = queue.find((other) => other.kind === 'travel' && Math.abs(other.t - t) < 1e-8
       && other.actorId !== id && !cancelled.has(other.actorId) && sameCell(other.hex, step.hex))
     if (competing && !occupant) {
+      const other = actors.get(competing.actorId)
+      const aPower = Math.max(0, actor.hM)
+      const bPower = Math.max(0, other?.hM ?? 0)
       cancelled.add(id); cancelled.add(competing.actorId)
-      emit('Encounter', t, { kind: 'SimultaneousClaim', actorId: id, targetId: competing.actorId, hex: step.hex,
-        outcome: 'hold-both-p0; settlement-tie-break-deferred' })
-      emit('Collision', t, { actorId: id, targetId: competing.actorId, hex: step.hex, dissipatedM: 0 })
-      record(id, t); record(competing.actorId, t)
+
+      if (aPower === bPower) {
+        if (aPower > 0) {
+          actor.hM = 0
+          other.hM = 0
+          addThermal([{ source: 'Collision dissipatedM', amount: aPower,
+            polarity: 'hotward', factorKind: 'collision', scope: 'both' }], t, id, competing.actorId)
+        }
+        emit('Encounter', t, { kind: 'SimultaneousClaim', actorId: id, targetId: competing.actorId, hex: step.hex,
+          outcome: 'equal-H-cancel; hold-pre-contact-cells', aPower, bPower })
+        emit('Collision', t, { actorId: id, targetId: competing.actorId, hex: step.hex, dissipatedM: aPower })
+        record(id, t); record(competing.actorId, t)
+        continue
+      }
+
+      const winner = aPower > bPower ? actor : other
+      const loser = aPower > bPower ? other : actor
+      const winnerId = winner.id
+      const loserId = loser.id
+      const winnerPower = Math.max(aPower, bPower)
+      const loserPower = Math.min(aPower, bPower)
+      const winnerAxis = directionIdBetween(winner.hex, step.hex) ?? winner.axisId
+      emit('Encounter', t, {
+        kind: 'SimultaneousClaim',
+        actorId: winnerId,
+        targetId: loserId,
+        hex: step.hex,
+        outcome: 'unequal-H-settlement',
+        winnerPower,
+        loserPower,
+      })
+      const settlement = force(clone(winner), clone(loser), winnerPower, winnerAxis, t)
+      winner.hM = 0
+      winner.axisId = winnerAxis
+      emit('MomentumTransfer', t, {
+        actorId: winnerId,
+        targetId: loserId,
+        fromM: winnerPower,
+        toM: 0,
+        cause: 'Transfer',
+        residual: settlement.forced?.gainedIncomingH ?? 0,
+      })
+      if (settlement.moved) {
+        winner.hex = { ...step.hex }
+        travelled.add(winnerId)
+        emit('Travel', t, { actorId: winnerId, hex: winner.hex, settlement: true })
+      }
+      record(winnerId, t)
+      record(loserId, t)
       continue
     }
     if (occupant) {
       attacks(t)
       cancelled.add(id)
-      emit('Encounter', t, { kind: 'Collision', actorId: id, targetId: occupant.id, hex: step.hex })
-      const moved = force(clone(actor), clone(occupant), actor.hM,
-        directionIdBetween(actor.hex, step.hex), t)
-      // The target vacates during Forced Motion, not instantly at contact.
-      if (moved && step.kind !== 'forced') queue.push({ kind: 'settle', t: 0.96, actorId: id, hex: step.hex })
+      const impactM = Math.max(0, actor.hM)
+      const impactAxis = directionIdBetween(actor.hex, step.hex) ?? actor.axisId
+      emit('Encounter', t, { kind: 'Collision', actorId: id, targetId: occupant.id, hex: step.hex,
+        incomingH: impactM })
+      const settlement = force(clone(actor), clone(occupant), impactM, impactAxis, t)
+
+      // Strike / settlement transfers the source's current H. This was missing
+      // from the Gameplay adapter, leaving the source with stale pre-contact H.
+      if (impactM > 0) {
+        actor.hM = 0
+        actor.axisId = impactAxis
+        emit('MomentumTransfer', t, {
+          actorId: id,
+          targetId: occupant.id,
+          fromM: impactM,
+          toM: 0,
+          cause: 'Transfer',
+          residual: settlement.forced?.gainedIncomingH ?? 0,
+        })
+      }
+
+      // The source may claim the contacted Cell as soon as the target completes
+      // its first successful Forced Travel; do not wait until the end of the AT.
+      if (settlement.moved && step.kind !== 'forced') {
+        const settleAt = Math.min(0.98, Math.max(t + 0.001, (settlement.firstMoveAt ?? t) + 0.001))
+        queue.push({ kind: 'settle', t: settleAt, actorId: id, hex: step.hex })
+      }
       record(id, t)
       continue
     }
@@ -355,7 +493,15 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   const actorTrajectories = Object.fromEntries(enemies.map((actor) => [actor.id,
     tracks[actor.id].map((record) => record.actor.hex).filter((hex, index, list) => index === 0 || !sameCell(hex, list[index - 1]))]))
   const playerPlan = plans.get(player.id)
-  const playerSamples = playerPlan?.trajectorySamples?.length ? playerPlan.trajectorySamples : tracks[player.id]
+  const firstPlayerEncounterAt = events
+    .filter((event) => ['Encounter', 'Collision', 'ForcedMotion', 'DeferredEncounter', 'Clash'].includes(event.type)
+      && (event.actorId === player.id || event.targetId === player.id))
+    .reduce((first, event) => Math.min(first, event.t), Infinity)
+  const playerSamples = playerPlan?.trajectorySamples?.length
+    ? (Number.isFinite(firstPlayerEncounterAt)
+      ? mergeTrajectoryUntilEncounter(playerPlan.trajectorySamples, tracks[player.id], firstPlayerEncounterAt)
+      : playerPlan.trajectorySamples)
+    : tracks[player.id]
   const trajectoryConflictEvents = playerPlan?.trajectoryPlan?.conflictEvents ?? []
   return {
     valid: true, contract: GAMEPLAY_TIMELINE, durationAt: 1, intents, events,
