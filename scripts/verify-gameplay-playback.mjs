@@ -167,6 +167,8 @@ try {
   // Exact regression reported during manual playtest: an HM3 player and a
   // moving M0 enemy cross the same edge at the same timeline instant. Resolve
   // them from one snapshot; M0 must never cancel HM3 merely by actor-id order.
+  assert(await client.evaluate("window.__PROJECTC_GAMEPLAY_LAB__.setWalls(false)"), 'Could not disable walls for HM3/M0 fixture')
+  await until('walls disabled', async () => (await snapshot())?.wallsEnabled === false && await snapshot())
   assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.loadDebugScenario(${JSON.stringify({
     player: { id: 'player', hex: { q: 0, r: 0 }, hp: 100, hM: 3, axisId: 'E' },
     enemies: [{ id: 'enemy-a', hex: { q: 3, r: 0 }, hp: 40, hM: 0, axisId: 'W', intent: 'move', intentIndex: 0 }],
