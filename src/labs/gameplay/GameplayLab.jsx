@@ -111,6 +111,10 @@ export function GameplayLab() {
     ...(current ?? liveThermalConfig),
     [key]: Number(value),
   }))
+  const tuneThermalState = (key, value) => {
+    if (playbackRef.current) return
+    setThermal((current) => ({ ...current, [key]: Number(value) }))
+  }
   const allActors = useMemo(() => [player, ...enemies], [player, enemies])
   const reachable = useMemo(
     () => reachableTargets(player, selectedActionId, BOARD_RADIUS, allActors),
@@ -507,11 +511,16 @@ export function GameplayLab() {
               <div><dt>cEff</dt><dd>{thermalDiagnostics(thermal, thermalConfig).cEff.toFixed(3)}</dd></div>
               <div><dt>Profile</dt><dd>{profile.id} r{profile.revision}{thermalConfigOverride ? ' · LOCAL' : ' · LIVE'}</dd></div>
             </dl>
+            <label><span>Current T</span><input aria-label="Gameplay Thermal current temperature" type="range" min="-6" max="6" step="0.05" value={thermal.temperature} onChange={(event) => tuneThermalState('temperature', event.target.value)} /><strong>{thermal.temperature.toFixed(2)}</strong></label>
+            <label><span>Current Drift V</span><input aria-label="Gameplay Thermal current drift" type="range" min="-3" max="3" step="0.05" value={thermal.drift} onChange={(event) => tuneThermalState('drift', event.target.value)} /><strong>{thermal.drift.toFixed(2)}</strong></label>
+            <label><span>Set Point S</span><input aria-label="Gameplay Thermal setPoint" type="range" min="-4" max="4" step="0.05" value={thermal.setPoint} onChange={(event) => tuneThermalState('setPoint', event.target.value)} /><strong>{thermal.setPoint.toFixed(2)}</strong></label>
             <label><span>kS · restoring</span><input aria-label="Gameplay Thermal restoringK" type="range" min="0" max="2" step="0.01" value={thermalConfig.restoringK} onChange={(event) => tuneThermal('restoringK', event.target.value)} /><strong>{thermalConfig.restoringK.toFixed(2)}</strong></label>
             <label><span>cBase · damping</span><input aria-label="Gameplay Thermal baseDamping" type="range" min="0" max="3" step="0.01" value={thermalConfig.baseDamping} onChange={(event) => tuneThermal('baseDamping', event.target.value)} /><strong>{thermalConfig.baseDamping.toFixed(2)}</strong></label>
             <label><span>Tenv</span><input aria-label="Gameplay Thermal environmentTemperature" type="range" min="-6" max="6" step="0.1" value={thermalConfig.environmentTemperature} onChange={(event) => tuneThermal('environmentTemperature', event.target.value)} /><strong>{thermalConfig.environmentTemperature.toFixed(1)}</strong></label>
             <label><span>kE · coupling</span><input aria-label="Gameplay Thermal environmentCoupling" type="range" min="0" max="1" step="0.01" value={thermalConfig.environmentCoupling} onChange={(event) => tuneThermal('environmentCoupling', event.target.value)} /><strong>{thermalConfig.environmentCoupling.toFixed(2)}</strong></label>
             <label><span>cEnvGain</span><input aria-label="Gameplay Thermal environmentDampingGain" type="range" min="0" max="4" step="0.05" value={thermalConfig.environmentDampingGain} onChange={(event) => tuneThermal('environmentDampingGain', event.target.value)} /><strong>{thermalConfig.environmentDampingGain.toFixed(2)}</strong></label>
+            <label><span>Clamp Min</span><input aria-label="Gameplay Thermal clampMin" type="range" min="-12" max="0" step="0.5" value={thermalConfig.clampMin} onChange={(event) => tuneThermal('clampMin', Math.min(Number(event.target.value), thermalConfig.clampMax - 0.5))} /><strong>{thermalConfig.clampMin.toFixed(1)}</strong></label>
+            <label><span>Clamp Max</span><input aria-label="Gameplay Thermal clampMax" type="range" min="0" max="12" step="0.5" value={thermalConfig.clampMax} onChange={(event) => tuneThermal('clampMax', Math.max(Number(event.target.value), thermalConfig.clampMin + 0.5))} /><strong>{thermalConfig.clampMax.toFixed(1)}</strong></label>
             <div className="gameplay-toggle-row"><button type="button" disabled={!thermalConfigOverride} onClick={() => setThermalConfigOverride(null)}>Use Live Thermal Profile</button></div>
           </fieldset>
 
