@@ -378,7 +378,7 @@ export function GameplayLab() {
             <p>{previewResolution?.valid
               ? traceSummary(previewResolution, previewThermalEvents, previewDomain.trace)
               : requiresTarget
-                ? (reachable.length ? 'Select a highlighted target / direction.' : 'No legal target for this action in the current Momentum state.')
+                ? (trajectoryTargetInput ? 'Select any direction Cell; Trajectory Lab resolves the actual path / reflection.' : (reachable.length ? 'Select a highlighted target / direction.' : 'No legal target for this action in the current Momentum state.'))
                 : previewResolution?.reason || 'Ready.'}</p>
             <dl className="state-list compact">
               <div><dt>Ready Momentum</dt><dd>{momentumBand(previewDomain.actor)}</dd></div>
@@ -445,7 +445,7 @@ export function GameplayLab() {
 
           <section className="action-hand gameplay-action-hand">
             <div className="hand-heading">
-              <div><h2>Gameplay Actions · Momentum v1</h2><p>Move / Drive push Horizontal; Brace / Skip settle toward Down; Launch / Release cash Down back into Horizontal pressure.</p></div>
+              <div><h2>Gameplay Actions · Momentum v1</h2><p>Move / Drive / horizontal Skip execute the Trajectory Lab runtime unchanged; Gameplay adds Down / Attack / Launch / Release and the M↔T bridge.</p></div>
               <span className="gameplay-ready-label" role="status">{ready ? 'READY · select → hover → click target' : `PLAYING · ${(uiProgress * 100).toFixed(0)}%`}</span>
             </div>
             <div className="action-row gameplay-action-row">
