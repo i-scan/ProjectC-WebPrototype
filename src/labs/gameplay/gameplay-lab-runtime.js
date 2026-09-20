@@ -20,7 +20,9 @@ const HORIZONTAL_ACTION_MAP = Object.freeze({
 })
 
 export function usesTrajectoryRuntime(actor, actionId) {
-  return Boolean(HORIZONTAL_ACTION_MAP[actionId]) && !isDownSide(actor)
+  if (!HORIZONTAL_ACTION_MAP[actionId] || isDownSide(actor)) return false
+  if (actionId === 'skip') return Boolean(actor.axisId || actor.hM > 0)
+  return true
 }
 
 export function gameplayActorToTrajectoryState(actor, worldAt = 0) {
