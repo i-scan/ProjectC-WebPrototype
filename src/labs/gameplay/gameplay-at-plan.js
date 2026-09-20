@@ -376,8 +376,26 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
 
 export function sampleGameplayATPlan(plan, t) {
   const time = Math.max(0, Math.min(1, t))
-  return { t: time, player: sampleTimedRecord(plan.samples, time),
+  const spatialPlayer = sampleTimedRecord(plan.samples, time)
+  const logicalPlayer = sampleTimedRecord(plan.actorSamples?.player ?? [], time)
+  const player = spatialPlayer && logicalPlayer
+    ? {
+      ...logicalPlayer,
+      ...spatialPlayer,
+      actor: {
+        ...logicalPlayer.actor,
+        ...(spatialPlayer.actor ?? {}),
+        hp: logicalPlayer.actor?.hp ?? spatialPlayer.actor?.hp,
+        downM: logicalPlayer.actor?.downM ?? spatialPlayer.actor?.downM,
+        downPrepared: logicalPlayer.actor?.downPrepared ?? spatialPlayer.actor?.downPrepared,
+      },
+    }
+    : spatialPlayer ?? logicalPlayer
+  return {
+    t: time,
+    player,
     actors: Object.fromEntries(Object.entries(plan.actorSamples).map(([id, samples]) => [id, sampleTimedRecord(samples, time)])),
     thermal: sampleThermalTimeline(plan.thermalSegments, time),
-    events: plan.events.filter((event) => event.t <= time) }
+    events: plan.events.filter((event) => event.t <= time),
+  }
 }
