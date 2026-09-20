@@ -149,6 +149,66 @@ describe('Gameplay AT plan: a frozen, queryable 1AT', () => {
   })
 })
 
+describe('Encounter regression: Momentum settlement and reflection', () => {
+  it('lets HM3 Strike a stationary M0 actor instead of snapping both back to Ready cells', () => {
+    const player = createMomentumActor({ hex: { q: 0, r: 0 }, hM: 3, axisId: 'E' })
+    const enemy = target({ hex: { q: 1, r: 0 }, hM: 0, axisId: null, intent: 'skip' })
+    const result = plan({ player, enemies: [enemy], actionId: 'move', targetHex: { q: 3, r: 0 } })
+
+    expect(result.events.some((event) => event.type === 'MomentumTransfer' && event.actorId === 'player')).toBe(true)
+    expect(result.events.some((event) => event.type === 'ForcedMotion' && event.actorId === 'target')).toBe(true)
+    expect(result.finalState.player.hex).toEqual({ q: 1, r: 0 })
+    expect(result.finalState.player.hM).toBe(0)
+    expect(result.finalState.enemies[0].hex).toEqual({ q: 4, r: 0 })
+    expect(result.finalState.enemies[0].hM).toBe(2)
+
+    const end = sampleGameplayATPlan(result, 1)
+    expect(end.player.actor).toEqual(result.finalState.player)
+    expect(end.player.position).toEqual(result.finalState.position)
+    expect(end.actors.target.actor).toEqual(result.finalState.enemies[0])
+  })
+
+  it('resolves an HM3-vs-M0 same-time edge crossing from one snapshot, independent of actor queue order', () => {
+    const player = createMomentumActor({ hex: { q: 0, r: 0 }, hM: 3, axisId: 'E' })
+    const enemy = target({ hex: { q: 3, r: 0 }, hM: 0, axisId: 'W', intent: 'move' })
+    const result = plan({ player, enemies: [enemy], actionId: 'move', targetHex: { q: 3, r: 0 } })
+    const crossing = result.events.find((event) => event.type === 'Encounter' && event.kind === 'EdgeCrossing')
+
+    expect(crossing).toMatchObject({
+      actorId: 'player',
+      targetId: 'target',
+      outcome: 'unequal-H-settlement',
+      winnerPower: 2,
+      loserPower: 0,
+    })
+    expect(result.events.some((event) => event.type === 'MomentumTransfer' && event.actorId === 'player')).toBe(true)
+    expect(result.finalState.player.hex).toEqual({ q: 3, r: 0 })
+    expect(result.finalState.player.hM).toBe(0)
+    expect(result.finalState.enemies[0].hex.q).toBeGreaterThan(3)
+    expect(result.events.some((event) => event.outcome === 'hold-both-p0; settlement-tie-break-deferred')).toBe(false)
+  })
+
+  it('routes post-collision Forced Motion through CellMotion wall reflection', () => {
+    const wall = { id: 'forced-reflect-wall', hex: { q: 4, r: 0 }, kind: 'hard', wallAxis: 'NS' }
+    const player = createMomentumActor({ hex: { q: 0, r: 0 }, downM: 3, downPrepared: true })
+    const enemy = target({ hex: { q: 1, r: 0 }, hM: 0, axisId: null, intent: 'skip' })
+    const result = plan({
+      player,
+      enemies: [enemy],
+      actionId: 'release',
+      targetHex: { q: 1, r: 0 },
+      obstacles: [wall],
+    })
+
+    const reflection = result.events.find((event) => event.type === 'SurfaceReflection' && event.actorId === 'target')
+    expect(reflection).toMatchObject({ forced: true, axisId: 'W' })
+    expect(result.events.find((event) => event.type === 'ForcedMotion')?.reflectionCount).toBe(1)
+    expect(result.finalState.enemies[0].hex).toEqual({ q: 3, r: 0 })
+    expect(result.finalState.enemies[0].axisId).toBe('W')
+    expect(result.finalState.enemies[0].hM).toBe(2)
+  })
+})
+
 describe('Encounter timeline adapter', () => {
   it('applies boundary dissipation heat at the terminal contact, not at the initial Release', () => {
     const result = plan({ player: createMomentumActor({ hex: { q: 3, r: 0 }, downM: 3, downPrepared: true }),
