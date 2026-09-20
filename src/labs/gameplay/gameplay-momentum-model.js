@@ -6,6 +6,7 @@ import {
   directionIdBetween,
   directionVector,
 } from '../../sim/hex.js'
+import { runCellMotion } from '../../sim/cell-motion.js'
 
 export const GAMEPLAY_V1 = 'gameplay-momentum-thermal-v1-candidate'
 export const MAX_HORIZONTAL_M = 3
@@ -412,11 +413,11 @@ function findActorAt(actors, hex, ignoreId = null) {
   return actors.find((entry) => entry.id !== ignoreId && axialKey(entry.hex) === axialKey(hex)) ?? null
 }
 
-export function forcedDisplace(target, incomingH, axisId, actors, boardRadius) {
+export function forcedDisplace(target, incomingH, axisId, actors, boardRadius, obstacles = []) {
   const next = createMomentumActor(target)
   const trace = []
   const thermal = []
-  let remaining = Math.max(0, incomingH)
+  let remaining = Math.max(0, Math.round(incomingH))
   let dissipatedM = 0
 
   if (next.downPrepared || next.downM > 0) {
@@ -446,32 +447,88 @@ export function forcedDisplace(target, incomingH, axisId, actors, boardRadius) {
   const gained = remaining
   if (gained > 0) thermal.push(thermalEvent('Incoming H', gained, 'hotward', 'momentum', 'target'))
 
-  const path = []
-  if (remaining > 0) {
-    let cursor = cloneHex(next.hex)
-    for (let step = 0; step < remaining; step += 1) {
-      const candidate = stepHex(cursor, axisId)
-      if (!inside(candidate, boardRadius)) {
-        dissipatedM += Math.max(1, remaining - step)
-        trace.push({ source: 'Encounter', cause: 'Boundary stop', amount: remaining - step })
-        break
-      }
-      const blocker = findActorAt(actors, candidate, next.id)
-      if (blocker) {
-        dissipatedM += Math.max(1, remaining - step)
-        trace.push({ source: 'Encounter', cause: 'Chained Encounter hook', actorId: blocker.id, amount: remaining - step })
-        break
-      }
-      path.push(candidate)
-      cursor = candidate
-    }
-    if (path.length) next.hex = cloneHex(path.at(-1))
-    next.axisId = axisId
-    next.hM = Math.max(0, remaining - (path.length > 0 ? 1 : 0))
-    cleanDown(next)
+  if (remaining <= 0) {
+    return { actor: next, path: [], pathStates: [], trace, thermal, dissipatedM, gainedIncomingH: gained, motion: null }
   }
 
-  return { actor: next, path, trace, thermal, dissipatedM, gainedIncomingH: gained }
+  let logicalM = remaining
+  let forcedUseResolved = false
+  let blockedActor = null
+  const motion = runCellMotion({
+    startHex: next.hex,
+    initialAxisId: axisId,
+    initialMomentum: Math.min(MAX_HORIZONTAL_M, remaining),
+    travelBudget: remaining,
+    authoredPathCells: [],
+    obstacles,
+    boardRadius,
+    capRemainingByMomentum: true,
+    // Forced reflection reuses the exact Trajectory / CellMotion surface rule:
+    // wall / boundary redirect Axis, reflection itself is not another M tax.
+    reflectionMomentum: ({ momentum }) => ({ momentum, restitution: null }),
+    onEnterCell: ({ to, axisId: entryAxis, remainingTravel }) => {
+      if (!forcedUseResolved) {
+        const fromM = logicalM
+        logicalM = Math.max(0, logicalM - 1)
+        forcedUseResolved = true
+        trace.push({ source: 'Encounter', cause: 'Forced Use', fromM, toM: logicalM })
+      }
+      const blocker = findActorAt(actors, to, next.id)
+      if (blocker) {
+        blockedActor = blocker
+        const lost = Math.max(1, Math.min(logicalM || remainingTravel, remainingTravel))
+        dissipatedM += lost
+        trace.push({ source: 'Encounter', cause: 'Chained Encounter hook', actorId: blocker.id, amount: lost })
+        return { allowed: false, stop: true, momentum: Math.min(MAX_HORIZONTAL_M, logicalM), reason: 'actor-blocked' }
+      }
+      return { allowed: true, momentum: Math.min(MAX_HORIZONTAL_M, logicalM) }
+    },
+  })
+
+  for (const collision of motion.collisions ?? []) {
+    trace.push({
+      source: 'Encounter',
+      cause: 'Surface Reflection',
+      kind: collision.kind,
+      axisBefore: collision.axisBefore,
+      axisAfter: collision.axisAfter,
+      wallAxis: collision.wallAxis ?? null,
+      position: collision.position,
+      t: collision.t,
+    })
+  }
+
+  if (motion.stopReason === 'surface-stop' && logicalM > 0) {
+    dissipatedM += logicalM
+    trace.push({ source: 'Encounter', cause: 'Surface stop', amount: logicalM })
+    logicalM = 0
+  }
+
+  const path = (motion.actualPath ?? []).map(cloneHex)
+  const pathStates = (motion.trace ?? [])
+    .filter((entry) => entry.allowed && (entry.cost ?? 0) > 0 && entry.to)
+    .map((entry) => ({
+      hex: cloneHex(entry.to),
+      axisId: entry.axisAfter ?? motion.axisAfter ?? axisId,
+      hM: Math.max(0, Math.round(entry.momentumAfter ?? logicalM)),
+    }))
+
+  next.hex = cloneHex(motion.finalHex)
+  next.axisId = motion.axisAfter ?? axisId
+  next.hM = Math.max(0, Math.min(MAX_HORIZONTAL_M, logicalM))
+  cleanDown(next)
+
+  return {
+    actor: next,
+    path,
+    pathStates,
+    trace,
+    thermal,
+    dissipatedM,
+    gainedIncomingH: gained,
+    motion,
+    blockedActorId: blockedActor?.id ?? null,
+  }
 }
 
 export function resolveGameplayAction({
