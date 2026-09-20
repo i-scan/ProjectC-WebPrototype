@@ -127,7 +127,7 @@ try {
       sharedThermal: root?.dataset.sharedThermalRuntime ?? '',
       profileId: root?.dataset.profileId ?? '',
       momentumBand: root?.dataset.momentumBand ?? '',
-      heading: text.includes('Gameplay × Momentum × Thermal v1'),
+      heading: document.querySelector('.gameplay-lab .brand h1')?.textContent?.trim() === 'Gameplay Lab',
       pendulum: Boolean(document.querySelector('[data-gameplay-thermal-pendulum="shared-runtime-v1"]')),
       actions: [...document.querySelectorAll('[data-gameplay-action-id]')].map((e) => e.dataset.gameplayActionId),
       experimentControls: text.includes('v1 Experiment Controls'),
