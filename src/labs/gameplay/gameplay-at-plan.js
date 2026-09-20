@@ -247,7 +247,7 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     const terminalLoss = stops.reduce((sum, entry) => sum + (entry.amount ?? 0), 0)
     const contactLoss = Math.max(0, forced.dissipatedM - terminalLoss)
     const next = actors.get(target.id)
-    cancelled.add(target.id)
+    if (amount > 0 || forced.gainedIncomingH > 0 || forced.dissipatedM > 0) cancelled.add(target.id)
     for (let index = queue.length - 1; index >= 0; index -= 1) {
       if (queue[index].actorId === target.id && ['forced', 'terminal-stop'].includes(queue[index].kind)) queue.splice(index, 1)
     }
@@ -367,43 +367,69 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       record(id, t)
       continue
     }
-    // Resolve the already-documented opposing-H settlement instead of the old
-    // P0 "hold both" placeholder. Equal H cancels to zero and both keep their
-    // pre-contact Cells; unequal H transfers the winner's residual into Forced Motion.
-    const competing = queue.find((other) => other.kind === 'travel' && Math.abs(other.t - t) < 1e-8
-      && other.actorId !== id && !cancelled.has(other.actorId) && sameCell(other.hex, step.hex))
-    if (competing && !occupant) {
-      const other = actors.get(competing.actorId)
+    // Same-time movement must resolve from one snapshot. This covers both
+    // actors claiming one empty Cell and actors swapping opposite edges. The
+    // latter used to be order-dependent: an M0 actor processed first could
+    // cancel an HM3 actor before the HM3 collision was evaluated.
+    const competing = queue.find((otherStep) => otherStep.kind === 'travel'
+      && Math.abs(otherStep.t - t) < 1e-8
+      && otherStep.actorId !== id
+      && !cancelled.has(otherStep.actorId))
+    const competingActor = competing ? actors.get(competing.actorId) : null
+    const sameClaim = Boolean(competing && sameCell(competing.hex, step.hex))
+    const edgeSwap = Boolean(competing && competingActor
+      && sameCell(competing.hex, actor.hex)
+      && sameCell(step.hex, competingActor.hex))
+
+    if (competing && competingActor && (sameClaim || edgeSwap)) {
       const aPower = Math.max(0, actor.hM)
-      const bPower = Math.max(0, other?.hM ?? 0)
-      cancelled.add(id); cancelled.add(competing.actorId)
+      const bPower = Math.max(0, competingActor.hM)
+      cancelled.add(id)
+      cancelled.add(competing.actorId)
 
       if (aPower === bPower) {
         if (aPower > 0) {
           actor.hM = 0
-          other.hM = 0
+          competingActor.hM = 0
           addThermal([{ source: 'Collision dissipatedM', amount: aPower,
             polarity: 'hotward', factorKind: 'collision', scope: 'both' }], t, id, competing.actorId)
         }
-        emit('Encounter', t, { kind: 'SimultaneousClaim', actorId: id, targetId: competing.actorId, hex: step.hex,
-          outcome: 'equal-H-cancel; hold-pre-contact-cells', aPower, bPower })
-        emit('Collision', t, { actorId: id, targetId: competing.actorId, hex: step.hex, dissipatedM: aPower })
-        record(id, t); record(competing.actorId, t)
+        emit('Encounter', t, {
+          kind: edgeSwap ? 'EdgeCrossing' : 'SimultaneousClaim',
+          actorId: id,
+          targetId: competing.actorId,
+          hex: step.hex,
+          outcome: 'equal-H-cancel; hold-pre-contact-cells',
+          aPower,
+          bPower,
+        })
+        emit('Collision', t, {
+          actorId: id,
+          targetId: competing.actorId,
+          hex: step.hex,
+          dissipatedM: aPower,
+          crossing: edgeSwap,
+        })
+        record(id, t)
+        record(competing.actorId, t)
         continue
       }
 
-      const winner = aPower > bPower ? actor : other
-      const loser = aPower > bPower ? other : actor
+      const winnerIsCurrent = aPower > bPower
+      const winner = winnerIsCurrent ? actor : competingActor
+      const loser = winnerIsCurrent ? competingActor : actor
       const winnerId = winner.id
       const loserId = loser.id
       const winnerPower = Math.max(aPower, bPower)
       const loserPower = Math.min(aPower, bPower)
-      const winnerAxis = directionIdBetween(winner.hex, step.hex) ?? winner.axisId
+      const winnerTargetHex = winnerIsCurrent ? step.hex : competing.hex
+      const winnerAxis = directionIdBetween(winner.hex, winnerTargetHex) ?? winner.axisId
+
       emit('Encounter', t, {
-        kind: 'SimultaneousClaim',
+        kind: edgeSwap ? 'EdgeCrossing' : 'SimultaneousClaim',
         actorId: winnerId,
         targetId: loserId,
-        hex: step.hex,
+        hex: winnerTargetHex,
         outcome: 'unequal-H-settlement',
         winnerPower,
         loserPower,
@@ -419,15 +445,17 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
         cause: 'Transfer',
         residual: settlement.forced?.gainedIncomingH ?? 0,
       })
+
       if (settlement.moved) {
-        winner.hex = { ...step.hex }
+        winner.hex = { ...winnerTargetHex }
         travelled.add(winnerId)
-        emit('Travel', t, { actorId: winnerId, hex: winner.hex, settlement: true })
+        emit('Travel', t, { actorId: winnerId, hex: winner.hex, settlement: true, crossing: edgeSwap })
       }
       record(winnerId, t)
       record(loserId, t)
       continue
     }
+
     if (occupant) {
       attacks(t)
       cancelled.add(id)
@@ -435,10 +463,12 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       const impactAxis = directionIdBetween(actor.hex, step.hex) ?? actor.axisId
       emit('Encounter', t, { kind: 'Collision', actorId: id, targetId: occupant.id, hex: step.hex,
         incomingH: impactM })
-      const settlement = force(clone(actor), clone(occupant), impactM, impactAxis, t)
+      const settlement = impactM > 0
+        ? force(clone(actor), clone(occupant), impactM, impactAxis, t)
+        : { moved: false, forced: null, firstMoveAt: null }
 
-      // Strike / settlement transfers the source's current H. This was missing
-      // from the Gameplay adapter, leaving the source with stale pre-contact H.
+      // Strike / settlement transfers the source's current H. A zero-H Contact
+      // only blocks this source's Cell entry; it must not cancel the occupant.
       if (impactM > 0) {
         actor.hM = 0
         actor.axisId = impactAxis
