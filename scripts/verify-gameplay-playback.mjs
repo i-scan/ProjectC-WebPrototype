@@ -103,10 +103,10 @@ try {
   // Give slow software-rendered CI enough frames to inspect event boundaries.
   await client.evaluate(`(() => {
     const input=document.querySelector('[aria-label="Gameplay AT playback duration"]');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'1800');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'3000');
     input.dispatchEvent(new Event('input',{bubbles:true}));
   })()`)
-  await until('playback speed control', () => client.evaluate("document.querySelector('.cell-world-board').dataset.atVisualMs === '1800'"))
+  await until('playback speed control', () => client.evaluate("document.querySelector('.cell-world-board').dataset.atVisualMs === '3000'"))
   await click('[data-gameplay-action-id="drive"].action-card')
   await moveToCell({ q: 1, r: 0 })
   const preview = await until('hover Preview', async () => { const s = await snapshot(); return s?.previewFinal && s })
@@ -116,8 +116,13 @@ try {
   assert(middle.worldAt === 0 && middle.player.hex.q === 0, 'Authoritative state committed before playback end')
   assert(middle.visual.player.position.x > 0 && middle.visual.player.position.x < middle.playbackFinal.position.x, 'Actor did not move during playback')
   assert(await client.evaluate("[...document.querySelectorAll('.action-card,.gameplay-controls-card input,.gameplay-environment-card button')].every(e=>e.matches(':disabled'))"), 'Input must be locked during playback')
-  const board = await client.evaluate("({...document.querySelector('.cell-world-board').dataset})")
-  assert(Number(board.visualX) > 0 && Number(board.visualX) < middle.playbackFinal.position.x, 'Board3D jumps instead of sampling timeline')
+  const board = await until('Board3D sampled timeline', async () => {
+    const value = await client.evaluate("({...document.querySelector('.cell-world-board').dataset})")
+    const state = await snapshot()
+    return !state.ready && state.progress < 0.75
+      && Number(value.visualX) > 0 && Number(value.visualX) < state.playbackFinal.position.x
+      ? value : false
+  })
   await mkdir('artifacts', { recursive: true })
   const shot = await client.send('Page.captureScreenshot', { format: 'png' })
   await writeFile('artifacts/gameplay-playback-mid.png', Buffer.from(shot.data, 'base64'))
