@@ -6,6 +6,7 @@ const styles = {
   Clash: { label: 'CLASH · HOOK', color: 0xffe06a, style: 'cross' },
   DownResistance: { label: 'RESIST', color: 0x6abfff, style: 'shield' },
   ForcedMotion: { label: 'FORCED', color: 0xc89cff, style: 'arrow' },
+  SurfaceReflection: { label: 'REFLECT', color: 0x62dff2, style: 'cross' },
 }
 
 export function encounterFxSpecs(events = []) {
