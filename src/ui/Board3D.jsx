@@ -443,87 +443,62 @@ function collisionDebugFxSpecs(events = []) {
   return specs
 }
 
-function createDebugFxLabel(text, color) {
-  const canvas = document.createElement('canvas')
-  canvas.width = 256
-  canvas.height = 72
-  const context = canvas.getContext('2d')
-  if (!context) return null
-  const colorCss = `#${color.toString(16).padStart(6, '0')}`
-  context.clearRect(0, 0, canvas.width, canvas.height)
-  context.fillStyle = 'rgba(7, 15, 24, 0.82)'
-  context.fillRect(30, 8, 196, 54)
-  context.strokeStyle = colorCss
-  context.lineWidth = 4
-  context.strokeRect(30, 8, 196, 54)
-  context.fillStyle = '#ffffff'
-  context.font = '700 28px system-ui, sans-serif'
-  context.textAlign = 'center'
-  context.textBaseline = 'middle'
-  context.fillText(text, 128, 36)
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 1, depthTest: false, depthWrite: false })
-  const sprite = new THREE.Sprite(material)
-  sprite.position.y = 1.06
-  sprite.scale.set(1.42, 0.4, 1)
-  sprite.renderOrder = 96
-  sprite.userData.debugFxTexture = texture
-  return sprite
-}
-
 function createCollisionDebugMarker(spec, index, count) {
   const group = new THREE.Group()
   const center = axialToWorld(spec.hex)
   group.position.set(center.x, 0.02, center.z)
 
-  const discMaterial = new THREE.MeshBasicMaterial({
-    color: spec.color, transparent: true, opacity: 0.36, depthTest: false, depthWrite: false,
-  })
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(HEX_RADIUS * 0.62, HEX_RADIUS * 0.62, 0.028, 6), discMaterial)
-  disc.position.y = 0.18
-  disc.renderOrder = 90
-  group.add(disc)
-
-  const ringMaterial = new THREE.MeshBasicMaterial({
-    color: spec.color, transparent: true, opacity: 0.98, depthTest: false, depthWrite: false,
-  })
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(HEX_RADIUS * 0.68, 0.045, 8, 32), ringMaterial)
-  ring.rotation.x = Math.PI / 2
-  ring.position.y = 0.24
-  ring.renderOrder = 92
-  group.add(ring)
-
-  const flashMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.92, depthTest: false, depthWrite: false,
-  })
-  const flash = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), flashMaterial)
-  flash.position.y = 0.48
-  flash.renderOrder = 94
-  group.add(flash)
-
-  if (spec.style && spec.style !== 'ring') {
-    const points = spec.style === 'cross'
-      ? [[-0.5, -0.5], [0.5, 0.5], [-0.5, 0.5], [0.5, -0.5]]
-      : spec.style === 'arrow'
-        ? [[-0.7, 0], [0.7, 0], [0.7, 0], [0.3, -0.3], [0.7, 0], [0.3, 0.3]]
-        : [[-0.6, -0.3], [0.6, 0.3]]
+  const materials = []
+  const addRing = (vertical = false) => {
+    const material = new THREE.MeshBasicMaterial({
+      color: spec.color, transparent: true, opacity: 0.96, depthTest: false, depthWrite: false,
+    })
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(HEX_RADIUS * 0.68, 0.04, 6, 18), material)
+    ring.rotation.x = vertical ? 0 : Math.PI / 2
+    ring.position.y = vertical ? 0.55 : 0.24
+    ring.renderOrder = 92
+    group.add(ring)
+    materials.push(material)
+  }
+  const addLines = (points) => {
+    const material = new THREE.LineBasicMaterial({
+      color: spec.color, transparent: true, opacity: 0.98, depthTest: false, depthWrite: false,
+    })
     const geometry = new THREE.BufferGeometry().setFromPoints(points.map(([x, z]) => new THREE.Vector3(x, 0.4, z)))
-    const glyph = new THREE.LineSegments(geometry, flashMaterial)
-    if (spec.axisId) { const axis = directionVector(spec.axisId); glyph.rotation.y = -Math.atan2(axis.z, axis.x) }
+    const glyph = new THREE.LineSegments(geometry, material)
+    if (spec.axisId) {
+      const axis = directionVector(spec.axisId)
+      glyph.rotation.y = -Math.atan2(axis.z, axis.x)
+    }
     glyph.renderOrder = 95
     group.add(glyph)
-    if (spec.style === 'shield') { ring.rotation.x = 0; ring.position.y = 0.55 }
-    else { ring.visible = false; disc.visible = false }
+    materials.push(material)
   }
 
-  const label = createDebugFxLabel(spec.label, spec.color)
-  if (label) group.add(label)
+  if (spec.style === 'cross') {
+    addLines([[-0.5, -0.5], [0.5, 0.5], [-0.5, 0.5], [0.5, -0.5]])
+  } else if (spec.style === 'arrow') {
+    addLines([[-0.7, 0], [0.7, 0], [0.7, 0], [0.3, -0.3], [0.7, 0], [0.3, 0.3]])
+  } else if (spec.style === 'slash') {
+    addLines([[-0.6, -0.3], [0.6, 0.3]])
+  } else if (spec.style === 'shield') {
+    addRing(true)
+  } else {
+    addRing(false)
+    const flashMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false,
+    })
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 4), flashMaterial)
+    flash.position.y = 0.46
+    flash.renderOrder = 94
+    group.add(flash)
+    materials.push(flashMaterial)
+  }
 
   group.userData.eventTime = spec.t
   group.userData.debugFxCenter = spec.t ?? (count <= 1 ? 0.5 : 0.3 + (index / Math.max(1, count - 1)) * 0.45)
-  group.userData.debugFxMaterials = [discMaterial, ringMaterial, flashMaterial, ...(label ? [label.material] : [])]
-  group.userData.debugFxBaseOpacities = group.userData.debugFxMaterials.map((material) => material.opacity)
+  group.userData.debugFxMaterials = materials
+  group.userData.debugFxBaseOpacities = materials.map((material) => material.opacity)
   group.userData.debugFxLabel = spec.label
   group.userData.debugFxHex = { ...spec.hex }
   group.visible = false

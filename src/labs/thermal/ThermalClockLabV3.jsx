@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { playbackFromPlan, playbackProgress } from '../../sim/plan-playback.js'
 import {
   THERMAL_ACTIONS,
   THERMAL_CLOCK_AT_RULE,
@@ -136,7 +137,8 @@ function RangeField({ label, value, min, max, step, onChange, disabled = false, 
   )
 }
 
-function ThermalPendulum({ state, config, previousState, diagnostics }) {
+export function ThermalPendulum({ state, config, previousState, diagnostics: providedDiagnostics = null, className = '' }) {
+  const diagnostics = providedDiagnostics ?? thermalDiagnostics(state, config)
   const currentAngle = angleForTemperature(state.temperature, state.setPoint, true)
   const current = pointAt(currentAngle, BOB_RADIUS)
   const skipNext = solveThermalSegment(state, config, 1)
@@ -153,7 +155,7 @@ function ThermalPendulum({ state, config, previousState, diagnostics }) {
   }))
 
   return (
-    <div className="thermal-pendulum thermal-pendulum--compact" data-thermal-pendulum="inner-bob-outer-skip-v4">
+    <div className={`thermal-pendulum thermal-pendulum--compact ${className}`.trim()} data-thermal-pendulum="inner-bob-outer-skip-v4">
       <div className="thermal-pendulum__header">
         <span className={diagnostics.adiabatic ? 'adiabatic is-on' : 'adiabatic'}>{diagnostics.adiabatic ? 'ADIABATIC' : 'ENV COUPLED'}</span>
         <strong>{thermalDirection(state.drift)}</strong>
@@ -387,7 +389,7 @@ export function ThermalClockLab() {
     const finalState = { ...solved, worldAt: source.worldAt + 1 }
     const samples = sampleFuture(afterImpulse, configSnapshot, 1, source.worldAt, 40)
     setHistory((entries) => [...entries, { state: source, finalState, samples, actionId: selectedAction, impulse }].slice(-60))
-    setPlayback({ id: playbackIdRef.current++, source, config: configSnapshot, actionId: selectedAction, afterImpulse, finalState, startedAt: performance.now(), durationMs: 650 / Math.max(0.25, playbackSpeed) })
+    setPlayback(playbackFromPlan({ source, config: configSnapshot, actionId: selectedAction, afterImpulse, finalState }, playbackIdRef.current++, 650 / Math.max(0.25, playbackSpeed)))
     setLastEvent(`${action?.label ?? selectedAction} committed · resolving 1AT with the analytic solver.`)
   }
 
@@ -395,7 +397,7 @@ export function ThermalClockLab() {
     if (!playback) return undefined
     let frame = 0
     const tick = (now) => {
-      const progress = clamp((now - playback.startedAt) / Math.max(1, playback.durationMs), 0, 1)
+      const progress = playbackProgress(playback, now)
       const sampled = solveThermalSegment(playback.afterImpulse, playback.config, progress)
       setVisualState({ ...sampled, worldAt: playback.source.worldAt + progress })
       if (progress >= 1) {

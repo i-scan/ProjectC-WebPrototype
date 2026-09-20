@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { playbackFromPlan, playbackProgress, playbackRemainingMs } from '../../sim/plan-playback.js'
-import { buildGameplayATPlan, GAMEPLAY_TIMELINE, sampleGameplayATPlan } from './gameplay-at-plan.js'
+import { buildGameplayATPlan, buildGameplaySpatialPreview, GAMEPLAY_TIMELINE, sampleGameplayATPlan } from './gameplay-at-plan.js'
+import { ThermalPendulum } from '../thermal/ThermalClockLabV3.jsx'
 import { Board3D } from '../../ui/Board3D.jsx'
 import { createCellWorld } from '../../sim/world.js'
 import { axialKey } from '../../sim/hex.js'
-import { formatThermal, solveThermalSegment, thermalDiagnostics } from '../thermal/thermal-clock-model.js'
+import { formatThermal } from '../thermal/thermal-clock-model.js'
 import {
   thermalConfigFromProfile,
   thermalEnvironment,
@@ -30,93 +31,12 @@ import {
 } from './gameplay-momentum-model.js'
 
 const BOARD_RADIUS = 5
-const PIVOT = { x: 150, y: 24 }
-const TRACK_RADIUS = 112
-const BOB_RADIUS = 97
-const HISTORY_RADIUS = 99
-const ARROW_RADIUS = 128
-const ZONE_VALUES = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 const clone = (value) => JSON.parse(JSON.stringify(value))
-
-function pointAt(angleDeg, radius) {
-  const radians = angleDeg * Math.PI / 180
-  return { x: PIVOT.x + Math.sin(radians) * radius, y: PIVOT.y + Math.cos(radians) * radius }
-}
-
-function angleForTemperature(temperature, setPoint) {
-  return clamp((temperature - setPoint) * 12, -80, 80)
-}
-
-function arcPath(startAngle, endAngle, radius) {
-  const steps = Math.max(3, Math.ceil(Math.abs(endAngle - startAngle) / 3))
-  return Array.from({ length: steps + 1 }, (_, index) => {
-    const t = index / steps
-    const point = pointAt(startAngle + (endAngle - startAngle) * t, radius)
-    return `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
-  }).join(' ')
-}
-
-function zoneClass(value) {
-  if (value <= -4 || value >= 4) return 'extreme'
-  if (value === -3) return 'cold-3'
-  if (value === -2) return 'cold-2'
-  if (value === -1) return 'cold-1'
-  if (value === 0) return 'neutral'
-  if (value === 1) return 'hot-1'
-  if (value === 2) return 'hot-2'
-  return 'hot-3'
-}
 
 function thermalDomain(temperature) {
   if (temperature >= 3) return 'HOT'
   if (temperature <= -3) return 'COLD'
   return 'NEUTRAL'
-}
-
-function GameplayThermalPendulum({ thermal, config, previousThermal }) {
-  const angle = angleForTemperature(thermal.temperature, thermal.setPoint)
-  const current = pointAt(angle, BOB_RADIUS)
-  const skipNextState = solveThermalSegment(thermal, config, 1)
-  const nextAngle = angleForTemperature(skipNextState.temperature, thermal.setPoint)
-  const next = pointAt(nextAngle, ARROW_RADIUS)
-  const previous = previousThermal ? pointAt(angleForTemperature(previousThermal.temperature, previousThermal.setPoint), HISTORY_RADIUS) : null
-  const arrow = Math.abs(nextAngle - angle) > 0.15 ? arcPath(angle, nextAngle, ARROW_RADIUS) : ''
-  const zonePaths = ZONE_VALUES.map((value) => ({
-    value,
-    className: zoneClass(value),
-    path: arcPath((value - 0.5 - thermal.setPoint) * 12, (value + 0.5 - thermal.setPoint) * 12, TRACK_RADIUS),
-  }))
-  const diagnostics = thermalDiagnostics(thermal, config)
-
-  return (
-    <div className="thermal-pendulum gameplay-thermal-pendulum" data-gameplay-thermal-pendulum="shared-runtime-v1">
-      <div className="thermal-pendulum__header">
-        <span className={diagnostics.adiabatic ? 'adiabatic is-on' : 'adiabatic'}>{diagnostics.adiabatic ? 'ADIABATIC' : 'ENV COUPLED'}</span>
-        <strong>{thermal.drift > 0.001 ? 'HOTWARD' : thermal.drift < -0.001 ? 'COLDWARD' : 'STILL'}</strong>
-      </div>
-      <svg viewBox="0 0 300 172" role="img" aria-label="Gameplay Thermal Pendulum using the shared Thermal runtime">
-        <defs><marker id="gameplay-skip-arrow-head" markerWidth="7" markerHeight="7" refX="5.7" refY="3.5" orient="auto" markerUnits="strokeWidth"><path d="M 0 0 L 7 3.5 L 0 7 Z" /></marker></defs>
-        <g className="thermal-pendulum__zone-track">{zonePaths.map((zone) => <path key={zone.value} className={`thermal-pendulum__zone ${zone.className}`} d={zone.path} />)}</g>
-        {previous && <circle className="thermal-pendulum__history-ring" cx={previous.x} cy={previous.y} r="7" />}
-        {arrow ? <path className="thermal-pendulum__skip-arrow" d={arrow} markerEnd="url(#gameplay-skip-arrow-head)" /> : <circle className="thermal-pendulum__skip-idle" cx={next.x} cy={next.y} r="3" />}
-        <circle className="thermal-pendulum__skip-next" cx={next.x} cy={next.y} r="2.6" />
-        <line className="thermal-pendulum__set-line" x1={PIVOT.x} y1={PIVOT.y + 4} x2={PIVOT.x} y2={PIVOT.y + TRACK_RADIUS - 4} />
-        <circle className="thermal-pendulum__pivot" cx={PIVOT.x} cy={PIVOT.y} r="6" />
-        <line className="thermal-pendulum__arm" x1={PIVOT.x} y1={PIVOT.y + 4} x2={current.x} y2={current.y} />
-        <circle className={`thermal-pendulum__bob ${zoneClass(Math.round(clamp(thermal.temperature, -4, 4)))}`} cx={current.x} cy={current.y} r="9" />
-        <circle className="thermal-pendulum__bob-core" cx={current.x} cy={current.y} r="2.5" />
-        <text className="thermal-pendulum__cold-label" x="14" y="163">COLD</text>
-        <text className="thermal-pendulum__set-label" x="150" y="163" textAnchor="middle">S {formatThermal(thermal.setPoint, 1)}</text>
-        <text className="thermal-pendulum__hot-label" x="286" y="163" textAnchor="end">HOT</text>
-      </svg>
-      <div className="thermal-pendulum__readout">
-        <div><span>T</span><strong>{formatThermal(thermal.temperature, 2)}</strong></div>
-        <div><span>V</span><strong>{formatThermal(thermal.drift, 2)}</strong></div>
-        <div><span>Domain</span><strong>{thermalDomain(thermal.temperature)}</strong></div>
-      </div>
-    </div>
-  )
 }
 
 function traceSummary(result, thermalEvents, domainTrace) {
@@ -159,6 +79,8 @@ export function GameplayLab() {
   const [atVisualMs, setAtVisualMs] = useState(950)
   const [playback, setPlayback] = useState(null)
   const [uiProgress, setUiProgress] = useState(0)
+  const [fullPreviewEntry, setFullPreviewEntry] = useState(null)
+  const [lastPlanningMs, setLastPlanningMs] = useState(0)
   const [lastPlan, setLastPlan] = useState(null)
   const playbackRef = useRef(null)
   const playbackId = useRef(0)
@@ -180,10 +102,36 @@ export function GameplayLab() {
   const planInput = useMemo(() => ({ player, enemies, thermal, profile, worldAt, environmentId,
     boardRadius: BOARD_RADIUS, collisionDamage, momentumFactor, collisionHeatFactor, domainNaturalBuild }),
   [player, enemies, thermal, profile, worldAt, environmentId, collisionDamage, momentumFactor, collisionHeatFactor, domainNaturalBuild])
-  const previewPlan = useMemo(() => requiresTarget && !targetHex ? null
-    : buildGameplayATPlan({ ...planInput, actionId: selectedActionId, targetHex }),
-  [planInput, selectedActionId, targetHex?.q, targetHex?.r, requiresTarget])
-  const shownPlan = playback ?? previewPlan
+  const previewKey = requiresTarget && targetHex ? `${selectedActionId}:${axialKey(targetHex)}` : null
+  const lightPreviewPlan = useMemo(() => previewKey
+    ? buildGameplaySpatialPreview({ player, enemies, worldAt, actionId: selectedActionId, targetHex, boardRadius: BOARD_RADIUS })
+    : null,
+  [previewKey, player, enemies, worldAt, selectedActionId, targetHex?.q, targetHex?.r])
+  const fullPreviewPlan = fullPreviewEntry?.key === previewKey ? fullPreviewEntry.plan : null
+
+  useEffect(() => {
+    if (!previewKey || playbackRef.current) {
+      setFullPreviewEntry(null)
+      return undefined
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      const started = performance.now()
+      const plan = buildGameplayATPlan({ ...planInput, actionId: selectedActionId, targetHex })
+      const planningMs = performance.now() - started
+      if (!cancelled) {
+        setLastPlanningMs(planningMs)
+        setFullPreviewEntry({ key: previewKey, plan })
+      }
+    }, 70)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [previewKey, planInput, selectedActionId, targetHex?.q, targetHex?.r])
+
+  const previewPlan = fullPreviewPlan ?? lightPreviewPlan
+  const shownPlan = playback ?? fullPreviewPlan
   const previewThermalEvents = shownPlan?.sourceThermalEvents ?? []
   const previewSourceImpulse = previewThermalEvents.reduce((sum, entry) => sum + entry.impulse, 0)
   const previewThermal = { finalState: shownPlan?.finalState?.thermal ?? thermal }
@@ -206,9 +154,13 @@ export function GameplayLab() {
 
   const beginAction = (actionId, hex = null) => {
     if (playbackRef.current) return false
-    const plan = actionId === selectedActionId && previewPlan?.valid &&
-      ((!hex && !targetHex) || (hex && targetHex && axialKey(hex) === axialKey(targetHex)))
-      ? previewPlan : buildGameplayATPlan({ ...planInput, actionId, targetHex: hex })
+    const actionKey = hex ? `${actionId}:${axialKey(hex)}` : null
+    let plan = fullPreviewEntry?.key === actionKey ? fullPreviewEntry.plan : null
+    if (!plan) {
+      const started = performance.now()
+      plan = buildGameplayATPlan({ ...planInput, actionId, targetHex: hex })
+      setLastPlanningMs(performance.now() - started)
+    }
     if (!plan?.valid) { setLastTrace(plan?.reason || 'No legal target.'); return false }
     const before = {
       player: clone(player),
@@ -239,7 +191,7 @@ export function GameplayLab() {
       setUiProgress(playbackProgress(playback))
     }
     updateUiSample()
-    const uiTimer = window.setInterval(updateUiSample, 100)
+    const uiTimer = window.setInterval(updateUiSample, 50)
 
     const commitTimer = window.setTimeout(() => {
       if (playbackRef.current?.id !== playback.id) return
@@ -314,7 +266,8 @@ export function GameplayLab() {
         ready,
         progress: uiProgress,
         visual: visual ? clone(visual) : null,
-        previewFinal: previewPlan?.valid ? clone(previewPlan.finalState) : null,
+        previewFinal: fullPreviewPlan?.valid ? clone(fullPreviewPlan.finalState) : null,
+        planningMs: lastPlanningMs,
         playbackFinal: playback ? clone(playback.finalState) : null,
         events: clone((playback ?? previewPlan ?? lastPlan)?.events ?? []),
         historyEntries: history.length,
@@ -363,7 +316,7 @@ export function GameplayLab() {
               <div><span>Horizontal</span><strong>{displayPlayer.axisId ? `H${displayPlayer.hM} · ${displayPlayer.axisId}` : '—'}</strong></div>
               <div><span>Down</span><strong>{isDownSide(displayPlayer) ? `D${displayPlayer.downM}` : '—'}</strong></div>
             </div>
-            <GameplayThermalPendulum thermal={displayThermal} config={displayConfig} previousThermal={previousThermal} />
+            <ThermalPendulum state={displayThermal} config={displayConfig} previousState={previousThermal} className="gameplay-thermal-pendulum" />
             <dl className="state-list actor-state-list">
               <div><dt>Temperature</dt><dd>{formatThermal(displayThermal.temperature, 2)}</dd></div>
               <div><dt>Drift</dt><dd>{formatThermal(displayThermal.drift, 2)}</dd></div>
@@ -421,7 +374,7 @@ export function GameplayLab() {
               cameraResetToken={cameraResetToken}
               hoverHex={hoverHex}
               selectedAimHex={selectedHex}
-              showWeather
+              showWeather={false}
               showThermal
               onHoverHex={(hex) => {
                 if (playbackRef.current) return

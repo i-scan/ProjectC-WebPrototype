@@ -26,6 +26,42 @@ export function snapshotGameplayIntents(player, enemies, actionId, targetHex) {
 
 // Gameplay retains its discrete HM/DM candidate rules; the timeline is the
 // adapter to Trajectory's Board3D playback contract, not another motion engine.
+export function buildGameplaySpatialPreview({ player, enemies = [], worldAt = 0, actionId, targetHex = null, boardRadius = 5 }) {
+  const actors = [player, ...enemies].map(createMomentumActor)
+  const validation = resolveGameplayAction({
+    actor: player,
+    actionId,
+    targetHex,
+    actors: actionId === 'release' ? actors : [actors[0]],
+    boardRadius,
+  })
+  if (!validation.valid || player.hp <= 0) return { valid: false, reason: validation.reason || 'No legal target / actor is down.' }
+
+  const start = createMomentumActor(player)
+  const path = validation.path ?? []
+  const samples = [{ t: 0, ...actorSpatialState(start, worldAt), actor: clone(start) }]
+  if (path.length) {
+    path.forEach((hex, index) => {
+      const sampleActor = createMomentumActor(validation.actor)
+      sampleActor.hex = { ...hex }
+      samples.push({
+        t: (index + 1) / path.length,
+        ...actorSpatialState(sampleActor, worldAt + (index + 1) / path.length),
+        actor: sampleActor,
+      })
+    })
+  } else {
+    samples.push({ t: 1, ...actorSpatialState(validation.actor, worldAt + 1), actor: clone(validation.actor) })
+  }
+  return {
+    valid: true,
+    previewOnly: true,
+    samples,
+    actorTrajectories: {},
+    finalState: { ...actorSpatialState(validation.actor, worldAt + 1), player: clone(validation.actor) },
+  }
+}
+
 export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   worldAt = 0, actionId, targetHex = null, environmentId = 'adiabatic',
   boardRadius = 5, momentumFactor = 0.8, collisionHeatFactor = 0.8,
@@ -50,7 +86,9 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   const hitPairs = new Set()
   const sourceThermalEvents = []
   const emit = (type, t, detail = {}) => {
-    const event = { id: `event-${events.length}`, type, t, worldAt: worldAt + t, ...clone(detail) }
+    // Event payloads are immutable by construction in this resolver. Avoid deep-cloning
+    // every event; actor snapshots belong in timed tracks, not duplicated event metadata.
+    const event = { id: `event-${events.length}`, type, t, worldAt: worldAt + t, ...detail }
     events.push(event)
     return event
   }
@@ -123,11 +161,11 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       if (clash) {
         hitPairs.add(`${target.id}:${source.id}`)
         emit('Clash', t, { actorId: source.id, targetId: target.id, hex: target.hex,
-          snapshot: [source, target], outcome: 'hook-only-unfrozen' })
+          outcome: 'hook-only-unfrozen' })
       } else hits.push({ source, target, damage: source.id === player.id ? 10 : 8, axisId: direction })
     }
     for (const hit of hits) {
-      emit('Encounter', t, { kind: 'Attack', actorId: hit.source.id, targetId: hit.target.id, hex: hit.target.hex, snapshot: [hit.source, hit.target] })
+      emit('Encounter', t, { kind: 'Attack', actorId: hit.source.id, targetId: hit.target.id, hex: hit.target.hex })
       actors.get(hit.target.id).hp = Math.max(0, actors.get(hit.target.id).hp - hit.damage)
       emit('AttackPayload', t, { actorId: hit.source.id, targetId: hit.target.id, hex: hit.target.hex, damage: hit.damage, axisId: hit.axisId })
       record(hit.target.id, t)
@@ -202,20 +240,20 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       const amount = actor.downM
       transaction(id, t)
       if (target) {
-        emit('Encounter', t, { kind: 'Release', actorId: id, targetId: target.id, hex: target.hex, snapshot: [actor, target] })
+        emit('Encounter', t, { kind: 'Release', actorId: id, targetId: target.id, hex: target.hex })
         force(clone(actor), clone(target), amount, directionIdBetween(actor.hex, target.hex), t)
       } else emit('Whiff', t, { actorId: id, hex: intent.targetHex })
       continue
     }
-    const before = [...actors.values()].map(clone)
-    const occupant = before.find((other) => other.id !== id && other.hp > 0 && sameCell(other.hex, step.hex))
+    const liveActors = [...actors.values()]
+    const occupant = liveActors.find((other) => other.id !== id && other.hp > 0 && sameCell(other.hex, step.hex))
     if (occupant && ['forced', 'settle'].includes(step.kind)) {
       cancelled.add(id)
       for (let index = queue.length - 1; index >= 0; index -= 1) {
         if (queue[index].actorId === id) queue.splice(index, 1)
       }
       emit('DeferredEncounter', t, { actorId: id, targetId: occupant.id, hex: step.hex,
-        snapshot: before, reason: 'new blocker on residual trajectory; chained resolution deferred' })
+        reason: 'new blocker on residual trajectory; chained resolution deferred' })
       record(id, t)
       continue
     }
@@ -226,16 +264,16 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     if (competing && !occupant) {
       cancelled.add(id); cancelled.add(competing.actorId)
       emit('Encounter', t, { kind: 'SimultaneousClaim', actorId: id, targetId: competing.actorId, hex: step.hex,
-        snapshot: before, outcome: 'hold-both-p0; settlement-tie-break-deferred' })
+        outcome: 'hold-both-p0; settlement-tie-break-deferred' })
       emit('Collision', t, { actorId: id, targetId: competing.actorId, hex: step.hex, dissipatedM: 0 })
       record(id, t); record(competing.actorId, t)
       continue
     }
     if (occupant) {
-      attacks(t, before)
+      attacks(t)
       cancelled.add(id)
-      emit('Encounter', t, { kind: 'Collision', actorId: id, targetId: occupant.id, hex: step.hex, snapshot: before })
-      const moved = force(before.find((entry) => entry.id === id), occupant, actor.hM,
+      emit('Encounter', t, { kind: 'Collision', actorId: id, targetId: occupant.id, hex: step.hex })
+      const moved = force(clone(actor), clone(occupant), actor.hM,
         directionIdBetween(actor.hex, step.hex), t)
       // The target vacates during Forced Motion, not instantly at contact.
       if (moved && step.kind !== 'forced') queue.push({ kind: 'settle', t: 0.96, actorId: id, hex: step.hex })

@@ -41,6 +41,18 @@ Preview 与执行使用同一 plan builder；目标与输入未变化时直接�
 
 这次收敛只解决执行/表现一致性与主线程负担，不改变 HM/DM、Encounter、Collision Heat、Domain Build 等规则候选。
 
+## P0.2 · Thin Gameplay Integration
+
+性能问题确认后，Gameplay 不再继续扩张独立执行层。本轮做减法：
+
+- Gameplay hover 先生成 player-only spatial preview；完整 GameplayATPlan 延迟到指针稳定后生成并缓存，点击同一目标直接复用，避免每次 pointer hover 同步跑完整 Enemy / Encounter / Thermal 1AT。
+- Gameplay 直接复用当前实际 Thermal Clock V3 的 `ThermalPendulum`，删除 Gameplay 内重复摆锤实现；Thermal Clock V3 本身也接入 shared `playbackProgress()`。
+- GameplayATPlan 的 event payload 不再深拷贝整套 Encounter actor snapshot；时间状态只保留在 timed tracks。普通 Travel 不再为 occupant lookup clone 全体 Actor。
+- Encounter FX 改为 geometry-only；去掉每个事件即时 Canvas → CanvasTexture → SpriteMaterial 上传，保留 Collision / Attack / Clash / DownResistance / ForcedMotion 的语义差异。
+- Gameplay Board 暂停天气粒子展示；天气不是当前 Momentum × Thermal 验证必要变量。
+
+目标是让 Gameplay 退回到“Shared Spatial / Shared Thermal + Encounter adapter”的薄集成，而不是继续把它演化成第三套独立 Lab runtime。本轮不改变 HM/DM、Thermal、Encounter 结算规则。
+
 ## 明确保留的边界
 
 - 本轮为 P0 执行架构，不等于完整的 Encounter Framework。HM/DM、1:1 Launch / Release、M-T 因子与无退款候选继续保留。
