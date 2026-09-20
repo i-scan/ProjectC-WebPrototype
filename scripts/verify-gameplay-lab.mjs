@@ -135,9 +135,7 @@ try {
       collisionHeat: Boolean(document.querySelector('[aria-label="Collision Heat Factor"]')),
       collisionDamageOff: text.includes('Collision Damage OFF'),
       domainBuildOn: text.includes('Domain Build ON'),
-      enemies: text.includes('Telegraphed Enemies'),
-      moveIntent: text.includes('Next: MOVE'),
-      braceIntent: text.includes('Next: BRACE'),
+      enemies: Boolean(document.querySelector('.gameplay-enemy-card .enemy-intent-list')),
       resolutionTrace: Boolean(document.querySelector('[data-gameplay-resolution-trace="momentum-thermal-v1"]')),
       skipChain: text.includes('HM0 Axis → No Axis → DM0 Skip chain'),
       board: Boolean(board),
@@ -156,7 +154,8 @@ try {
   }
   assert(mounted.experimentControls && mounted.mtFactor && mounted.collisionHeat, 'Gameplay experiment controls missing')
   assert(mounted.collisionDamageOff && mounted.domainBuildOn, 'Gameplay experiment toggle baseline missing')
-  assert(mounted.enemies && mounted.moveIntent && mounted.braceIntent, 'Initial telegraphed enemy intents missing')
+  assert(mounted.enemies, 'Telegraphed enemy panel missing')
+  assert(snapshot.enemies?.some((enemy) => enemy.intent === 'move') && snapshot.enemies?.some((enemy) => enemy.intent === 'brace'), 'Initial telegraphed enemy intents missing')
   assert(mounted.resolutionTrace, 'Cause-aware Resolution Trace missing')
   assert(mounted.skipChain, 'Skip chain scope marker missing')
   assert(mounted.board && mounted.boardRebuildCount >= 1, 'Board3D did not mount')
