@@ -3,7 +3,7 @@ import { Board3D } from '../../ui/Board3D.jsx'
 import { axialKey, worldToAxial } from '../../sim/hex.js'
 import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
 import { AT_VISUAL_MS } from '../../sim/solver.js'
-import { playbackFromPlan } from '../../sim/plan-playback.js'
+import { playbackFromPlan, playbackRemainingMs } from '../../sim/plan-playback.js'
 import {
   TRAJECTORY_BASE_DISSIPATION,
   TRAJECTORY_CELL_AUTHORITY_RULE,
@@ -149,7 +149,7 @@ export function TrajectoryLab() {
 
   useEffect(() => {
     if (!playback) return undefined
-    const remainingMs = Math.max(0, playback.durationMs - (performance.now() - playback.startedAt))
+    const remainingMs = playbackRemainingMs(playback)
     const timer = window.setTimeout(() => {
       setState(playback.finalState)
       if (targetsEnabled) setActors(structuredClone(playback.actorStates ?? actors))

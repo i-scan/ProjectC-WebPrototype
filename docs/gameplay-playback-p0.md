@@ -28,6 +28,19 @@ Preview 与执行使用同一 plan builder；目标与输入未变化时直接�
 
 敌人意图在 AT 开始时与玩家一起固定方向，不读取玩家 finalState 后再决定。它们的事件进入同一队列；接触读取当时的状态快照，被强制位移后取消原待执行轨迹。FX 只读取事件类型 / 时间 / 接触点，Collision 环、Attack 切线、Clash 交叉、Down 抵抗蓝盾、Forced 方向箭头可分别出现。
 
+## P0.1 · Shared Playback Convergence
+
+本轮性能修正不新增 Gameplay 专属播放器。Trajectory、Thermal Clock、Gameplay 统一以 `src/sim/plan-playback.js` 中的 frozen playback object + shared clock sample 为时间定义：
+
+- `playbackClockSample()` 是 presentation time 的唯一换算，统一输出 elapsed / progress / remaining。
+- Board3D 与 Encounter FX 每帧直接读取同一个 playback clock；Gameplay React 不再用 60FPS `setProgress()` 驱动世界或 Three.js。
+- Gameplay 与 Trajectory 都只在 shared clock 的 Ready 边界提交一次 authoritative finalState。
+- Gameplay 的顶部读数、Thermal Pendulum、Enemy/Timeline debug UI 仅以 10Hz 采样同一 plan；这只是显示降频，不改变 solver、事件时刻或 Board3D 60FPS playback。
+- Thermal Clock Lab 保留自身 SVG RAF，因为它是 renderer；但其 progress 也改为读取同一个 `playbackProgress()`，不再自行定义时间公式。
+- 因而 Lab 与 Gameplay 可以拥有不同 renderer，却不能拥有不同 AT 时间语义：Trajectory Plan、Thermal segment 与 GameplayATPlan 均由同一个 playback clock 采样。
+
+这次收敛只解决执行/表现一致性与主线程负担，不改变 HM/DM、Encounter、Collision Heat、Domain Build 等规则候选。
+
 ## 明确保留的边界
 
 - 本轮为 P0 执行架构，不等于完整的 Encounter Framework。HM/DM、1:1 Launch / Release、M-T 因子与无退款候选继续保留。

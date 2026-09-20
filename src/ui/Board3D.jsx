@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
-import { sampleTimedRecord } from '../sim/plan-playback.js'
+import { playbackProgress, sampleTimedRecord } from '../sim/plan-playback.js'
 import { encounterFxSpecs } from './encounter-fx.js'
-import { AT_VISUAL_MS, momentumLevel, playbackElapsedMs } from '../sim/solver.js'
+import { momentumLevel } from '../sim/solver.js'
 import { HEX_RADIUS, axialDistance, axialToWorld, directionVector, worldToAxial } from '../sim/hex.js'
 import {
   WALL_REFLECTION_PATH_CONTRACT,
@@ -876,8 +876,7 @@ export function Board3D({
       let progress = 0
 
       if (activePlayback) {
-        const durationMs = activePlayback.durationMs ?? atVisualMsRef.current ?? AT_VISUAL_MS
-        progress = clamp(playbackElapsedMs(activePlayback, now) / Math.max(1, durationMs), 0, 1)
+        progress = playbackProgress(activePlayback, now)
         if (playbackCacheRef.current.id !== activePlayback.id) {
           const actorPoints = new Map()
           const wallActors = wallPivotActorIds(activePlayback.conflictEvents ?? [])

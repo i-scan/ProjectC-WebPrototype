@@ -13,8 +13,23 @@ export function playbackFromPlan(plan, id, durationMs, now = performance.now()) 
   }
 }
 
+export function playbackClockSample(playback, now = performance.now()) {
+  const durationMs = Math.max(1, Number(playback?.durationMs) || 0)
+  const elapsedMs = Math.max(0, playbackElapsedMs(playback, now))
+  return {
+    elapsedMs,
+    durationMs,
+    progress: Math.min(1, elapsedMs / durationMs),
+    remainingMs: Math.max(0, durationMs - elapsedMs),
+  }
+}
+
 export function playbackProgress(playback, now = performance.now()) {
-  return Math.min(1, playbackElapsedMs(playback, now) / Math.max(1, playback.durationMs))
+  return playbackClockSample(playback, now).progress
+}
+
+export function playbackRemainingMs(playback, now = performance.now()) {
+  return playbackClockSample(playback, now).remainingMs
 }
 
 // Uneven event times are authoritative; never infer time from array index.

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { playbackFromPlan, playbackProgress } from '../../sim/plan-playback.js'
 import {
   DEFAULT_THERMAL_CONFIG,
   DEFAULT_THERMAL_IMPULSES,
@@ -425,17 +426,14 @@ export function ThermalClockLab() {
     const finalState = { ...solved, worldAt: source.worldAt + 1 }
     const samples = sampleFuture(afterImpulse, configSnapshot, 1, source.worldAt, 40)
     setHistory((entries) => [...entries, { state: source, finalState, samples, actionId: selectedAction, impulse }].slice(-60))
-    setPlayback({
-      id: playbackIdRef.current++,
+    setPlayback(playbackFromPlan({
       source,
       config: configSnapshot,
       actionId: selectedAction,
       impulse,
       afterImpulse,
       finalState,
-      startedAt: performance.now(),
-      durationMs: 650 / Math.max(0.25, playbackSpeed),
-    })
+    }, playbackIdRef.current++, 650 / Math.max(0.25, playbackSpeed)))
     setLastEvent(`${action?.label ?? selectedAction} committed · impulse ${formatThermal(impulse, 2)} · resolving 1AT with analytic solver.`)
   }
 
@@ -443,7 +441,7 @@ export function ThermalClockLab() {
     if (!playback) return undefined
     let frame = 0
     const tick = (now) => {
-      const progress = clamp((now - playback.startedAt) / Math.max(1, playback.durationMs), 0, 1)
+      const progress = playbackProgress(playback, now)
       const sampled = solveThermalSegment(playback.afterImpulse, playback.config, progress)
       setVisualState({ ...sampled, worldAt: playback.source.worldAt + progress })
       if (progress >= 1) {

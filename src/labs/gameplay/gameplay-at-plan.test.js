@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildGameplayATPlan, sampleGameplayATPlan } from './gameplay-at-plan.js'
 import { createDefaultEnemies, createMomentumActor } from './gameplay-momentum-model.js'
 import { BASELINE_THERMAL_PROFILE, thermalStateFromProfile } from '../../thermal/thermal-profile.js'
-import { playbackFromPlan, playbackProgress, sampleTimedRecord } from '../../sim/plan-playback.js'
+import { playbackClockSample, playbackFromPlan, playbackProgress, playbackRemainingMs, sampleTimedRecord } from '../../sim/plan-playback.js'
 import { encounterFxSpecs } from '../../ui/encounter-fx.js'
 
 const make = (overrides = {}) => ({ player: createMomentumActor(), enemies: [],
@@ -52,8 +52,11 @@ describe('Gameplay AT plan: a frozen, queryable 1AT', () => {
     input.profile.revision += 1
     for (const durationMs of [200, 950, 3000]) {
       const playback = playbackFromPlan(result, 1, durationMs, 100)
-      expect(playbackProgress(playback, 100 + durationMs / 2)).toBe(0.5)
+      const half = playbackClockSample(playback, 100 + durationMs / 2)
+      expect(half.progress).toBe(0.5)
+      expect(half.remainingMs).toBe(durationMs / 2)
       expect(playbackProgress(playback, 100 + durationMs * 2)).toBe(1)
+      expect(playbackRemainingMs(playback, 100 + durationMs * 2)).toBe(0)
       expect(playback.finalState).toEqual(expected)
     }
     expect(result.profileSnapshot.revision).not.toBe(input.profile.revision)

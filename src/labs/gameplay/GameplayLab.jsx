@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { playbackFromPlan, playbackProgress } from '../../sim/plan-playback.js'
+import { playbackFromPlan, playbackProgress, playbackRemainingMs } from '../../sim/plan-playback.js'
 import { buildGameplayATPlan, GAMEPLAY_TIMELINE, sampleGameplayATPlan } from './gameplay-at-plan.js'
 import { Board3D } from '../../ui/Board3D.jsx'
 import { createCellWorld } from '../../sim/world.js'
@@ -158,7 +158,7 @@ export function GameplayLab() {
   const [domainNaturalBuild, setDomainNaturalBuild] = useState(true)
   const [atVisualMs, setAtVisualMs] = useState(950)
   const [playback, setPlayback] = useState(null)
-  const [progress, setProgress] = useState(0)
+  const [uiProgress, setUiProgress] = useState(0)
   const [lastPlan, setLastPlan] = useState(null)
   const playbackRef = useRef(null)
   const playbackId = useRef(0)
@@ -190,7 +190,7 @@ export function GameplayLab() {
   const previewDomain = { actor: shownPlan?.finalState?.player ?? player, trace: shownPlan?.domainTrace ?? [] }
   const previewResolution = shownPlan ? { valid: shownPlan.valid, reason: shownPlan.reason,
     trace: shownPlan.events?.filter((entry) => entry.type === 'MomentumTransaction').flatMap((entry) => entry.trace.map((trace) => ({ ...trace, actorId: entry.actorId }))) ?? [] } : null
-  const visual = useMemo(() => playback ? sampleGameplayATPlan(playback, progress) : null, [playback, progress])
+  const visual = useMemo(() => playback ? sampleGameplayATPlan(playback, uiProgress) : null, [playback, uiProgress])
   const displayThermal = visual?.thermal ?? thermal
   const displayPlayer = visual?.player.actor ?? player
   const displayEnemies = visual ? enemies.map((actor) => visual.actors[actor.id].actor) : enemies
@@ -222,7 +222,7 @@ export function GameplayLab() {
     const next = playbackFromPlan(plan, ++playbackId.current, atVisualMs)
     playbackRef.current = next
     setPlayback(next)
-    setProgress(0)
+    setUiProgress(0)
     setSelectedActionId(actionId)
     setSelectedHex(hex)
     setHoverHex(null)
@@ -231,12 +231,19 @@ export function GameplayLab() {
 
   useEffect(() => {
     if (!playback) return undefined
-    let frame
-    const tick = (now) => {
+
+    // Same contract as Trajectory: renderers sample the frozen playback clock;
+    // React only samples it at a low diagnostic rate and never drives simulation.
+    const updateUiSample = () => {
       if (playbackRef.current?.id !== playback.id) return
-      const t = playbackProgress(playback, now)
-      setProgress(t)
-      if (t < 1) { frame = requestAnimationFrame(tick); return }
+      setUiProgress(playbackProgress(playback))
+    }
+    updateUiSample()
+    const uiTimer = window.setInterval(updateUiSample, 100)
+
+    const commitTimer = window.setTimeout(() => {
+      if (playbackRef.current?.id !== playback.id) return
+      setUiProgress(1)
       // Only this boundary mutates the authoritative Ready state.
       setPreviousThermal(thermal)
       setPlayer(playback.finalState.player)
@@ -249,10 +256,13 @@ export function GameplayLab() {
       playbackRef.current = null
       setPlayback(null)
       clearAim()
+    }, playbackRemainingMs(playback))
+
+    return () => {
+      window.clearInterval(uiTimer)
+      window.clearTimeout(commitTimer)
     }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [playback])
+  }, [playback?.id])
 
   const undo = () => {
     if (playbackRef.current) return
@@ -302,7 +312,7 @@ export function GameplayLab() {
         worldAt,
         timeline: GAMEPLAY_TIMELINE,
         ready,
-        progress,
+        progress: uiProgress,
         visual: visual ? clone(visual) : null,
         previewFinal: previewPlan?.valid ? clone(previewPlan.finalState) : null,
         playbackFinal: playback ? clone(playback.finalState) : null,
@@ -326,12 +336,12 @@ export function GameplayLab() {
       data-world-at={worldAt.toFixed(1)}
       data-gameplay-timeline={GAMEPLAY_TIMELINE}
       data-playback-state={ready ? 'ready' : 'playing'}
-      data-playback-at={ready ? '0' : progress.toFixed(3)}
+      data-playback-at={ready ? '0' : uiProgress.toFixed(3)}
     >
       <header className="prototype-header">
         <div className="brand"><p>ProjectC · Gameplay × Momentum × Thermal v1</p><h1>Gameplay Lab</h1></div>
         <div className="headline-state">
-          <div><span>{ready ? 'Ready · World Time' : 'Playback · World Time'}</span><strong>{(worldAt + (ready ? 0 : progress)).toFixed(2)} AT</strong></div>
+          <div><span>{ready ? 'Ready · World Time' : 'Playback · World Time'}</span><strong>{(worldAt + (ready ? 0 : uiProgress)).toFixed(2)} AT</strong></div>
           <div><span>Momentum</span><strong>{momentumBand(displayPlayer)}</strong></div>
           <div className={`thermal-${thermalDomain(displayThermal.temperature).toLowerCase()}`}><span>Thermal</span><strong>{thermalDomain(displayThermal.temperature)} · T {formatThermal(displayThermal.temperature, 2)}</strong></div>
           <div><span>Drift</span><strong>{formatThermal(displayThermal.drift, 2)} / AT</strong></div>
@@ -382,7 +392,7 @@ export function GameplayLab() {
         <section className="center-column">
           <div className="board-strip">
             <strong>{selectedAction.label} · 1AT</strong>
-            <span>{!ready ? `PLAYING ${progress.toFixed(2)} / 1 AT · input locked` : requiresTarget
+            <span>{!ready ? `PLAYING ${uiProgress.toFixed(2)} / 1 AT · input locked` : requiresTarget
               ? (selectedHex ? `Target ${axialKey(selectedHex)} selected` : (reachable.length ? 'Choose a highlighted target / direction' : 'Current state has no legal target'))
               : selectedAction.short}</span>
           </div>
@@ -433,7 +443,7 @@ export function GameplayLab() {
           <section className="action-hand gameplay-action-hand">
             <div className="hand-heading">
               <div><h2>Gameplay Actions · Momentum v1</h2><p>Move / Drive push Horizontal; Brace / Skip settle toward Down; Launch / Release cash Down back into Horizontal pressure.</p></div>
-              <span className="gameplay-ready-label" role="status">{ready ? 'READY · select → hover → click target' : `PLAYING · ${(progress * 100).toFixed(0)}%`}</span>
+              <span className="gameplay-ready-label" role="status">{ready ? 'READY · select → hover → click target' : `PLAYING · ${(uiProgress * 100).toFixed(0)}%`}</span>
             </div>
             <div className="action-row gameplay-action-row">
               {actions.map((entry) => (
@@ -500,7 +510,7 @@ export function GameplayLab() {
             <div className="section-heading"><h3>Resolution Trace</h3><span>cause-aware</span></div>
             <p className="gameplay-resolution-text">{lastTrace}</p>
             <ol className="gameplay-timeline" aria-label="AT event timeline">
-              {(playback ?? previewPlan ?? lastPlan)?.events?.map((event) => <li key={event.id} data-event-type={event.type} className={playback && event.t <= progress ? 'is-elapsed' : ''}>
+              {(playback ?? previewPlan ?? lastPlan)?.events?.map((event) => <li key={event.id} data-event-type={event.type} className={playback && event.t <= uiProgress ? 'is-elapsed' : ''}>
                 <time>{event.t.toFixed(2)}</time> {event.type} <small>{event.actorId ?? ''}{event.targetId ? ` → ${event.targetId}` : ''}{event.source ? ` · ${event.source}` : ''}</small>
               </li>)}
             </ol>
