@@ -293,12 +293,16 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       ? forced.pathStates
       : forced.path.map((hex) => ({ hex, ...momentumFields(forced.actor) }))
     let firstMoveAt = null
+    let vacated = false
     if (pathStates.length) {
       emit('ForcedMotion', t, { actorId: target.id, hex: target.hex, axisId, path: forced.path,
         reflectionCount: forced.motion?.reflectionCount ?? 0 })
       pathStates.forEach((state, index) => {
         const moveAt = t + (0.94 - t) * (index + 1) / pathStates.length
-        if (firstMoveAt === null) firstMoveAt = moveAt
+        if (!vacated && !sameCell(state.hex, target.hex)) {
+          vacated = true
+          firstMoveAt = moveAt
+        }
         queue.push({ kind: 'forced', t: moveAt, actorId: target.id, hex: state.hex, start: t,
           momentum: {
             hM: state.hM,
@@ -315,7 +319,7 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       queue.push({ kind: 'terminal-stop', t: pathStates.length ? 0.94 : t,
         actorId: target.id, sourceId: source.id, stop: entry, axisId })
     }
-    return { moved: pathStates.length > 0, forced, firstMoveAt }
+    return { moved: vacated, forced, firstMoveAt }
   }
 
   queue.push({ kind: 'attack-check', t: 0.15 }, { kind: 'attack-check', t: 0.85 })
@@ -371,10 +375,16 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     // actors claiming one empty Cell and actors swapping opposite edges. The
     // latter used to be order-dependent: an M0 actor processed first could
     // cancel an HM3 actor before the HM3 collision was evaluated.
-    const competing = queue.find((otherStep) => otherStep.kind === 'travel'
-      && Math.abs(otherStep.t - t) < 1e-8
-      && otherStep.actorId !== id
-      && !cancelled.has(otherStep.actorId))
+    const competing = queue.find((otherStep) => {
+      if (otherStep.kind !== 'travel'
+        || Math.abs(otherStep.t - t) >= 1e-8
+        || otherStep.actorId === id
+        || cancelled.has(otherStep.actorId)) return false
+      const otherActor = actors.get(otherStep.actorId)
+      if (!otherActor) return false
+      return sameCell(otherStep.hex, step.hex)
+        || (sameCell(otherStep.hex, actor.hex) && sameCell(step.hex, otherActor.hex))
+    })
     const competingActor = competing ? actors.get(competing.actorId) : null
     const sameClaim = Boolean(competing && sameCell(competing.hex, step.hex))
     const edgeSwap = Boolean(competing && competingActor
