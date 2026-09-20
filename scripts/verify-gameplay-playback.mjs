@@ -107,6 +107,7 @@ try {
     input.dispatchEvent(new Event('input',{bubbles:true}));
   })()`)
   await until('playback speed control', () => client.evaluate("document.querySelector('.cell-world-board').dataset.atVisualMs === '3000'"))
+  const boardRebuildsBeforePlayback = Number(await client.evaluate("document.querySelector('.cell-world-board').dataset.boardRebuildCount || '0'"))
   await click('[data-gameplay-action-id="drive"].action-card')
   await moveToCell({ q: 1, r: 0 })
   const preview = await until('hover Preview', async () => { const s = await snapshot(); return s?.previewFinal && s })
@@ -123,6 +124,7 @@ try {
       && Number(value.visualX) > 0 && Number(value.visualX) < state.playbackFinal.position.x
       ? value : false
   })
+  assert(Number(board.boardRebuildCount) === boardRebuildsBeforePlayback, 'Board3D rebuilt during playback; array prop identity regression')
   await mkdir('artifacts', { recursive: true })
   const shot = await client.send('Page.captureScreenshot', { format: 'png' })
   await writeFile('artifacts/gameplay-playback-mid.png', Buffer.from(shot.data, 'base64'))

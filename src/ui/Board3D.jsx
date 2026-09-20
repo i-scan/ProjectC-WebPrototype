@@ -617,6 +617,7 @@ export function Board3D({
   const axisDisplayOverrideRef = useRef(axisDisplayOverride)
   const showDebugCollisionFxRef = useRef(showDebugCollisionFx)
   const playbackCacheRef = useRef({ id: null, playerPoints: [], actorPoints: new Map() })
+  const boardRebuildCountRef = useRef(0)
 
   stateRef.current = state
   actorsRef.current = actors
@@ -1008,6 +1009,8 @@ export function Board3D({
     const boardGroup = boardGroupRef.current
     const host = hostRef.current
     if (!boardGroup) return
+    boardRebuildCountRef.current += 1
+    if (host) host.dataset.boardRebuildCount = String(boardRebuildCountRef.current)
     for (const child of [...boardGroup.children]) {
       boardGroup.remove(child)
       disposeObject(child)
