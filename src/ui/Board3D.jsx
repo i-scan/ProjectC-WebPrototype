@@ -10,6 +10,7 @@ import {
   wallVisualYaw,
 } from '../sim/wall-cell-reflection.js'
 
+const EMPTY_ARRAY = Object.freeze([])
 const TILE_HEIGHT = 0.18
 const DEFAULT_CAMERA = { yaw: Math.PI * 0.25, pitch: 0.74, zoom: 1, targetX: 0, targetZ: 0 }
 const PLAYER_BLUE = 0x58aed2
@@ -574,10 +575,10 @@ function createObstacleMesh(obstacle) {
 }
 
 export function Board3D({
-  cells,
-  obstacles,
-  actors = [],
-  reachableCells = [],
+  cells = EMPTY_ARRAY,
+  obstacles = EMPTY_ARRAY,
+  actors = EMPTY_ARRAY,
+  reachableCells = EMPTY_ARRAY,
   state,
   previewPlan,
   playback,

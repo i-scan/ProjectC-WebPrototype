@@ -50,6 +50,7 @@ Preview 与执行使用同一 plan builder；目标与输入未变化时直接�
 - GameplayATPlan 的 event payload 不再深拷贝整套 Encounter actor snapshot；时间状态只保留在 timed tracks。普通 Travel 不再为 occupant lookup clone 全体 Actor。
 - Encounter FX 改为 geometry-only；去掉每个事件即时 Canvas → CanvasTexture → SpriteMaterial 上传，保留 Collision / Attack / Clash / DownResistance / ForcedMotion 的语义差异。
 - Gameplay Board 暂停天气粒子展示；天气不是当前 Momentum × Thermal 验证必要变量。
+- 修复关键 Three.js 重建 bug：Gameplay 不再在每次 React progress 刷新时传入新的 `obstacles={[]}` / empty reachable array。Board3D 的 scene effect 依赖数组引用；旧实现会在 Playback 期间反复 dispose 并重建整张 Hex board，正是普通动画滞后与 Encounter 时长卡顿的主要性能回归来源。空集合现改为稳定常量，Board3D 默认空数组也改为稳定引用。
 
 目标是让 Gameplay 退回到“Shared Spatial / Shared Thermal + Encounter adapter”的薄集成，而不是继续把它演化成第三套独立 Lab runtime。本轮不改变 HM/DM、Thermal、Encounter 结算规则。
 

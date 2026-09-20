@@ -31,6 +31,8 @@ import {
 } from './gameplay-momentum-model.js'
 
 const BOARD_RADIUS = 5
+const EMPTY_OBSTACLES = Object.freeze([])
+const EMPTY_REACHABLE = Object.freeze([])
 const clone = (value) => JSON.parse(JSON.stringify(value))
 
 function thermalDomain(temperature) {
@@ -361,9 +363,9 @@ export function GameplayLab() {
           <div className="board-frame gameplay-board-frame">
             <Board3D
               cells={cells}
-              obstacles={[]}
+              obstacles={EMPTY_OBSTACLES}
               actors={boardActors}
-              reachableCells={ready ? reachable : []}
+              reachableCells={ready ? reachable : EMPTY_REACHABLE}
               state={playerSpatial}
               previewPlan={ready ? previewPlan : null}
               playback={playback}
