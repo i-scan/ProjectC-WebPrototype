@@ -22,7 +22,7 @@ export const GAMEPLAY_ACTIONS_V1 = Object.freeze([
   { id: 'brace', label: 'Brace', badge: 'D+', target: 'none', short: 'Active Down Build · bypass D0 setup from No Axis' },
   { id: 'launch', label: 'Launch', badge: 'D→H', target: 'direction', short: 'Convert all Down M to self Horizontal M · 1:1' },
   { id: 'release', label: 'Release', badge: 'D→OUT', target: 'actor', short: 'Convert all Down M to outgoing Horizontal M · 1:1' },
-  { id: 'skip', label: 'Skip / Stay', badge: 'SKIP', target: 'none', short: 'Natural settle: H → No Axis → D' },
+  { id: 'skip', label: 'Skip / Stay', badge: 'SKIP', target: 'none', short: 'Horizontal = Trajectory Coast; No Axis / Down = Gameplay Down extension' },
 ])
 
 export function createMomentumActor({
