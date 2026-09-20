@@ -6,6 +6,13 @@ import {
   actorBoardRecord, actorSpatialState, createMomentumActor, forcedDisplace,
   reachableTargets, resolveGameplayAction, resolveDomainNaturalBuild, resolveThermalEvents,
 } from './gameplay-momentum-model.js'
+import {
+  GAMEPLAY_SPATIAL_AUTHORITY,
+  GAMEPLAY_SPATIAL_REFLECTION_RULE,
+  resolveTrajectoryGameplayAction,
+  trajectoryPreviewForGameplay,
+  usesTrajectoryRuntime,
+} from './gameplay-lab-runtime.js'
 
 export const GAMEPLAY_TIMELINE = 'gameplay-at-plan-p0-candidate'
 const clone = (value) => structuredClone(value)
@@ -24,9 +31,18 @@ export function snapshotGameplayIntents(player, enemies, actionId, targetHex) {
     }))]
 }
 
-// Gameplay retains its discrete HM/DM candidate rules; the timeline is the
-// adapter to Trajectory's Board3D playback contract, not another motion engine.
-export function buildGameplaySpatialPreview({ player, enemies = [], worldAt = 0, actionId, targetHex = null, boardRadius = 5 }) {
+// Horizontal movement is not re-authored here: Gameplay asks the exact
+// Trajectory Lab runtime for Move / Drive / Horizontal Skip. Gameplay-only
+// Down / Attack / Launch / Release remain extensions around that authority.
+export function buildGameplaySpatialPreview({
+  player, enemies = [], worldAt = 0, actionId, targetHex = null, boardRadius = 5,
+  obstacles = [], responseCurve = 'linear',
+}) {
+  const shared = trajectoryPreviewForGameplay({
+    actor: player, actionId, targetHex, boardRadius, obstacles, responseCurve, worldAt,
+  })
+  if (shared) return shared
+
   const actors = [player, ...enemies].map(createMomentumActor)
   const validation = resolveGameplayAction({
     actor: player,
@@ -64,16 +80,38 @@ export function buildGameplaySpatialPreview({ player, enemies = [], worldAt = 0,
 
 export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   worldAt = 0, actionId, targetHex = null, environmentId = 'adiabatic',
-  boardRadius = 5, momentumFactor = 0.8, collisionHeatFactor = 0.8,
+  boardRadius = 5, obstacles = [], responseCurve = 'linear', thermalConfigOverride = null,
+  momentumFactor = 0.8, collisionHeatFactor = 0.8,
   collisionDamage = false, domainNaturalBuild = true,
 }) {
   const initialActors = [player, ...enemies].map(createMomentumActor)
-  const inputAction = ['skip', 'brace'].includes(actionId) || reachableTargets(player, actionId, boardRadius, initialActors)
-    .some((entry) => targetHex && sameCell(entry.hex, targetHex))
-  const validation = resolveGameplayAction({ actor: player, actionId, targetHex, actors: initialActors, boardRadius })
+  const resolveAction = (actor, nextActionId, nextTargetHex, actorList = initialActors) => {
+    const shared = resolveTrajectoryGameplayAction({
+      actor,
+      actionId: nextActionId,
+      targetHex: nextTargetHex,
+      boardRadius,
+      obstacles,
+      responseCurve,
+      worldAt,
+    })
+    if (shared) return shared
+    return resolveGameplayAction({
+      actor,
+      actionId: nextActionId,
+      targetHex: nextTargetHex,
+      actors: nextActionId === 'release' ? actorList : [actor],
+      boardRadius,
+    })
+  }
+  const sharedInput = usesTrajectoryRuntime(player, actionId)
+  const inputAction = ['skip', 'brace'].includes(actionId)
+    || (sharedInput ? Boolean(targetHex) : reachableTargets(player, actionId, boardRadius, initialActors)
+      .some((entry) => targetHex && sameCell(entry.hex, targetHex)))
+  const validation = resolveAction(player, actionId, targetHex)
   if (!inputAction || !validation.valid || player.hp <= 0) return { valid: false, reason: validation.reason || 'No legal target / actor is down.' }
   const profileSnapshot = cloneThermalProfile(profile)
-  const config = thermalConfigFromProfile(profileSnapshot, environmentId)
+  const config = thermalConfigOverride ? { ...thermalConfigOverride } : thermalConfigFromProfile(profileSnapshot, environmentId)
   const intents = snapshotGameplayIntents(player, enemies, actionId, targetHex)
   const intentById = new Map(intents.map((intent) => [intent.actorId, intent]))
   const actors = new Map(initialActors.map((actor) => [actor.id, clone(actor)]))
@@ -109,21 +147,25 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   const plans = new Map()
   for (const intent of intents) {
     const actor = actors.get(intent.actorId)
-    // Only Release needs a target at declaration; other contacts are resolved
-    // against the live timeline snapshot, not actors frozen at Ready positions.
-    let result = resolveGameplayAction({ actor, actionId: intent.actionId, targetHex: intent.targetHex,
-      actors: intent.actionId === 'release' ? initialActors : [actor], boardRadius })
-    if (actor.id !== player.id && intent.actionId === 'move') {
-      const hex = intent.targetHex
-      const canMove = axialDistance(actor.hex, player.hex) > 1 && axialDistance(hex) <= boardRadius
-      result = { valid: true, actor: { ...actor, axisId: canMove ? directionIdBetween(actor.hex, hex) : actor.axisId },
-        path: canMove ? [hex] : [], thermal: [], trace: [{ cause: canMove ? 'Enemy Move' : 'Enemy Hold' }] }
-    }
+    // Horizontal Move / Drive / Skip for every Actor uses the same Trajectory
+    // runtime. Encounter still resolves against the live shared timeline.
+    let result = resolveAction(actor, intent.actionId, intent.targetHex, initialActors)
     if (!result.valid) result = { valid: true, actor, path: [], thermal: [], trace: [{ cause: 'Intent unavailable: Hold' }] }
     if (intent.actionId === 'release') result = { ...result,
       trace: result.trace.filter((event) => event.source === 'Release'),
       thermal: result.thermal.filter((event) => event.scope === 'source') }
     plans.set(actor.id, result)
+    if (result.trajectoryPlan) {
+      for (const reflection of result.trajectoryPlan.conflictEvents ?? []) {
+        const rt = Math.max(0, Math.min(1, Number(reflection.t ?? 0.5)))
+        emit('SurfaceReflection', rt, {
+          actorId: actor.id,
+          hex: reflection.attemptedCell ?? reflection.from ?? result.actor.hex,
+          axisId: reflection.axisAfter ?? result.actor.axisId,
+          authority: GAMEPLAY_SPATIAL_REFLECTION_RULE,
+        })
+      }
+    }
     record(actor.id, 0)
     record(actor.id, 0.08)
     emit('Declare', 0, { ...intent, hex: actor.hex })
@@ -311,14 +353,21 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   const finalEnemies = enemies.map((actor) => actors.get(actor.id))
   const actorTrajectories = Object.fromEntries(enemies.map((actor) => [actor.id,
     tracks[actor.id].map((record) => record.actor.hex).filter((hex, index, list) => index === 0 || !sameCell(hex, list[index - 1]))]))
+  const playerPlan = plans.get(player.id)
+  const playerSamples = playerPlan?.trajectorySamples?.length ? playerPlan.trajectorySamples : tracks[player.id]
+  const trajectoryConflictEvents = playerPlan?.trajectoryPlan?.conflictEvents ?? []
   return {
     valid: true, contract: GAMEPLAY_TIMELINE, durationAt: 1, intents, events,
+    spatialAuthority: GAMEPLAY_SPATIAL_AUTHORITY,
     profileSnapshot, config, thermalSegments: timeline.segments, sourceThermalEvents,
-    samples: tracks[player.id], actorSamples: tracks, actorTrajectories,
+    samples: playerSamples, actorSamples: tracks, actorTrajectories,
     actorPlaybackWindows: Object.fromEntries(enemies.map((actor) => [actor.id, { start: 0.08, end: 0.96 }])),
-    playerPlaybackEnd: 1, spatialMode: 'discrete', destinationDriven: true,
-    traversedCells: tracks[player.id].map((record) => record.actor.hex),
-    collisions: events.filter((event) => event.type === 'Collision'),
+    playerPlaybackEnd: 1, spatialMode: playerPlan?.trajectoryPlan ? 'hybrid' : 'discrete',
+    destinationDriven: !playerPlan?.trajectoryPlan,
+    visualCurveAuthoritative: Boolean(playerPlan?.trajectoryPlan),
+    conflictEvents: trajectoryConflictEvents,
+    traversedCells: playerPlan?.trajectoryPlan?.pathCells ?? tracks[player.id].map((record) => record.actor.hex),
+    collisions: [...(playerPlan?.trajectoryPlan?.collisions ?? []), ...events.filter((event) => event.type === 'Collision')],
     finalState: { ...actorSpatialState(finalPlayer, worldAt + 1), actors: finalEnemies.map(actorBoardRecord),
       player: clone(finalPlayer), enemies: clone(finalEnemies), thermal: timeline.finalState },
     domainTrace: domain.trace,
