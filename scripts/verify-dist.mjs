@@ -12,7 +12,9 @@ function assert(condition, message) {
 
 assert(info.schemaVersion === 5, 'build-info schema is not Spatial Inertia v1 schema 5')
 assert(info.implementation === 'spatial-inertia-v1-candidate', 'build-info implementation mismatch')
-assert(info.gameplayTimeline === 'gameplay-at-plan-p0-candidate', 'build-info Gameplay timeline mismatch')
+assert(info.gameplayTimeline === 'gameplay-at-plan-p0-candidate',
+  'driving-lab-wall-pivot-reflection-v1',
+  'piecewise-analytic-second-order-v1', 'build-info Gameplay timeline mismatch')
 assert(info.commit === expectedCommit, `build commit ${info.commit} != ${expectedCommit}`)
 assert(info.status === (expectedCommit === 'local' ? 'local' : 'verified'), 'unexpected build status')
 
@@ -96,7 +98,7 @@ for (const marker of [
   'gameplay-at-plan-p0-candidate',
   'Gameplay AT playback duration',
   'Gameplay Actions · Momentum v1',
-  'HM0 Axis → No Axis → DM0 Skip chain',
+  'Horizontal Move / Drive / Skip are Trajectory Lab authoritative',
   'v1 Experiment Controls',
 ]) assert(script.includes(marker), `current runtime marker missing: ${marker}`)
 assert(script.includes(expectedCommit), 'bundle commit marker missing')
