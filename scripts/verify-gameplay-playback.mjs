@@ -100,13 +100,13 @@ try {
   assert(!await client.evaluate("Boolean(document.querySelector('.gameplay-commit'))"), 'External Commit button must be removed')
   const initial = await snapshot()
   assert(initial.timeline === 'gameplay-at-plan-p0-candidate', 'GameplayATPlan contract missing')
-  // Keep enough frames for software-rendered CI while avoiding 3s-per-AT local regressions.
+  // Give slow software-rendered CI enough frames to inspect event boundaries and locked-input behavior.
   await client.evaluate(`(() => {
     const input=document.querySelector('[aria-label="Gameplay AT playback duration"]');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'1800');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'3000');
     input.dispatchEvent(new Event('input',{bubbles:true}));
   })()`)
-  await until('playback speed control', () => client.evaluate("document.querySelector('.cell-world-board').dataset.atVisualMs === '1800'"))
+  await until('playback speed control', () => client.evaluate("document.querySelector('.cell-world-board').dataset.atVisualMs === '3000'"))
   await click('[data-gameplay-action-id="drive"].action-card')
   await moveToCell({ q: 1, r: 0 })
   const preview = await until('hover Preview', async () => { const s = await snapshot(); return s?.previewFinal && s })
