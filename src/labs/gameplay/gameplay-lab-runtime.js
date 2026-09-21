@@ -186,6 +186,8 @@ export function resolveTrajectoryGameplayAction({
     conflictEvents: plan.conflictEvents ?? [],
     momentumEvents: plan.momentumEvents ?? [],
     cellConflict: plan.cellConflict ?? null,
+    gameplayActionId: actionId,
+    gameplayTargetHex: targetHex ? { ...targetHex } : null,
     authority: TRAJECTORY_RULE,
   }
 }
