@@ -183,7 +183,7 @@ try {
   await moveToCell({ q: 3, r: 0 })
   const encounterPreview = await until('HM3/M0 TrajectoryStrike preview', async () => {
     const state = await snapshot()
-    return state?.previewFinal
+    return state?.previewFinal?.player?.hex?.q === 1
       && state.events.some((event) => event.type === 'Encounter' && event.kind === 'TrajectoryStrike')
       && state.events.some((event) => event.type === 'ForcedMotion' && event.actorId === 'enemy-a')
       ? state : false
