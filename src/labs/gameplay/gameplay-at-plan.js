@@ -325,7 +325,11 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   const resolveAction = (actor, nextActionId, nextTargetHex, actorList = initialActors) => {
     const shared = resolveTrajectoryGameplayAction({
       actor,
-      actors: actorList.filter((entry) => entry.id !== actor.id),
+      // Player Horizontal contact is fully Trajectory-authoritative here.
+      // Enemy-initiated contact still enters the legacy multi-intent adapter
+      // below until it is migrated as a separate step; do not pre-resolve it
+      // and then resolve it again in the queue.
+      actors: actor.id === player.id ? actorList.filter((entry) => entry.id !== actor.id) : [],
       actionId: nextActionId,
       targetHex: nextTargetHex,
       boardRadius,
