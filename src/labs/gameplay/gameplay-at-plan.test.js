@@ -173,7 +173,7 @@ describe('Gameplay light preview contact authority', () => {
     expect(preview.valid).toBe(true)
     expect(preview.cellConflict).toMatchObject({
       targetActorId: 'target',
-      resolution: 'Strike',
+      resolution: 'contact-strike-direct-transfer-v1',
     })
     expect(preview.finalState.player.hex).toEqual({ q: 1, r: 0 })
     expect(preview.finalState.enemies[0].hex.q).toBeGreaterThan(1)
