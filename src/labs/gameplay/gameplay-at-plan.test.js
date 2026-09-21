@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildGameplayATPlan, sampleGameplayATPlan } from './gameplay-at-plan.js'
-import { createDefaultEnemies, createMomentumActor } from './gameplay-momentum-model.js'
+import { actorSpatialState, createDefaultEnemies, createMomentumActor } from './gameplay-momentum-model.js'
 import { BASELINE_THERMAL_PROFILE, thermalConfigFromProfile, thermalStateFromProfile } from '../../thermal/thermal-profile.js'
 import { thermalTimeline } from '../../thermal/thermal-runtime.js'
 import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
@@ -229,6 +229,13 @@ describe('Encounter regression: Trajectory contact authority', () => {
     expect(result.actorTrajectories.target).toEqual(expected.actorTrajectories.target)
     expect(result.conflictEvents).toEqual(expected.conflictEvents)
     expect(result.events.some((event) => event.type === 'SurfaceReflection' && event.actorId === 'target')).toBe(true)
+
+    const window = result.actorPlaybackWindows.target
+    const mid = sampleGameplayATPlan(result, (window.start + window.end) * 0.5).actors.target
+    expect(mid.position).not.toEqual(actorSpatialState(enemy).position)
+    const end = sampleGameplayATPlan(result, 1).actors.target
+    expect(end.actor).toEqual(result.finalState.enemies[0])
+    expect(end.position).toEqual(actorSpatialState(result.finalState.enemies[0], 1).position)
   })
 })
 
