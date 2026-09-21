@@ -183,7 +183,7 @@ try {
   await moveToCell({ q: 3, r: 0 })
   const encounterPreview = await until('HM3/M0 Trajectory contact preview', async () => {
     const state = await snapshot()
-    return state?.previewFinal?.player?.hex?.q === 1
+    return state?.spatialPreviewFinal?.player?.hex?.q === 1
       && state.previewCellConflict?.targetActorId === 'enemy-a'
       ? state : false
   })
