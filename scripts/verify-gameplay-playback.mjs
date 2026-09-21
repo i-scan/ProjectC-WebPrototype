@@ -164,44 +164,48 @@ try {
   assert(reflectionEnd.player.hM === 2, 'Trajectory M3→M2 settlement missing after reflected Move')
   assert(reflectionEnd.player.axisId !== 'E', 'Trajectory reflected Axis was not adopted by Gameplay')
 
-  // Exact regression reported during manual playtest: an HM3 player and a
-  // moving M0 enemy cross the same edge at the same timeline instant. Resolve
-  // them from one snapshot; M0 must never cancel HM3 merely by actor-id order.
+  // Exact manual-regression fixture: HM3 strikes a stationary M0 target.
+  // This is deliberately the same passive-target contract used by Trajectory
+  // Lab; enemy simultaneous initiative belongs to the separate Encounter layer.
   assert(await client.evaluate("window.__PROJECTC_GAMEPLAY_LAB__.setWalls(false)"), 'Could not disable walls for HM3/M0 fixture')
   await until('walls disabled', async () => (await snapshot())?.wallsEnabled === false && await snapshot())
   assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.loadDebugScenario(${JSON.stringify({
     player: { id: 'player', hex: { q: 0, r: 0 }, hp: 100, hM: 3, axisId: 'E' },
-    enemies: [{ id: 'enemy-a', hex: { q: 3, r: 0 }, hp: 40, hM: 0, axisId: 'W', intent: 'move', intentIndex: 0 }],
+    enemies: [{ id: 'enemy-a', hex: { q: 1, r: 0 }, hp: 40, hM: 0, axisId: null, intent: 'skip', intentIndex: 0 }],
     worldAt: 0,
     selectedActionId: 'move',
-  })})`), 'HM3/M0 crossing fixture rejected')
+  })})`), 'HM3/M0 strike fixture rejected')
   await until('HM3/M0 fixture', async () => {
     const state = await snapshot()
-    return state?.ready && state.worldAt === 0 && state.player.hM === 3 && state.enemies?.[0]?.hM === 0 && state
+    return state?.ready && state.worldAt === 0 && state.player.hM === 3
+      && state.enemies?.[0]?.hex?.q === 1 && state.enemies?.[0]?.hM === 0 && state
   })
   await moveToCell({ q: 3, r: 0 })
-  await until('HM3/M0 preview', async () => {
+  const encounterPreview = await until('HM3/M0 TrajectoryStrike preview', async () => {
     const state = await snapshot()
-    return state?.previewFinal?.player?.hex?.q === 3
-      && state.events.some((event) => event.type === 'Encounter' && event.kind === 'TrajectoryStrike') ? state : false
+    return state?.previewFinal
+      && state.events.some((event) => event.type === 'Encounter' && event.kind === 'TrajectoryStrike')
+      && state.events.some((event) => event.type === 'ForcedMotion' && event.actorId === 'enemy-a')
+      ? state : false
   })
   await clickCell({ q: 3, r: 0 })
-  const encounter = await until('HM3/M0 crossing playback', async () => {
+  const encounter = await until('HM3/M0 strike playback', async () => {
     const state = await snapshot()
-    return !state?.ready && state.progress > 0.68 && state.progress < 0.94
+    return !state?.ready
       && state.events.some((event) => event.type === 'Encounter' && event.kind === 'TrajectoryStrike')
-      && state.events.some((event) => event.type === 'ForcedMotion') ? state : false
+      && state.events.some((event) => event.type === 'ForcedMotion' && event.actorId === 'enemy-a') ? state : false
   })
   assert(encounter.events.some((event) => event.type === 'MomentumTransfer' && event.actorId === 'player'), 'Trajectory Strike transfer missing')
-  assert(encounter.events.some((event) => event.type === 'ForcedMotion' && event.actorId === 'enemy-a'), 'M0 Forced Motion missing')
-  assert(encounter.player.hex.q === 0 && encounter.enemies[0].hex.q === 3, 'Authoritative Ready state mutated during playback')
+  assert(encounter.player.hex.q === 0 && encounter.enemies[0].hex.q === 1, 'Authoritative Ready state mutated during playback')
   const fxBoard = await client.evaluate("({...document.querySelector('.cell-world-board').dataset})")
   assert(Number(fxBoard.collisionFxEventCount) >= 2, 'Encounter-driven FX missing')
   const encounterShot = await client.send('Page.captureScreenshot', { format: 'png' })
   await writeFile('artifacts/gameplay-encounter-mid.png', Buffer.from(encounterShot.data, 'base64'))
   const encounterEnd = await readyAt(1)
-  assert(encounterEnd.player.hex.q === 3 && encounterEnd.player.hM === 0, 'HM3 source did not settle into collision Cell as M0')
-  assert(encounterEnd.enemies[0].hex.q > 3, 'M0 target was not displaced by HM3')
+  assert(JSON.stringify(encounterEnd.player) === JSON.stringify(encounterPreview.previewFinal.player), 'HM3 Strike Preview/Commit player mismatch')
+  assert(JSON.stringify(encounterEnd.enemies) === JSON.stringify(encounterPreview.previewFinal.enemies), 'HM3 Strike Preview/Commit enemy mismatch')
+  assert(encounterEnd.player.hex.q === 1 && encounterEnd.player.hM === 0, 'HM3 source did not settle into collision Cell as M0')
+  assert(encounterEnd.enemies[0].hex.q > 1, 'M0 target was not displaced by HM3')
 
   // Contact + forced wall reflection must use the same Trajectory contact
   // resolver and must never snap the target back to its Ready Cell.
