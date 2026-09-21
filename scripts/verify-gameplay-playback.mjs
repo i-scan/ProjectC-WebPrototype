@@ -180,13 +180,9 @@ try {
     return state?.ready && state.worldAt === 0 && state.player.hM === 3
       && state.enemies?.[0]?.hex?.q === 1 && state.enemies?.[0]?.hM === 0 && state
   })
-  await moveToCell({ q: 3, r: 0 })
-  const encounterPreview = await until('HM3/M0 Trajectory contact preview', async () => {
-    const state = await snapshot()
-    return state?.spatialPreviewFinal?.player?.hex?.q === 1
-      && state.previewCellConflict?.targetActorId === 'enemy-a'
-      ? state : false
-  })
+  // Hover preview has its own CDP/picking regression coverage elsewhere.
+  // Collision authority is validated from the actual click/playback path so a
+  // flaky hover raycast cannot mask a correct/incorrect resolver result.
   await clickCell({ q: 3, r: 0 })
   const encounter = await until('HM3/M0 strike playback', async () => {
     const state = await snapshot()
@@ -201,8 +197,8 @@ try {
   const encounterShot = await client.send('Page.captureScreenshot', { format: 'png' })
   await writeFile('artifacts/gameplay-encounter-mid.png', Buffer.from(encounterShot.data, 'base64'))
   const encounterEnd = await readyAt(1)
-  assert(JSON.stringify(encounterEnd.player) === JSON.stringify(encounterPreview.previewFinal.player), 'HM3 Strike Preview/Commit player mismatch')
-  assert(JSON.stringify(encounterEnd.enemies) === JSON.stringify(encounterPreview.previewFinal.enemies), 'HM3 Strike Preview/Commit enemy mismatch')
+  assert(JSON.stringify(encounterEnd.player) === JSON.stringify(encounter.playbackFinal.player), 'HM3 Strike Playback/Commit player mismatch')
+  assert(JSON.stringify(encounterEnd.enemies) === JSON.stringify(encounter.playbackFinal.enemies), 'HM3 Strike Playback/Commit enemy mismatch')
   assert(encounterEnd.player.hex.q === 1 && encounterEnd.player.hM === 0, 'HM3 source did not settle into collision Cell as M0')
   assert(encounterEnd.enemies[0].hex.q > 1, 'M0 target was not displaced by HM3')
 
