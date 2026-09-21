@@ -233,12 +233,12 @@ describe('Encounter regression: Trajectory contact authority', () => {
 })
 
 describe('Encounter timeline adapter', () => {
-  it('applies boundary dissipation heat at the terminal contact, not at the initial Release', () => {
+  it('reuses Trajectory boundary reflection during Release Forced Motion instead of old terminal dissipation', () => {
     const result = plan({ player: createMomentumActor({ hex: { q: 3, r: 0 }, downM: 3, downPrepared: true }),
       actionId: 'release', targetHex: { q: 4, r: 0 }, enemies: [target({ hex: { q: 4, r: 0 }, intent: 'skip' })] })
-    const heat = result.sourceThermalEvents.find((event) => event.source === 'Collision dissipatedM')
-    expect(heat.t).toBe(0.94)
     expect(result.events.find((event) => event.type === 'ForcedMotion').t).toBe(0.28)
+    expect(result.events.some((event) => event.type === 'SurfaceReflection' && event.actorId === 'target')).toBe(true)
+    expect(result.sourceThermalEvents.some((event) => event.source === 'Collision dissipatedM')).toBe(false)
   })
 
   it('keeps same-AT Domain refund suppression without generating recursive heat', () => {
