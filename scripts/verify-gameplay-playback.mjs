@@ -183,16 +183,16 @@ try {
   await until('HM3/M0 preview', async () => {
     const state = await snapshot()
     return state?.previewFinal?.player?.hex?.q === 3
-      && state.events.some((event) => event.type === 'Encounter' && event.kind === 'EdgeCrossing') ? state : false
+      && state.events.some((event) => event.type === 'Encounter' && event.kind === 'TrajectoryStrike') ? state : false
   })
   await clickCell({ q: 3, r: 0 })
   const encounter = await until('HM3/M0 crossing playback', async () => {
     const state = await snapshot()
     return !state?.ready && state.progress > 0.68 && state.progress < 0.94
-      && state.events.some((event) => event.type === 'Encounter' && event.kind === 'EdgeCrossing')
+      && state.events.some((event) => event.type === 'Encounter' && event.kind === 'TrajectoryStrike')
       && state.events.some((event) => event.type === 'ForcedMotion') ? state : false
   })
-  assert(encounter.events.some((event) => event.type === 'MomentumTransfer' && event.actorId === 'player'), 'HM3 transfer missing')
+  assert(encounter.events.some((event) => event.type === 'MomentumTransfer' && event.actorId === 'player'), 'Trajectory Strike transfer missing')
   assert(encounter.events.some((event) => event.type === 'ForcedMotion' && event.actorId === 'enemy-a'), 'M0 Forced Motion missing')
   assert(encounter.player.hex.q === 0 && encounter.enemies[0].hex.q === 3, 'Authoritative Ready state mutated during playback')
   const fxBoard = await client.evaluate("({...document.querySelector('.cell-world-board').dataset})")
@@ -215,7 +215,7 @@ try {
   assert(reset.player.hp === 100 && reset.historyEntries === 0, 'Reset failed')
   assert(client.errors.length === 0, `Browser exceptions: ${JSON.stringify(client.errors)}`)
   await writeFile('artifacts/gameplay-playback.json', JSON.stringify({ initial, middle, board, end, reflectionPreview, reflectionMid, reflectionFx, reflectionEnd, encounter, encounterEnd, fxBoard, reset, browserErrors: client.errors }, null, 2))
-  console.log('Gameplay browser regression passed: shared Trajectory reflection/M authority, HM3-vs-M0 snapshot settlement, shared Thermal runtime, real playback, input lock, Undo/Reset.')
+  console.log('Gameplay browser regression passed: shared Trajectory path/contact/forced-reflection authority, shared Thermal runtime, real playback, input lock, Undo/Reset.')
 } finally {
   client?.socket.close()
   await stop(browser)
