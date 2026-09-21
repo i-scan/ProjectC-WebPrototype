@@ -169,15 +169,18 @@ export function GameplayLab() {
     })
     : null,
   [previewKey, player, enemies, worldAt, selectedActionId, targetHex?.q, targetHex?.r, obstacles, responseCurve])
-  const immediateContactPreview = useMemo(() => {
+  const immediateContactPreviewEntry = useMemo(() => {
     if (!previewKey || playbackRef.current || !lightPreviewPlan?.cellConflict) return null
     const started = performance.now()
     const plan = buildGameplayATPlan({ ...planInput, actionId: selectedActionId, targetHex })
-    setLastPlanningMs(performance.now() - started)
-    return plan
+    return { plan, planningMs: performance.now() - started }
   }, [previewKey, lightPreviewPlan?.cellConflict, planInput, selectedActionId, targetHex?.q, targetHex?.r])
-  const fullPreviewPlan = immediateContactPreview
+  const fullPreviewPlan = immediateContactPreviewEntry?.plan
     ?? (fullPreviewEntry?.key === previewKey ? fullPreviewEntry.plan : null)
+
+  useEffect(() => {
+    if (immediateContactPreviewEntry) setLastPlanningMs(immediateContactPreviewEntry.planningMs)
+  }, [immediateContactPreviewEntry])
 
   useEffect(() => {
     if (!previewKey || playbackRef.current || lightPreviewPlan?.cellConflict) {
