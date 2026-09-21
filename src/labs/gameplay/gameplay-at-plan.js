@@ -153,7 +153,7 @@ function buildTrajectoryContactGameplayPlan({
   }
 
   const contactT = Math.max(0.08, Math.min(0.92, Number(resolved.playerPlaybackEnd ?? 0.44)))
-  emit('Declare', 0, { actorId: player.id, actionId: validation.trajectoryBasePlan?.actionId ?? 'move', hex: player.hex })
+  emit('Declare', 0, { actorId: player.id, actionId: validation.gameplayActionId ?? 'move', targetHex: validation.gameplayTargetHex, hex: player.hex })
 
   const path = resolved.pathCells ?? []
   path.slice(1).forEach((hex, index) => {
@@ -254,8 +254,21 @@ function buildTrajectoryContactGameplayPlan({
   for (const trace of domain.trace) emit('DomainNaturalBuild', 1, { actorId: player.id, ...trace })
   emit('Ready', 1)
 
+  const sourceSamples = (validation.trajectorySamples ?? []).map((sample) => ({
+    ...sample,
+    actor: sample.actor ? clone(sample.actor) : undefined,
+  }))
+  if (sourceSamples.length) {
+    const last = sourceSamples.at(-1)
+    sourceSamples[sourceSamples.length - 1] = {
+      ...last,
+      actor: clone(finalPlayer),
+      ...actorSpatialState(finalPlayer, worldAt + 1),
+      t: 1,
+    }
+  }
   const actorSamples = {
-    [player.id]: validation.trajectorySamples,
+    [player.id]: sourceSamples,
   }
   for (const enemy of enemies) {
     actorSamples[enemy.id] = actorSamplesFromTrajectoryPath(
@@ -272,14 +285,14 @@ function buildTrajectoryContactGameplayPlan({
     valid: true,
     contract: GAMEPLAY_TIMELINE,
     durationAt: 1,
-    intents: snapshotGameplayIntents(player, enemies, validation.trajectoryBasePlan?.actionId ?? 'move', null),
+    intents: snapshotGameplayIntents(player, enemies, validation.gameplayActionId ?? 'move', validation.gameplayTargetHex),
     events,
     spatialAuthority: GAMEPLAY_SPATIAL_AUTHORITY,
     profileSnapshot,
     config,
     thermalSegments: timeline.segments,
     sourceThermalEvents,
-    samples: validation.trajectorySamples,
+    samples: sourceSamples,
     actorSamples,
     actorTrajectories: resolved.actorTrajectories ?? {},
     actorPlaybackWindows: resolved.actorPlaybackWindows ?? {},
