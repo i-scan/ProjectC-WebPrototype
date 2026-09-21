@@ -67,7 +67,7 @@ export function buildGameplaySpatialPreview({
   obstacles = [], responseCurve = 'linear',
 }) {
   const shared = trajectoryPreviewForGameplay({
-    actor: player, actionId, targetHex, boardRadius, obstacles, responseCurve, worldAt,
+    actor: player, actors: enemies, actionId, targetHex, boardRadius, obstacles, responseCurve, worldAt,
   })
   if (shared) return shared
 
@@ -106,6 +106,202 @@ export function buildGameplaySpatialPreview({
   }
 }
 
+
+function actorSamplesFromTrajectoryPath(original, finalActor, path, window, worldAt) {
+  const startActor = createMomentumActor(original)
+  const endActor = createMomentumActor(finalActor ?? original)
+  const route = path?.length ? path.map((hex) => ({ ...hex })) : [{ ...startActor.hex }]
+  const samples = [{ t: 0, ...actorSpatialState(startActor, worldAt), actor: clone(startActor) }]
+  if (route.length > 1) {
+    const start = Math.max(0, Math.min(1, Number(window?.start ?? 0.48)))
+    const end = Math.max(start, Math.min(1, Number(window?.end ?? 0.82)))
+    samples.push({ t: start, ...actorSpatialState(startActor, worldAt + start), actor: clone(startActor) })
+    route.slice(1).forEach((hex, index) => {
+      const fraction = (index + 1) / (route.length - 1)
+      const t = start + (end - start) * fraction
+      const actor = createMomentumActor({ ...endActor, hex })
+      samples.push({ t, ...actorSpatialState(actor, worldAt + t), actor })
+    })
+  }
+  const last = samples.at(-1)
+  if (!last || last.t < 1 - 1e-8) samples.push({ t: 1, ...actorSpatialState(endActor, worldAt + 1), actor: clone(endActor) })
+  return samples
+}
+
+function buildTrajectoryContactGameplayPlan({
+  validation, player, enemies, thermal, profileSnapshot, config, worldAt,
+  momentumFactor, collisionHeatFactor, domainNaturalBuild,
+}) {
+  const resolved = validation.trajectoryPlan
+  if (!resolved?.cellConflict) return null
+
+  const events = []
+  const sourceThermalEvents = []
+  const emit = (type, t, detail = {}) => {
+    const event = { id: `event-${events.length}`, type, t, worldAt: worldAt + t, ...detail }
+    events.push(event)
+    return event
+  }
+  const addThermal = (raw, t, sourceId, targetId) => {
+    for (const entry of resolveThermalEvents(raw, { momentumFactor, collisionHeatFactor })) {
+      const ids = entry.scope === 'both' ? [sourceId, targetId] : [entry.scope === 'target' ? targetId : sourceId]
+      for (const actorId of ids.filter(Boolean)) {
+        const event = emit('ThermalImpulse', t, { ...entry, actorId })
+        if (actorId === player.id) sourceThermalEvents.push(event)
+      }
+    }
+  }
+
+  const contactT = Math.max(0.08, Math.min(0.92, Number(resolved.playerPlaybackEnd ?? 0.44)))
+  emit('Declare', 0, { actorId: player.id, actionId: validation.trajectoryBasePlan?.actionId ?? 'move', hex: player.hex })
+
+  const path = resolved.pathCells ?? []
+  path.slice(1).forEach((hex, index) => {
+    const t = contactT * (index + 1) / Math.max(1, path.length - 1)
+    emit('Travel', t, { actorId: player.id, hex, authority: GAMEPLAY_SPATIAL_AUTHORITY })
+  })
+
+  const conflict = resolved.cellConflict
+  emit('Encounter', contactT, {
+    kind: 'TrajectoryStrike',
+    actorId: player.id,
+    targetId: conflict.targetActorId,
+    hex: conflict.playerCell,
+    incomingH: conflict.impactM,
+    resolution: conflict.resolution,
+  })
+  emit('Collision', contactT, {
+    actorId: player.id,
+    targetId: conflict.targetActorId,
+    hex: conflict.playerCell,
+    incomingH: conflict.impactM,
+    dissipatedM: conflict.composition?.cancelled ?? 0,
+    authority: GAMEPLAY_SPATIAL_AUTHORITY,
+  })
+  emit('MomentumTransfer', contactT, {
+    actorId: player.id,
+    targetId: conflict.targetActorId,
+    fromM: conflict.impactM,
+    toM: 0,
+    cause: 'Transfer',
+    composition: conflict.composition,
+  })
+
+  const targetPath = resolved.actorTrajectories?.[conflict.targetActorId] ?? []
+  if (targetPath.length > 1) {
+    emit('ForcedMotion', contactT, {
+      actorId: conflict.targetActorId,
+      path: targetPath.slice(1),
+      axisId: conflict.composition?.axisId ?? null,
+      authority: GAMEPLAY_SPATIAL_AUTHORITY,
+    })
+  }
+
+  for (const event of resolved.conflictEvents ?? []) {
+    if (event.kind === 'surface-reflection') {
+      const window = resolved.actorPlaybackWindows?.[event.actorId]
+      const t = event.actorId === player.id
+        ? contactT * 0.8
+        : ((window?.start ?? contactT) + (window?.end ?? contactT)) * 0.5
+      emit('SurfaceReflection', Math.max(0, Math.min(0.99, t)), {
+        actorId: event.actorId,
+        hex: event.attemptedCell ?? event.from ?? conflict.playerCell,
+        axisId: event.axisAfter,
+        authority: GAMEPLAY_SPATIAL_REFLECTION_RULE,
+        forced: event.actorId !== player.id,
+      })
+    }
+  }
+  for (const event of resolved.momentumEvents ?? []) {
+    emit('MomentumTransaction', event.actorId === player.id ? contactT : (resolved.actorPlaybackWindows?.[event.actorId]?.start ?? contactT), {
+      actorId: event.actorId ?? player.id,
+      trace: [event],
+      cause: event.cause,
+      authority: GAMEPLAY_SPATIAL_AUTHORITY,
+    })
+  }
+
+  const incoming = Math.max(0, Number(conflict.composition?.momentum ?? conflict.impactM ?? 0))
+  if (incoming > 0) addThermal([{
+    source: 'Incoming H', amount: incoming, polarity: 'hotward', factorKind: 'momentum', scope: 'target',
+  }], contactT, player.id, conflict.targetActorId)
+  const dissipated = Math.max(0, Number(conflict.composition?.cancelled ?? 0))
+  if (dissipated > 0) addThermal([{
+    source: 'Collision dissipatedM', amount: dissipated, polarity: 'hotward', factorKind: 'collision', scope: 'both',
+  }], contactT, player.id, conflict.targetActorId)
+
+  const timeline = thermalTimeline({ state: { ...thermal, worldAt }, config, events: sourceThermalEvents })
+  const updateById = new Map((validation.targetUpdates ?? []).map((entry) => [entry.id, entry]))
+  const finalEnemies = enemies.map((enemy) => {
+    const next = createMomentumActor(updateById.get(enemy.id) ?? enemy)
+    const cycle = cycles[enemy.id] ?? ['move', 'attack', 'skip']
+    if (next.hp > 0) {
+      next.intentIndex = (enemy.intentIndex + 1) % cycle.length
+      next.intent = cycle[next.intentIndex]
+    }
+    return next
+  })
+
+  const domainName = timeline.finalState.temperature >= 3 ? 'HOT' : timeline.finalState.temperature <= -3 ? 'COLD' : 'NEUTRAL'
+  const domain = resolveDomainNaturalBuild(validation.actor, domainName, {
+    enabled: domainNaturalBuild,
+    spentH: false,
+    spentD: false,
+    hadHorizontalTravel: (resolved.pathCells?.length ?? 0) > 1,
+    stable: false,
+  })
+  const finalPlayer = domain.actor
+  for (const trace of domain.trace) emit('DomainNaturalBuild', 1, { actorId: player.id, ...trace })
+  emit('Ready', 1)
+
+  const actorSamples = {
+    [player.id]: validation.trajectorySamples,
+  }
+  for (const enemy of enemies) {
+    actorSamples[enemy.id] = actorSamplesFromTrajectoryPath(
+      enemy,
+      finalEnemies.find((entry) => entry.id === enemy.id),
+      resolved.actorTrajectories?.[enemy.id],
+      resolved.actorPlaybackWindows?.[enemy.id],
+      worldAt,
+    )
+  }
+
+  events.sort((a, b) => a.t - b.t)
+  return {
+    valid: true,
+    contract: GAMEPLAY_TIMELINE,
+    durationAt: 1,
+    intents: snapshotGameplayIntents(player, enemies, validation.trajectoryBasePlan?.actionId ?? 'move', null),
+    events,
+    spatialAuthority: GAMEPLAY_SPATIAL_AUTHORITY,
+    profileSnapshot,
+    config,
+    thermalSegments: timeline.segments,
+    sourceThermalEvents,
+    samples: validation.trajectorySamples,
+    actorSamples,
+    actorTrajectories: resolved.actorTrajectories ?? {},
+    actorPlaybackWindows: resolved.actorPlaybackWindows ?? {},
+    playerPlaybackEnd: resolved.playerPlaybackEnd ?? 1,
+    spatialMode: 'hybrid',
+    destinationDriven: false,
+    visualCurveAuthoritative: true,
+    conflictEvents: resolved.conflictEvents ?? [],
+    traversedCells: resolved.pathCells ?? [],
+    collisions: resolved.collisions ?? [],
+    finalState: {
+      ...gameplayActorToTrajectoryState(finalPlayer, worldAt + 1),
+      actors: finalEnemies.map(actorBoardRecord),
+      player: clone(finalPlayer),
+      enemies: clone(finalEnemies),
+      thermal: timeline.finalState,
+    },
+    domainTrace: domain.trace,
+    trajectoryContactAuthority: true,
+  }
+}
+
 export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   worldAt = 0, actionId, targetHex = null, environmentId = 'adiabatic',
   boardRadius = 5, obstacles = [], responseCurve = 'linear', thermalConfigOverride = null,
@@ -116,6 +312,7 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   const resolveAction = (actor, nextActionId, nextTargetHex, actorList = initialActors) => {
     const shared = resolveTrajectoryGameplayAction({
       actor,
+      actors: actorList.filter((entry) => entry.id !== actor.id),
       actionId: nextActionId,
       targetHex: nextTargetHex,
       boardRadius,
@@ -140,6 +337,12 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   if (!inputAction || !validation.valid || player.hp <= 0) return { valid: false, reason: validation.reason || 'No legal target / actor is down.' }
   const profileSnapshot = cloneThermalProfile(profile)
   const config = thermalConfigOverride ? { ...thermalConfigOverride } : thermalConfigFromProfile(profileSnapshot, environmentId)
+  if (validation.trajectoryPlan?.cellConflict) {
+    return buildTrajectoryContactGameplayPlan({
+      validation, player, enemies, thermal, profileSnapshot, config, worldAt,
+      momentumFactor, collisionHeatFactor, domainNaturalBuild,
+    })
+  }
   const intents = snapshotGameplayIntents(player, enemies, actionId, targetHex)
   const intentById = new Map(intents.map((intent) => [intent.actorId, intent]))
   const actors = new Map(initialActors.map((actor) => [actor.id, clone(actor)]))
