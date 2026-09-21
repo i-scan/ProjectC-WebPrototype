@@ -203,6 +203,41 @@ try {
   assert(encounterEnd.player.hex.q === 3 && encounterEnd.player.hM === 0, 'HM3 source did not settle into collision Cell as M0')
   assert(encounterEnd.enemies[0].hex.q > 3, 'M0 target was not displaced by HM3')
 
+  // Contact + forced wall reflection must use the same Trajectory contact
+  // resolver and must never snap the target back to its Ready Cell.
+  assert(await client.evaluate("window.__PROJECTC_GAMEPLAY_LAB__.setWalls(true)"), 'Could not enable walls for forced reflection fixture')
+  await until('walls enabled for forced reflection', async () => (await snapshot())?.wallsEnabled === true && await snapshot())
+  assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.loadDebugScenario(${JSON.stringify({
+    player: { id: 'player', hex: { q: -2, r: 0 }, hp: 100, hM: 3, axisId: 'E' },
+    enemies: [{ id: 'enemy-a', hex: { q: 0, r: 0 }, hp: 40, hM: 0, axisId: null, intent: 'skip', intentIndex: 0 }],
+    worldAt: 0,
+    selectedActionId: 'move',
+  })})`), 'Forced reflection fixture rejected')
+  await until('forced reflection fixture', async () => {
+    const state = await snapshot()
+    return state?.ready && state.player.hex.q === -2 && state.enemies?.[0]?.hex.q === 0 && state
+  })
+  await moveToCell({ q: 1, r: 0 })
+  const forcedReflectionPreview = await until('forced reflection preview', async () => {
+    const state = await snapshot()
+    return state?.previewFinal
+      && state.events.some((event) => event.type === 'Encounter' && event.kind === 'TrajectoryStrike')
+      && state.events.some((event) => event.type === 'SurfaceReflection' && event.actorId === 'enemy-a')
+      ? state : false
+  })
+  await clickCell({ q: 1, r: 0 })
+  const forcedReflectionMid = await until('forced reflection playback', async () => {
+    const state = await snapshot()
+    return !state?.ready
+      && state.events.some((event) => event.type === 'ForcedMotion' && event.actorId === 'enemy-a')
+      && state.events.some((event) => event.type === 'SurfaceReflection' && event.actorId === 'enemy-a')
+      ? state : false
+  })
+  const forcedReflectionEnd = await readyAt(1)
+  assert(JSON.stringify(forcedReflectionEnd.player) === JSON.stringify(forcedReflectionPreview.previewFinal.player), 'Forced reflection Preview/Commit player mismatch')
+  assert(JSON.stringify(forcedReflectionEnd.enemies) === JSON.stringify(forcedReflectionPreview.previewFinal.enemies), 'Forced reflection Preview/Commit enemy mismatch')
+  assert(forcedReflectionEnd.enemies[0].hex.q !== 0 || forcedReflectionEnd.enemies[0].hex.r !== 0, 'Forced reflection target snapped back to Ready Cell')
+
   await click('[data-gameplay-action-id="brace"].action-card')
   await until('Brace immediate playback', async () => !(await snapshot()).ready)
   await readyAt(2)
@@ -214,7 +249,7 @@ try {
   const reset = await readyAt(0)
   assert(reset.player.hp === 100 && reset.historyEntries === 0, 'Reset failed')
   assert(client.errors.length === 0, `Browser exceptions: ${JSON.stringify(client.errors)}`)
-  await writeFile('artifacts/gameplay-playback.json', JSON.stringify({ initial, middle, board, end, reflectionPreview, reflectionMid, reflectionFx, reflectionEnd, encounter, encounterEnd, fxBoard, reset, browserErrors: client.errors }, null, 2))
+  await writeFile('artifacts/gameplay-playback.json', JSON.stringify({ initial, middle, board, end, reflectionPreview, reflectionMid, reflectionFx, reflectionEnd, encounter, encounterEnd, forcedReflectionPreview, forcedReflectionMid, forcedReflectionEnd, fxBoard, reset, browserErrors: client.errors }, null, 2))
   console.log('Gameplay browser regression passed: shared Trajectory path/contact/forced-reflection authority, shared Thermal runtime, real playback, input lock, Undo/Reset.')
 } finally {
   client?.socket.close()
