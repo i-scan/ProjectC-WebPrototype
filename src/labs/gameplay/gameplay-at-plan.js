@@ -192,6 +192,7 @@ function buildTrajectoryContactGameplayPlan({
   if (targetPath.length > 1) {
     emit('ForcedMotion', contactT, {
       actorId: conflict.targetActorId,
+      hex: targetPath[0] ?? conflict.playerCell,
       path: targetPath.slice(1),
       axisId: conflict.composition?.axisId ?? null,
       authority: GAMEPLAY_SPATIAL_AUTHORITY,
