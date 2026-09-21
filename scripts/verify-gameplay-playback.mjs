@@ -181,11 +181,10 @@ try {
       && state.enemies?.[0]?.hex?.q === 1 && state.enemies?.[0]?.hM === 0 && state
   })
   await moveToCell({ q: 3, r: 0 })
-  const encounterPreview = await until('HM3/M0 TrajectoryStrike preview', async () => {
+  const encounterPreview = await until('HM3/M0 Trajectory contact preview', async () => {
     const state = await snapshot()
     return state?.previewFinal?.player?.hex?.q === 1
-      && state.events.some((event) => event.type === 'Encounter' && event.kind === 'TrajectoryStrike')
-      && state.events.some((event) => event.type === 'ForcedMotion' && event.actorId === 'enemy-a')
+      && state.previewCellConflict?.targetActorId === 'enemy-a'
       ? state : false
   })
   await clickCell({ q: 3, r: 0 })
