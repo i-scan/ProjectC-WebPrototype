@@ -1,5 +1,6 @@
 import { HEX_DIRECTIONS, axialDistance, axialKey, directionIdBetween } from '../../sim/hex.js'
 import { sampleTimedRecord } from '../../sim/plan-playback.js'
+import { TRAJECTORY_DEFAULT_RADIUS } from '../trajectory/trajectory-rules.js'
 import { thermalConfigFromProfile, cloneThermalProfile } from '../../thermal/thermal-profile.js'
 import { thermalTimeline, sampleThermalTimeline } from '../../thermal/thermal-runtime.js'
 import {
@@ -63,7 +64,7 @@ export function snapshotGameplayIntents(player, enemies, actionId, targetHex) {
 // Trajectory Lab runtime for Move / Drive / Horizontal Skip. Gameplay-only
 // Down / Attack / Launch / Release remain extensions around that authority.
 export function buildGameplaySpatialPreview({
-  player, enemies = [], worldAt = 0, actionId, targetHex = null, boardRadius = 5,
+  player, enemies = [], worldAt = 0, actionId, targetHex = null, boardRadius = TRAJECTORY_DEFAULT_RADIUS,
   obstacles = [], responseCurve = 'linear',
 }) {
   const shared = trajectoryPreviewForGameplay({
