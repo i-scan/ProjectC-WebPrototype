@@ -4,7 +4,14 @@ import { createDefaultEnemies, createMomentumActor } from './gameplay-momentum-m
 import { BASELINE_THERMAL_PROFILE, thermalConfigFromProfile, thermalStateFromProfile } from '../../thermal/thermal-profile.js'
 import { thermalTimeline } from '../../thermal/thermal-runtime.js'
 import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
-import { TRAJECTORY_BASE_DISSIPATION, TRAJECTORY_DEFAULT_RADIUS, makeTrajectoryState, trajectoryActionPlan } from '../trajectory/trajectory-rules.js'
+import {
+  TRAJECTORY_BASE_DISSIPATION,
+  TRAJECTORY_DEFAULT_RADIUS,
+  makeTrajectoryState,
+  resolveTrajectoryTargetContacts,
+  trajectoryActionPlan,
+} from '../trajectory/trajectory-rules.js'
+import { gameplayActorToTrajectoryTarget } from './gameplay-lab-runtime.js'
 import { playbackClockSample, playbackFromPlan, playbackProgress, playbackRemainingMs, sampleTimedRecord } from '../../sim/plan-playback.js'
 import { encounterFxSpecs } from '../../ui/encounter-fx.js'
 
@@ -149,18 +156,42 @@ describe('Gameplay AT plan: a frozen, queryable 1AT', () => {
   })
 })
 
-describe('Encounter regression: Momentum settlement and reflection', () => {
-  it('lets HM3 Strike a stationary M0 actor instead of snapping both back to Ready cells', () => {
+describe('Encounter regression: Trajectory contact authority', () => {
+  function directContact({ player, enemy, targetHex, obstacles = [] }) {
+    const base = trajectoryActionPlan({
+      state: makeTrajectoryState({ hex: player.hex, axisId: player.axisId, momentum: player.hM, worldAt: 0 }),
+      actionId: 'steer',
+      selectedHex: targetHex,
+      boardRadius: TRAJECTORY_DEFAULT_RADIUS,
+      obstacles,
+      responseCurve: 'linear',
+      baseDissipationPerAction: TRAJECTORY_BASE_DISSIPATION,
+    })
+    return resolveTrajectoryTargetContacts(base, {
+      actors: [gameplayActorToTrajectoryTarget(enemy)],
+      obstacles,
+      boardRadius: TRAJECTORY_DEFAULT_RADIUS,
+    })
+  }
+
+  it('matches Trajectory Strike / Forced Move exactly for HM3 into M0', () => {
     const player = createMomentumActor({ hex: { q: 0, r: 0 }, hM: 3, axisId: 'E' })
     const enemy = target({ hex: { q: 1, r: 0 }, hM: 0, axisId: null, intent: 'skip' })
-    const result = plan({ player, enemies: [enemy], actionId: 'move', targetHex: { q: 3, r: 0 } })
+    const targetHex = { q: 3, r: 0 }
+    const expected = directContact({ player, enemy, targetHex })
+    const result = plan({ player, enemies: [enemy], actionId: 'move', targetHex })
 
-    expect(result.events.some((event) => event.type === 'MomentumTransfer' && event.actorId === 'player')).toBe(true)
-    expect(result.events.some((event) => event.type === 'ForcedMotion' && event.actorId === 'target')).toBe(true)
-    expect(result.finalState.player.hex).toEqual({ q: 1, r: 0 })
-    expect(result.finalState.player.hM).toBe(0)
-    expect(result.finalState.enemies[0].hex).toEqual({ q: 4, r: 0 })
-    expect(result.finalState.enemies[0].hM).toBe(2)
+    expect(expected.cellConflict?.targetActorId).toBe('target')
+    expect(result.trajectoryContactAuthority).toBe(true)
+    expect(result.finalState.player.hex).toEqual(expected.finalHex)
+    expect(result.finalState.player.hM).toBe(expected.finalM)
+    expect(result.finalState.player.axisId).toBe(expected.finalState.axisId)
+    expect(result.finalState.enemies[0].hex).toEqual(expected.actorStates[0].hex)
+    expect(result.finalState.enemies[0].hM).toBe(expected.actorStates[0].momentumLevel)
+    expect(result.finalState.enemies[0].axisId).toBe(expected.actorStates[0].axisId)
+    expect(result.actorTrajectories.target).toEqual(expected.actorTrajectories.target)
+    expect(result.events.some((event) => event.type === 'MomentumTransfer')).toBe(true)
+    expect(result.events.some((event) => event.type === 'ForcedMotion')).toBe(true)
 
     const end = sampleGameplayATPlan(result, 1)
     expect(end.player.actor).toEqual(result.finalState.player)
@@ -168,44 +199,36 @@ describe('Encounter regression: Momentum settlement and reflection', () => {
     expect(end.actors.target.actor).toEqual(result.finalState.enemies[0])
   })
 
-  it('resolves an HM3-vs-M0 same-time edge crossing from one snapshot, independent of actor queue order', () => {
+  it('uses the Ready snapshot target state even when that M0 actor has a Move intent', () => {
     const player = createMomentumActor({ hex: { q: 0, r: 0 }, hM: 3, axisId: 'E' })
     const enemy = target({ hex: { q: 3, r: 0 }, hM: 0, axisId: 'W', intent: 'move' })
-    const result = plan({ player, enemies: [enemy], actionId: 'move', targetHex: { q: 3, r: 0 } })
-    const crossing = result.events.find((event) => event.type === 'Encounter' && event.kind === 'EdgeCrossing')
+    const targetHex = { q: 3, r: 0 }
+    const expected = directContact({ player, enemy, targetHex })
+    const result = plan({ player, enemies: [enemy], actionId: 'move', targetHex })
 
-    expect(crossing).toMatchObject({
-      actorId: 'player',
-      targetId: 'target',
-      outcome: 'unequal-H-settlement',
-      winnerPower: 2,
-      loserPower: 0,
-    })
-    expect(result.events.some((event) => event.type === 'MomentumTransfer' && event.actorId === 'player')).toBe(true)
-    expect(result.finalState.player.hex).toEqual({ q: 3, r: 0 })
-    expect(result.finalState.player.hM).toBe(0)
-    expect(result.finalState.enemies[0].hex.q).toBeGreaterThan(3)
+    expect(result.trajectoryContactAuthority).toBe(true)
+    expect(result.finalState.player.hex).toEqual(expected.finalHex)
+    expect(result.finalState.player.hM).toBe(expected.finalM)
+    expect(result.finalState.enemies[0].hex).toEqual(expected.actorStates[0].hex)
+    expect(result.actorTrajectories.target).toEqual(expected.actorTrajectories.target)
     expect(result.events.some((event) => event.outcome === 'hold-both-p0; settlement-tie-break-deferred')).toBe(false)
   })
 
-  it('routes post-collision Forced Motion through CellMotion wall reflection', () => {
+  it('matches Trajectory forced wall reflection after Actor contact', () => {
     const wall = { id: 'forced-reflect-wall', hex: { q: 4, r: 0 }, kind: 'hard', wallAxis: 'NS' }
-    const player = createMomentumActor({ hex: { q: 0, r: 0 }, downM: 3, downPrepared: true })
+    const player = createMomentumActor({ hex: { q: 0, r: 0 }, hM: 3, axisId: 'E' })
     const enemy = target({ hex: { q: 1, r: 0 }, hM: 0, axisId: null, intent: 'skip' })
-    const result = plan({
-      player,
-      enemies: [enemy],
-      actionId: 'release',
-      targetHex: { q: 1, r: 0 },
-      obstacles: [wall],
-    })
+    const targetHex = { q: 3, r: 0 }
+    const expected = directContact({ player, enemy, targetHex, obstacles: [wall] })
+    const result = plan({ player, enemies: [enemy], actionId: 'move', targetHex, obstacles: [wall] })
 
-    const reflection = result.events.find((event) => event.type === 'SurfaceReflection' && event.actorId === 'target')
-    expect(reflection).toMatchObject({ forced: true, axisId: 'W' })
-    expect(result.events.find((event) => event.type === 'ForcedMotion')?.reflectionCount).toBe(1)
-    expect(result.finalState.enemies[0].hex).toEqual({ q: 3, r: 0 })
-    expect(result.finalState.enemies[0].axisId).toBe('W')
-    expect(result.finalState.enemies[0].hM).toBe(2)
+    expect(expected.conflictEvents.some((event) => event.kind === 'surface-reflection' && event.actorId === 'target')).toBe(true)
+    expect(result.finalState.enemies[0].hex).toEqual(expected.actorStates[0].hex)
+    expect(result.finalState.enemies[0].hM).toBe(expected.actorStates[0].momentumLevel)
+    expect(result.finalState.enemies[0].axisId).toBe(expected.actorStates[0].axisId)
+    expect(result.actorTrajectories.target).toEqual(expected.actorTrajectories.target)
+    expect(result.conflictEvents).toEqual(expected.conflictEvents)
+    expect(result.events.some((event) => event.type === 'SurfaceReflection' && event.actorId === 'target')).toBe(true)
   })
 })
 
