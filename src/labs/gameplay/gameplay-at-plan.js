@@ -318,7 +318,7 @@ function buildTrajectoryContactGameplayPlan({
 
 export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   worldAt = 0, actionId, targetHex = null, environmentId = 'adiabatic',
-  boardRadius = 5, obstacles = [], responseCurve = 'linear', thermalConfigOverride = null,
+  boardRadius = TRAJECTORY_DEFAULT_RADIUS, obstacles = [], responseCurve = 'linear', thermalConfigOverride = null,
   momentumFactor = 0.8, collisionHeatFactor = 0.8,
   collisionDamage = false, domainNaturalBuild = true,
 }) {
