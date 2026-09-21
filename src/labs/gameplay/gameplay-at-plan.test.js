@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildGameplayATPlan, sampleGameplayATPlan } from './gameplay-at-plan.js'
+import { buildGameplayATPlan, buildGameplaySpatialPreview, sampleGameplayATPlan } from './gameplay-at-plan.js'
 import { actorSpatialState, createDefaultEnemies, createMomentumActor } from './gameplay-momentum-model.js'
 import { BASELINE_THERMAL_PROFILE, thermalConfigFromProfile, thermalStateFromProfile } from '../../thermal/thermal-profile.js'
 import { thermalTimeline } from '../../thermal/thermal-runtime.js'
@@ -153,6 +153,30 @@ describe('Gameplay AT plan: a frozen, queryable 1AT', () => {
     expect(a.intents).toEqual(b.intents)
     const sorted = (result) => result.finalState.enemies.slice().sort((x, y) => x.id.localeCompare(y.id))
     expect(sorted(a)).toEqual(sorted(b))
+  })
+})
+
+describe('Gameplay light preview contact authority', () => {
+  it('exposes Trajectory cellConflict for HM3 into stationary M0 before full Gameplay planning', () => {
+    const player = createMomentumActor({ hex: { q: 0, r: 0 }, hM: 3, axisId: 'E' })
+    const enemy = target({ hex: { q: 1, r: 0 }, hM: 0, axisId: null, intent: 'skip' })
+    const preview = buildGameplaySpatialPreview({
+      player,
+      enemies: [enemy],
+      worldAt: 0,
+      actionId: 'move',
+      targetHex: { q: 3, r: 0 },
+      boardRadius: TRAJECTORY_DEFAULT_RADIUS,
+      obstacles: [],
+      responseCurve: 'linear',
+    })
+    expect(preview.valid).toBe(true)
+    expect(preview.cellConflict).toMatchObject({
+      targetActorId: 'target',
+      resolution: 'Strike',
+    })
+    expect(preview.finalState.player.hex).toEqual({ q: 1, r: 0 })
+    expect(preview.finalState.enemies[0].hex.q).toBeGreaterThan(1)
   })
 })
 
