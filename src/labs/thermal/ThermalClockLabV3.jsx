@@ -154,11 +154,12 @@ function RangeField({ label, value, min, max, step, onChange, disabled = false, 
   )
 }
 
-export function ThermalPendulum({ state, config, previousState, diagnostics: providedDiagnostics = null, className = '' }) {
-  const diagnostics = providedDiagnostics ?? thermalDiagnostics(state, config)
+export function ThermalPendulum({ state, config, previousState, diagnostics: providedDiagnostics = null, className = '', dynamicsMode = 'oscillator', inertialConfig = DEFAULT_INERTIAL_CONFIG }) {
+  const inertialMode = dynamicsMode === 'inertial'
+  const diagnostics = providedDiagnostics ?? (inertialMode ? inertialDiagnostics(state, config, inertialConfig) : thermalDiagnostics(state, config))
   const currentAngle = angleForTemperature(state.temperature, state.setPoint, true)
   const current = pointAt(currentAngle, BOB_RADIUS)
-  const skipNext = solveThermalSegment(state, config, 1)
+  const skipNext = inertialMode ? solveInertialSegment(state, config, inertialConfig, 1, 0) : solveThermalSegment(state, config, 1)
   const nextAngle = angleForTemperature(skipNext.temperature, state.setPoint, true)
   const nextPoint = pointAt(nextAngle, ARROW_RADIUS)
   const arrow = Math.abs(nextAngle - currentAngle) > 0.15 ? arcPath(currentAngle, nextAngle, ARROW_RADIUS) : ''
@@ -211,7 +212,8 @@ export function ThermalPendulum({ state, config, previousState, diagnostics: pro
       </div>
       <div className="thermal-pendulum__readout">
         <div><span>Temperature T</span><strong>{formatThermal(state.temperature, 2)}</strong></div>
-        <div><span>Drift V</span><strong>{formatThermal(state.drift, 2)} / AT</strong></div>
+        <div><span>Drift {inertialMode ? 'D' : 'V'}</span><strong>{formatThermal(state.drift, 2)} / AT</strong></div>
+        {inertialMode && <div><span>Net Thermal Rate</span><strong>{formatThermal(diagnostics.netRate, 2)} / AT</strong></div>}
         <div><span>Set Point S</span><strong>{formatThermal(state.setPoint, 2)}</strong></div>
       </div>
     </div>
