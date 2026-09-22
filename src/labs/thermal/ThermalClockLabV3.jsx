@@ -502,7 +502,18 @@ export function ThermalClockLab() {
         predictedReady: copyState(selectedPreview.finalState), historySegments: history.length, playback: Boolean(playback),
       }),
       reset,
+      commit,
       setMode: switchDynamicsMode,
+      setAction: (actionId) => {
+        if (playback || !THERMAL_ACTIONS.some((entry) => entry.id === actionId)) return false
+        setSelectedAction(actionId)
+        return true
+      },
+      setInertialConfig: (next) => {
+        if (playback) return false
+        setInertialConfig((current) => ({ ...current, ...next }))
+        return true
+      },
       setDriveDurationAt: (value) => { if (playback) return false; setDriveDurationAt(clamp(Number(value), 0, 1)); return true },
       setDeposit: (amount, at = depositAt) => { if (playback) return false; setDeposit(Number(amount) || 0); setDepositAt(clamp(Number(at) || 0, 0, 1)); return true },
     }
