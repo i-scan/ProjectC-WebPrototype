@@ -28,6 +28,19 @@ import {
   saveThermalDraft,
   subscribeThermalProfile,
 } from '../../thermal/thermal-profile-store.js'
+import {
+  DEFAULT_INERTIAL_CONFIG,
+  DRIFT_HALF_LIFE_PRESETS,
+  RECOVERY_HALF_LIFE_PRESETS,
+  THERMAL_INERTIAL_RULE,
+  THERMAL_INERTIAL_SOLVER,
+  buildInertialActionPlan,
+  inertialActionDriveRate,
+  inertialDiagnostics,
+  nextInertialApexAt,
+  sampleInertialActionPlan,
+  solveInertialSegment,
+} from './thermal-inertial-model.js'
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 const copyState = (state) => ({ ...state })
@@ -54,6 +67,10 @@ const DYNAMICS_PRESETS = Object.freeze([
   { id: 'light', label: 'Light Oscillation', restoringK: 0.25, baseDamping: 0.25 },
   { id: 'critical', label: 'Near Critical', restoringK: 0.25, baseDamping: 1.0 },
   { id: 'over', label: 'Overdamped', restoringK: 0.25, baseDamping: 1.5 },
+])
+const DYNAMICS_MODES = Object.freeze([
+  { id: 'oscillator', label: 'Oscillator · Legacy' },
+  { id: 'inertial', label: 'Inertial Relaxation · Candidate' },
 ])
 
 function formatNumber(value, digits = 3) {
