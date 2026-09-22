@@ -309,6 +309,11 @@ export function ThermalClockLab() {
   const [config, setConfig] = useState(() => thermalConfigFromProfile(getActiveThermalProfile(), 'adiabatic'))
   const [impulses, setImpulses] = useState(() => thermalImpulsesFromProfile(getActiveThermalProfile()))
   const [selectedAction, setSelectedAction] = useState('heat-ii')
+  const [dynamicsMode, setDynamicsMode] = useState('oscillator')
+  const [inertialConfig, setInertialConfig] = useState(() => ({ ...DEFAULT_INERTIAL_CONFIG }))
+  const [driveDurationAt, setDriveDurationAt] = useState(1)
+  const [depositAt, setDepositAt] = useState(0.5)
+  const [deposit, setDeposit] = useState(0)
   const [previewHorizon, setPreviewHorizon] = useState(12)
   const [pastWindow, setPastWindow] = useState(8)
   const [diagramYMin, setDiagramYMin] = useState(DEFAULT_DIAGRAM_Y.min)
@@ -319,20 +324,42 @@ export function ThermalClockLab() {
   const [lastEvent, setLastEvent] = useState('Shared Thermal Profile loaded. Heat II is selected; no world time has advanced.')
   const playbackIdRef = useRef(1)
 
-  const diagnostics = useMemo(() => thermalDiagnostics(state, config), [state, config])
-  const selectedPreview = useMemo(() => predictThermalAction({ state, config, actionId: selectedAction, impulses, horizonAt: previewHorizon }), [state, config, selectedAction, impulses, previewHorizon])
+  const inertialMode = dynamicsMode === 'inertial'
+  const selectedDriveRate = inertialActionDriveRate(selectedAction, impulses)
+  const selectedInertialPlan = useMemo(() => inertialMode ? buildInertialActionPlan({
+    state, thermalConfig: config, inertialConfig, actionId: selectedAction, strengths: impulses,
+    durationAt: 1, horizonAt: previewHorizon, driveDurationAt, depositAt, deposit,
+  }) : null, [inertialMode, state, config, inertialConfig, selectedAction, impulses, previewHorizon, driveDurationAt, depositAt, deposit])
+  const skipInertialPlan = useMemo(() => inertialMode ? buildInertialActionPlan({
+    state, thermalConfig: config, inertialConfig, actionId: 'skip', strengths: impulses,
+    durationAt: 1, horizonAt: previewHorizon, driveDurationAt: 0, deposit: 0,
+  }) : null, [inertialMode, state, config, inertialConfig, impulses, previewHorizon])
+  const diagnostics = useMemo(() => inertialMode
+    ? inertialDiagnostics(state, config, inertialConfig, selectedDriveRate)
+    : thermalDiagnostics(state, config),
+  [inertialMode, state, config, inertialConfig, selectedDriveRate])
+  const selectedPreview = useMemo(() => inertialMode
+    ? selectedInertialPlan
+    : predictThermalAction({ state, config, actionId: selectedAction, impulses, horizonAt: previewHorizon }),
+  [inertialMode, selectedInertialPlan, state, config, selectedAction, impulses, previewHorizon])
   const selectedImpulse = actionImpulse(selectedAction, impulses)
   const action = THERMAL_ACTIONS.find((entry) => entry.id === selectedAction) ?? THERMAL_ACTIONS.at(-1)
   const candidateProfile = useMemo(() => withThermalTuning(liveProfile, { config, impulses }), [liveProfile, config, impulses])
-  const profileDirty = JSON.stringify(candidateProfile.dynamics) !== JSON.stringify(liveProfile.dynamics) || JSON.stringify(candidateProfile.impulseTiers) !== JSON.stringify(liveProfile.impulseTiers)
+  const profileDirty = !inertialMode && (JSON.stringify(candidateProfile.dynamics) !== JSON.stringify(liveProfile.dynamics) || JSON.stringify(candidateProfile.impulseTiers) !== JSON.stringify(liveProfile.impulseTiers))
 
   const diagramConfig = playback?.config ?? config
-  const diagramDiagnostics = useMemo(() => thermalDiagnostics(visualState, diagramConfig), [visualState, diagramConfig])
-  const diagramSelectedStart = useMemo(() => playback ? copyState(visualState) : applyThermalImpulse(visualState, selectedImpulse), [playback, visualState, selectedImpulse])
-  const selectedFuture = useMemo(() => sampleFuture(diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt), [diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt])
-  const skipFuture = useMemo(() => playback ? [] : sampleFuture(visualState, config, previewHorizon, visualState.worldAt), [playback, visualState, config, previewHorizon])
-  const futureGhosts = useMemo(() => integerFuture(diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt), [diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt])
-  const previousState = history.at(-1)?.state ?? null
+  const diagramMode = playback?.dynamicsMode ?? dynamicsMode
+  const diagramInertialConfig = playback?.inertialConfig ?? inertialConfig
+  const diagramDriveRate = playback?.inertialPlan?.driveRate ?? (diagramMode === 'inertial' ? selectedDriveRate : 0)
+  const diagramDiagnostics = useMemo(() => diagramMode === 'inertial'
+    ? inertialDiagnostics(visualState, diagramConfig, diagramInertialConfig, diagramDriveRate)
+    : thermalDiagnostics(visualState, diagramConfig),
+  [diagramMode, visualState, diagramConfig, diagramInertialConfig, diagramDriveRate])
+  const diagramSelectedStart = useMemo(() => playback || inertialMode ? copyState(visualState) : applyThermalImpulse(visualState, selectedImpulse), [playback, inertialMode, visualState, selectedImpulse])
+  const selectedFuture = useMemo(() => inertialMode ? (selectedInertialPlan?.path ?? []) : sampleFuture(diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt), [inertialMode, selectedInertialPlan, diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt])
+  const skipFuture = useMemo(() => playback ? [] : (inertialMode ? (skipInertialPlan?.path ?? []) : sampleFuture(visualState, config, previewHorizon, visualState.worldAt)), [playback, inertialMode, skipInertialPlan, visualState, config, previewHorizon])
+  const futureGhosts = useMemo(() => inertialMode ? (selectedInertialPlan?.ghosts ?? []) : integerFuture(diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt), [inertialMode, selectedInertialPlan, diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt])
+    const previousState = history.at(-1)?.state ?? null
 
   const updateStateField = (key, value) => {
     if (playback) return
