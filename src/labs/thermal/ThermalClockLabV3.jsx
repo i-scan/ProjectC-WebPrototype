@@ -359,7 +359,17 @@ export function ThermalClockLab() {
   const selectedFuture = useMemo(() => inertialMode ? (selectedInertialPlan?.path ?? []) : sampleFuture(diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt), [inertialMode, selectedInertialPlan, diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt])
   const skipFuture = useMemo(() => playback ? [] : (inertialMode ? (skipInertialPlan?.path ?? []) : sampleFuture(visualState, config, previewHorizon, visualState.worldAt)), [playback, inertialMode, skipInertialPlan, visualState, config, previewHorizon])
   const futureGhosts = useMemo(() => inertialMode ? (selectedInertialPlan?.ghosts ?? []) : integerFuture(diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt), [inertialMode, selectedInertialPlan, diagramSelectedStart, diagramConfig, previewHorizon, visualState.worldAt])
-    const previousState = history.at(-1)?.state ?? null
+  const previousState = history.at(-1)?.state ?? null
+
+  const switchDynamicsMode = (nextMode) => {
+    if (playback || nextMode === dynamicsMode) return
+    setDynamicsMode(nextMode)
+    setVisualState(copyState(state))
+    setHistory([])
+    setLastEvent(nextMode === 'inertial'
+      ? 'Inertial Relaxation candidate selected. Numeric T / D / S preserved for A/B; history cleared.'
+      : 'Legacy Oscillator selected. Numeric T / D / S preserved for A/B; history cleared.')
+  }
 
   const updateStateField = (key, value) => {
     if (playback) return
@@ -374,7 +384,7 @@ export function ThermalClockLab() {
   const applyEnvironmentPreset = (preset) => {
     if (playback) return
     setConfig((current) => ({ ...current, environmentTemperature: preset.environmentTemperature, environmentCoupling: preset.environmentCoupling }))
-    setLastEvent(`${preset.label} environment loaded. cEnvGain remains independently tunable.`)
+    setLastEvent(`${preset.label} environment loaded.${inertialMode ? ' cEnvGain is ignored in Inertial mode.' : ' cEnvGain remains independently tunable.'}`)
   }
   const applyDynamicsPreset = (preset) => {
     if (playback) return
@@ -415,6 +425,7 @@ export function ThermalClockLab() {
     setConfig(thermalConfigFromProfile(liveProfile, 'adiabatic'))
     setImpulses(thermalImpulsesFromProfile(liveProfile))
     setSelectedAction('heat-ii'); setPreviewHorizon(12); setPastWindow(8)
+    setInertialConfig({ ...DEFAULT_INERTIAL_CONFIG }); setDriveDurationAt(1); setDepositAt(0.5); setDeposit(0)
     setDiagramYMin(DEFAULT_DIAGRAM_Y.min); setDiagramYMax(DEFAULT_DIAGRAM_Y.max)
     setPlaybackSpeed(1); setHistory([])
     setLastEvent(`Lab reset from live ${liveProfile.label} r${liveProfile.revision}; worldAt = 0.`)
@@ -429,14 +440,27 @@ export function ThermalClockLab() {
     if (playback) return
     const source = copyState(state)
     const configSnapshot = copyConfig(config)
+
+    if (inertialMode) {
+      const inertialPlan = buildInertialActionPlan({
+        state: source, thermalConfig: configSnapshot, inertialConfig, actionId: selectedAction, strengths: impulses,
+        durationAt: 1, horizonAt: 1, driveDurationAt, depositAt, deposit, samplesPerAt: 40,
+      })
+      setHistory((entries) => [...entries, { state: source, finalState: inertialPlan.finalState, samples: inertialPlan.path, actionId: selectedAction, dynamicsMode, driveRate: inertialPlan.driveRate, deposit }].slice(-60))
+      setPlayback(playbackFromPlan({ source, config: configSnapshot, dynamicsMode, inertialConfig: { ...inertialConfig }, inertialPlan, actionId: selectedAction, finalState: inertialPlan.finalState }, playbackIdRef.current++, 650 / Math.max(0.25, playbackSpeed)))
+      const depositCopy = Math.abs(deposit) > 1e-7 ? ` · Deposit ${formatThermal(deposit, 2)} @ ${depositAt.toFixed(2)}AT` : ''
+      setLastEvent(`${action?.label ?? selectedAction} committed · Drive ${formatThermal(inertialPlan.driveRate, 2)} · ${driveDurationAt.toFixed(2)}AT${depositCopy}.`)
+      return
+    }
+
     const impulse = actionImpulse(selectedAction, impulses)
     const afterImpulse = applyThermalImpulse(source, impulse)
     const solved = solveThermalSegment(afterImpulse, configSnapshot, 1)
     const finalState = { ...solved, worldAt: source.worldAt + 1 }
     const samples = sampleFuture(afterImpulse, configSnapshot, 1, source.worldAt, 40)
-    setHistory((entries) => [...entries, { state: source, finalState, samples, actionId: selectedAction, impulse }].slice(-60))
-    setPlayback(playbackFromPlan({ source, config: configSnapshot, actionId: selectedAction, afterImpulse, finalState }, playbackIdRef.current++, 650 / Math.max(0.25, playbackSpeed)))
-    setLastEvent(`${action?.label ?? selectedAction} committed · resolving 1AT with the analytic solver.`)
+    setHistory((entries) => [...entries, { state: source, finalState, samples, actionId: selectedAction, impulse, dynamicsMode }].slice(-60))
+    setPlayback(playbackFromPlan({ source, config: configSnapshot, dynamicsMode, actionId: selectedAction, afterImpulse, finalState }, playbackIdRef.current++, 650 / Math.max(0.25, playbackSpeed)))
+    setLastEvent(`${action?.label ?? selectedAction} committed · resolving 1AT with the Legacy analytic oscillator.`)
   }
 
   useEffect(() => {
@@ -444,7 +468,9 @@ export function ThermalClockLab() {
     let frame = 0
     const tick = (now) => {
       const progress = playbackProgress(playback, now)
-      const sampled = solveThermalSegment(playback.afterImpulse, playback.config, progress)
+      const sampled = playback.dynamicsMode === 'inertial'
+        ? sampleInertialActionPlan(playback.inertialPlan, progress)
+        : solveThermalSegment(playback.afterImpulse, playback.config, progress)
       setVisualState({ ...sampled, worldAt: playback.source.worldAt + progress })
       if (progress >= 1) {
         setState(copyState(playback.finalState)); setVisualState(copyState(playback.finalState)); setPlayback(null)
@@ -459,8 +485,26 @@ export function ThermalClockLab() {
 
   useEffect(() => {
     window.__PROJECTC_THERMAL_CLOCK__ = {
-      snapshot: () => ({ implementation: THERMAL_CLOCK_RULE, solver: THERMAL_CLOCK_SOLVER, atRule: THERMAL_CLOCK_AT_RULE, previewRule: THERMAL_CLOCK_PREVIEW_RULE, ghostRule: THERMAL_CLOCK_GHOST_RULE, state: copyState(state), visualState: copyState(visualState), config: copyConfig(config), impulses: copyImpulses(impulses), selectedAction, previewHorizon, pastWindow, diagramY: { min: diagramYMin, max: diagramYMax }, liveProfile: { id: liveProfile.id, revision: liveProfile.revision }, diagnostics: thermalDiagnostics(state, config), predictedReady: copyState(selectedPreview.finalState), historySegments: history.length, playback: Boolean(playback) }),
+      snapshot: () => ({
+        implementation: THERMAL_CLOCK_RULE,
+        solver: dynamicsMode === 'inertial' ? THERMAL_INERTIAL_SOLVER : THERMAL_CLOCK_SOLVER,
+        dynamicsMode,
+        inertialRule: THERMAL_INERTIAL_RULE,
+        atRule: THERMAL_CLOCK_AT_RULE,
+        previewRule: THERMAL_CLOCK_PREVIEW_RULE,
+        ghostRule: THERMAL_CLOCK_GHOST_RULE,
+        state: copyState(state), visualState: copyState(visualState), config: copyConfig(config),
+        inertialConfig: { ...inertialConfig }, driveDurationAt, depositAt, deposit, selectedDriveRate,
+        impulses: copyImpulses(impulses), selectedAction, previewHorizon, pastWindow,
+        diagramY: { min: diagramYMin, max: diagramYMax },
+        liveProfile: { id: liveProfile.id, revision: liveProfile.revision },
+        diagnostics: dynamicsMode === 'inertial' ? inertialDiagnostics(state, config, inertialConfig, selectedDriveRate) : thermalDiagnostics(state, config),
+        predictedReady: copyState(selectedPreview.finalState), historySegments: history.length, playback: Boolean(playback),
+      }),
       reset,
+      setMode: switchDynamicsMode,
+      setDriveDurationAt: (value) => { if (playback) return false; setDriveDurationAt(clamp(Number(value), 0, 1)); return true },
+      setDeposit: (amount, at = depositAt) => { if (playback) return false; setDeposit(Number(amount) || 0); setDepositAt(clamp(Number(at) || 0, 0, 1)); return true },
     }
     return () => { delete window.__PROJECTC_THERMAL_CLOCK__ }
   })
