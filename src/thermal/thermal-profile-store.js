@@ -1,5 +1,6 @@
 import {
   BASELINE_THERMAL_PROFILE,
+  THERMAL_PROFILE_LEGACY_STORAGE_KEY,
   THERMAL_PROFILE_STORAGE_KEY,
   cloneThermalProfile,
   normalizeThermalProfile,
@@ -52,6 +53,7 @@ export function saveThermalDraft(profile) {
 export function loadThermalDraft() {
   if (typeof window === 'undefined' || !window.localStorage) return null
   const raw = window.localStorage.getItem(THERMAL_PROFILE_STORAGE_KEY)
+    ?? window.localStorage.getItem(THERMAL_PROFILE_LEGACY_STORAGE_KEY)
   if (!raw) return null
   try {
     return normalizeThermalProfile(JSON.parse(raw))
@@ -61,5 +63,8 @@ export function loadThermalDraft() {
 }
 
 export function clearThermalDraft() {
-  if (typeof window !== 'undefined' && window.localStorage) window.localStorage.removeItem(THERMAL_PROFILE_STORAGE_KEY)
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.removeItem(THERMAL_PROFILE_STORAGE_KEY)
+    window.localStorage.removeItem(THERMAL_PROFILE_LEGACY_STORAGE_KEY)
+  }
 }
