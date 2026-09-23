@@ -444,6 +444,7 @@ export function GameplayLab() {
         clearAim()
         return true
       },
+      playAction: (actionId, hex = null) => beginAction(actionId, hex),
       setThermalMode: publishDynamicsMode,
       setInertialConfig: (next) => {
         if (playbackRef.current) return false
