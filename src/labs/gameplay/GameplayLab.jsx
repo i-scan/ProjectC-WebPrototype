@@ -323,7 +323,14 @@ export function GameplayLab() {
       setWorldAt(playback.finalState.worldAt)
       setLastPlan(playback)
       setLastTrace(playback.events.filter((event) => !['Declare', 'Ready'].includes(event.type))
-        .map((event) => `${event.t.toFixed(2)}AT ${event.type}${event.type === 'ThermalImpulse' ? ` · ${event.source} ${event.impulse >= 0 ? '+' : ''}${event.impulse.toFixed(2)}V` : ''}`).join(' · '))
+        .map((event) => {
+          let thermalText = ''
+          if (event.type === 'ThermalImpulse') thermalText = ` · ${event.source} ${event.impulse >= 0 ? '+' : ''}${event.impulse.toFixed(2)}V`
+          if (event.type === 'ThermalDriveStart') thermalText = ` · ${event.source} Drive ${event.driveRate >= 0 ? '+' : ''}${event.driveRate.toFixed(2)}`
+          if (event.type === 'ThermalDriveEnd') thermalText = ` · ${event.source} Drive End`
+          if (event.type === 'ThermalDeposit') thermalText = ` · ${event.source} Deposit ${event.deposit >= 0 ? '+' : ''}${event.deposit.toFixed(2)}T`
+          return `${event.t.toFixed(2)}AT ${event.type}${thermalText}`
+        }).join(' · '))
       playbackRef.current = null
       setPlayback(null)
       clearAim()
@@ -397,7 +404,9 @@ export function GameplayLab() {
       snapshot: () => ({
         implementation: GAMEPLAY_V1,
         runtime: SHARED_THERMAL_RUNTIME,
-        profile: { id: profile.id, revision: profile.revision },
+        profile: { id: profile.id, revision: profile.revision, dynamicsMode },
+        dynamicsMode,
+        inertialConfig: clone(inertialConfig),
         selectedActionId,
         player: clone(player),
         momentumBand: momentumBand(player),
@@ -406,7 +415,7 @@ export function GameplayLab() {
         spatialAuthority: GAMEPLAY_SPATIAL_AUTHORITY,
         spatialPathRule: GAMEPLAY_SPATIAL_PATH_RULE,
         spatialReflectionRule: GAMEPLAY_SPATIAL_REFLECTION_RULE,
-        thermalAuthority: THERMAL_CLOCK_SOLVER,
+        thermalAuthority,
         wallsEnabled,
         responseCurve,
         thermalConfig: clone(thermalConfig),
@@ -435,6 +444,16 @@ export function GameplayLab() {
         clearAim()
         return true
       },
+      setThermalMode: publishDynamicsMode,
+      setInertialConfig: (next) => {
+        if (playbackRef.current) return false
+        applyLiveThermalProfile(withThermalTuning(profile, {
+          inertialConfig: { ...inertialConfig, ...next },
+        }))
+        setFullPreviewEntry(null)
+        clearAim()
+        return true
+      },
     }
     return () => { delete window.__PROJECTC_GAMEPLAY_LAB__ }
   })
@@ -453,7 +472,8 @@ export function GameplayLab() {
       data-spatial-authority={GAMEPLAY_SPATIAL_AUTHORITY}
       data-spatial-path-rule={GAMEPLAY_SPATIAL_PATH_RULE}
       data-spatial-reflection-rule={GAMEPLAY_SPATIAL_REFLECTION_RULE}
-      data-thermal-authority={THERMAL_CLOCK_SOLVER}
+      data-thermal-authority={thermalAuthority}
+      data-thermal-dynamics-mode={dynamicsMode}
       data-walls={wallsEnabled ? 'on' : 'off'}
       data-playback-state={ready ? 'ready' : 'playing'}
       data-playback-at={ready ? '0' : uiProgress.toFixed(3)}
