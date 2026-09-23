@@ -3,6 +3,8 @@ import {
   BASELINE_THERMAL_PROFILE,
   resolveThermalAction,
   thermalConfigFromProfile,
+  thermalDynamicsMode,
+  thermalInertialConfigFromProfile,
   thermalStateFromProfile,
   withThermalTuning,
 } from './thermal-profile.js'
@@ -44,6 +46,38 @@ describe('shared Thermal Profile', () => {
     expect(result.action.impulse).toBeCloseTo(0.65, 10)
     expect(result.finalState.worldAt).toBeCloseTo(1, 10)
   })
+  it('migrates legacy-shaped profiles to Oscillator while preserving Inertial defaults', () => {
+    const legacy = structuredClone(BASELINE_THERMAL_PROFILE)
+    delete legacy.dynamicsMode
+    delete legacy.inertial
+    const tuned = withThermalTuning(legacy)
+    expect(thermalDynamicsMode(tuned)).toBe('oscillator')
+    expect(thermalInertialConfigFromProfile(tuned)).toEqual({ driftHalfLifeAt: 1, recoveryHalfLifeAt: 3 })
+  })
+
+  it('publishes Inertial mode and HD / HR through the shared profile', () => {
+    const tuned = withThermalTuning(BASELINE_THERMAL_PROFILE, {
+      dynamicsMode: 'inertial',
+      inertialConfig: { driftHalfLifeAt: 0.75, recoveryHalfLifeAt: 2.5 },
+    })
+    expect(thermalDynamicsMode(tuned)).toBe('inertial')
+    expect(thermalInertialConfigFromProfile(tuned)).toEqual({ driftHalfLifeAt: 0.75, recoveryHalfLifeAt: 2.5 })
+  })
+
+  it('resolves semantic Heat through the shared Inertial runtime as sustained Drive', () => {
+    const tuned = withThermalTuning(BASELINE_THERMAL_PROFILE, {
+      dynamicsMode: 'inertial',
+      inertialConfig: { driftHalfLifeAt: 1, recoveryHalfLifeAt: 3 },
+    })
+    const state = thermalStateFromProfile(tuned)
+    const result = resolveThermalStep({ state, profile: tuned, actionId: 'heat-ii', durationAt: 1 })
+    expect(result.dynamicsMode).toBe('inertial')
+    expect(result.action.effectType).toBe('drive')
+    expect(result.action.driveRate).toBeCloseTo(0.8, 10)
+    expect(result.finalState.drift).toBeGreaterThan(0)
+    expect(result.finalState.temperature).toBeGreaterThan(state.temperature)
+  })
+
   it('resolves an explicit Gameplay Momentum impulse through the same shared solver', () => {
     const state = thermalStateFromProfile(BASELINE_THERMAL_PROFILE)
     const result = resolveThermalImpulseStep({
