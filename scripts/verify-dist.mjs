@@ -91,7 +91,7 @@ for (const marker of [
   'inner-bob-outer-skip-v4',
   'fixed-y-live-forecast-v3',
   'shared-live-v1',
-  'shared-thermal-profile-runtime-v1-candidate',
+  'shared-thermal-dual-mode-runtime-v2-candidate',
   'thermal-baseline-a',
   'Gameplay Lab',
   'gameplay-momentum-thermal-v1-candidate',
