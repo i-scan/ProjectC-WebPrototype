@@ -849,7 +849,13 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     if (step.kind === 'travel') transaction(id, t)
     attacks(t)
   }
-  const timeline = thermalTimeline({ state: { ...thermal, worldAt }, config, events: sourceThermalEvents })
+  const timeline = thermalTimeline({
+    state: { ...thermal, worldAt },
+    config,
+    events: sourceThermalEvents,
+    dynamicsMode,
+    inertialConfig,
+  })
   const domainName = timeline.finalState.temperature >= 3 ? 'HOT' : timeline.finalState.temperature <= -3 ? 'COLD' : 'NEUTRAL'
   const domain = resolveDomainNaturalBuild(actors.get(player.id), domainName, {
     enabled: domainNaturalBuild,
@@ -886,7 +892,10 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   return {
     valid: true, contract: GAMEPLAY_TIMELINE, durationAt: 1, intents, events,
     spatialAuthority: GAMEPLAY_SPATIAL_AUTHORITY,
-    profileSnapshot, config, thermalSegments: timeline.segments, sourceThermalEvents,
+    profileSnapshot, config,
+    thermalDynamicsMode: dynamicsMode,
+    thermalInertialConfig: { ...inertialConfig },
+    thermalSegments: timeline.segments, sourceThermalEvents,
     samples: playerSamples, actorSamples: tracks, actorTrajectories,
     actorPlaybackWindows: Object.fromEntries(enemies.map((actor) => [actor.id, { start: 0.08, end: 0.96 }])),
     playerPlaybackEnd: 1, spatialMode: playerPlan?.trajectoryPlan ? 'hybrid' : 'discrete',
