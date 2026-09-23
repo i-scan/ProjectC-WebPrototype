@@ -202,7 +202,6 @@ function buildTrajectoryContactGameplayPlan({
 
   const events = []
   const sourceThermalEvents = []
-  const driveStopsByActor = new Map()
   const emit = (type, t, detail = {}) => {
     const event = { id: `event-${events.length}`, type, t, worldAt: worldAt + t, ...detail }
     events.push(event)
@@ -298,9 +297,11 @@ function buildTrajectoryContactGameplayPlan({
   }
 
   const incoming = Math.max(0, Number(conflict.composition?.momentum ?? conflict.impactM ?? 0))
+  const forcedWindow = resolved.actorPlaybackWindows?.[conflict.targetActorId]
+  const forcedDriveEndT = Math.max(contactT, Math.min(1, Number(forcedWindow?.end ?? contactT)))
   if (incoming > 0) addThermal([{
     source: 'Incoming H', amount: incoming, polarity: 'hotward', factorKind: 'momentum', scope: 'target',
-  }], contactT, player.id, conflict.targetActorId)
+  }], contactT, player.id, conflict.targetActorId, forcedDriveEndT)
   const dissipated = Math.max(0, Number(conflict.composition?.cancelled ?? 0))
   if (dissipated > 0) addThermal([{
     source: 'Collision dissipatedM', amount: dissipated, polarity: 'hotward', factorKind: 'collision', scope: 'both',
