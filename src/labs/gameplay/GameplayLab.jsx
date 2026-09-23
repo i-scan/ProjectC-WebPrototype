@@ -623,8 +623,16 @@ export function GameplayLab() {
               <button type="button" className={wallsEnabled ? 'chosen' : ''} onClick={() => setWallsEnabled((value) => !value)}>Trajectory Walls {wallsEnabled ? 'ON' : 'OFF'}</button>
               <button type="button" onClick={() => setResponseCurve((value) => value === 'linear' ? 'smoothstep' : 'linear')}>Curve {responseCurve}</button>
             </div>
-            <label><span>M-T Factor</span><input aria-label="M-T Factor" type="range" min="0" max="1.6" step="0.05" value={momentumFactor} onChange={(event) => setMomentumFactor(Number(event.target.value))} /><strong>{momentumFactor.toFixed(2)}</strong></label>
-            <label><span>Collision Heat</span><input aria-label="Collision Heat Factor" type="range" min="0" max="1.6" step="0.05" value={collisionHeatFactor} onChange={(event) => setCollisionHeatFactor(Number(event.target.value))} /><strong>{collisionHeatFactor.toFixed(2)}</strong></label>
+            <div className="gameplay-toggle-row" data-gameplay-thermal-mode="shared-profile-v2">
+              <button type="button" className={!inertialMode ? 'chosen' : ''} onClick={() => publishDynamicsMode('oscillator')}>Oscillator</button>
+              <button type="button" className={inertialMode ? 'chosen' : ''} onClick={() => publishDynamicsMode('inertial')}>Inertial</button>
+            </div>
+            {inertialMode && <>
+              <label><span>Drift Half-Life HD</span><input aria-label="Gameplay Drift Half-Life" type="range" min="0.25" max="3" step="0.05" value={inertialConfig.driftHalfLifeAt} onChange={(event) => tuneInertial('driftHalfLifeAt', event.target.value)} /><strong>{inertialConfig.driftHalfLifeAt.toFixed(2)} AT</strong></label>
+              <label><span>Recovery Half-Life HR</span><input aria-label="Gameplay Recovery Half-Life" type="range" min="0.5" max="8" step="0.1" value={inertialConfig.recoveryHalfLifeAt} onChange={(event) => tuneInertial('recoveryHalfLifeAt', event.target.value)} /><strong>{inertialConfig.recoveryHalfLifeAt.toFixed(2)} AT</strong></label>
+            </>}
+            <label><span>{inertialMode ? 'M-T Drive Factor' : 'M-T Factor'}</span><input aria-label="M-T Factor" type="range" min="0" max="1.6" step="0.05" value={momentumFactor} onChange={(event) => setMomentumFactor(Number(event.target.value))} /><strong>{momentumFactor.toFixed(2)}</strong></label>
+            <label><span>{inertialMode ? 'Collision Deposit' : 'Collision Heat'}</span><input aria-label="Collision Heat Factor" type="range" min="0" max="1.6" step="0.05" value={collisionHeatFactor} onChange={(event) => setCollisionHeatFactor(Number(event.target.value))} /><strong>{collisionHeatFactor.toFixed(2)}</strong></label>
             <div className="gameplay-toggle-row">
               <button type="button" className={collisionDamage ? 'chosen' : ''} onClick={() => setCollisionDamage((value) => !value)}>Collision Damage {collisionDamage ? 'ON' : 'OFF'}</button>
               <button type="button" className={domainNaturalBuild ? 'chosen' : ''} onClick={() => setDomainNaturalBuild((value) => !value)}>Domain Build {domainNaturalBuild ? 'ON' : 'OFF'}</button>
@@ -650,19 +658,20 @@ export function GameplayLab() {
               {Object.values(profile.environments).map((entry) => <button type="button" key={entry.id} className={environmentId === entry.id ? 'chosen' : ''} onClick={() => { setEnvironmentId(entry.id); setThermalConfigOverride(null) }}>{entry.label}</button>)}
             </div>
             <dl className="state-list compact">
+              <div><dt>Mode</dt><dd>{dynamicsMode}</dd></div>
               <div><dt>Tenv</dt><dd>{thermalConfig.environmentTemperature.toFixed(1)}</dd></div>
               <div><dt>kE</dt><dd>{thermalConfig.environmentCoupling.toFixed(2)}</dd></div>
-              <div><dt>cEff</dt><dd>{thermalDiagnostics(thermal, thermalConfig).cEff.toFixed(3)}</dd></div>
-              <div><dt>Profile</dt><dd>{profile.id} r{profile.revision}{thermalConfigOverride ? ' · LOCAL' : ' · LIVE'}</dd></div>
+              <div><dt>{inertialMode ? 'Net Rate' : 'cEff'}</dt><dd>{inertialMode ? formatThermal(thermalDerived.netRate, 3) : thermalDerived.cEff.toFixed(3)}</dd></div>
+              <div><dt>Profile</dt><dd>{profile.id} r{profile.revision} · {profile.dynamicsMode}{thermalConfigOverride ? ' · LOCAL ENV' : ' · LIVE'}</dd></div>
             </dl>
             <label><span>Current T</span><input aria-label="Gameplay Thermal current temperature" type="range" min="-6" max="6" step="0.05" value={thermal.temperature} onChange={(event) => tuneThermalState('temperature', event.target.value)} /><strong>{thermal.temperature.toFixed(2)}</strong></label>
-            <label><span>Current Drift V</span><input aria-label="Gameplay Thermal current drift" type="range" min="-3" max="3" step="0.05" value={thermal.drift} onChange={(event) => tuneThermalState('drift', event.target.value)} /><strong>{thermal.drift.toFixed(2)}</strong></label>
+            <label><span>Current Drift {inertialMode ? 'D' : 'V'}</span><input aria-label="Gameplay Thermal current drift" type="range" min="-3" max="3" step="0.05" value={thermal.drift} onChange={(event) => tuneThermalState('drift', event.target.value)} /><strong>{thermal.drift.toFixed(2)}</strong></label>
             <label><span>Set Point S</span><input aria-label="Gameplay Thermal setPoint" type="range" min="-4" max="4" step="0.05" value={thermal.setPoint} onChange={(event) => tuneThermalState('setPoint', event.target.value)} /><strong>{thermal.setPoint.toFixed(2)}</strong></label>
-            <label><span>kS · restoring</span><input aria-label="Gameplay Thermal restoringK" type="range" min="0" max="2" step="0.01" value={thermalConfig.restoringK} onChange={(event) => tuneThermal('restoringK', event.target.value)} /><strong>{thermalConfig.restoringK.toFixed(2)}</strong></label>
-            <label><span>cBase · damping</span><input aria-label="Gameplay Thermal baseDamping" type="range" min="0" max="3" step="0.01" value={thermalConfig.baseDamping} onChange={(event) => tuneThermal('baseDamping', event.target.value)} /><strong>{thermalConfig.baseDamping.toFixed(2)}</strong></label>
+            <label><span>{inertialMode ? 'kS · ignored' : 'kS · restoring'}</span><input aria-label="Gameplay Thermal restoringK" type="range" min="0" max="2" step="0.01" value={thermalConfig.restoringK} disabled={inertialMode} onChange={(event) => tuneThermal('restoringK', event.target.value)} /><strong>{thermalConfig.restoringK.toFixed(2)}</strong></label>
+            <label><span>{inertialMode ? 'cBase · ignored' : 'cBase · damping'}</span><input aria-label="Gameplay Thermal baseDamping" type="range" min="0" max="3" step="0.01" value={thermalConfig.baseDamping} disabled={inertialMode} onChange={(event) => tuneThermal('baseDamping', event.target.value)} /><strong>{thermalConfig.baseDamping.toFixed(2)}</strong></label>
             <label><span>Tenv</span><input aria-label="Gameplay Thermal environmentTemperature" type="range" min="-6" max="6" step="0.1" value={thermalConfig.environmentTemperature} onChange={(event) => tuneThermal('environmentTemperature', event.target.value)} /><strong>{thermalConfig.environmentTemperature.toFixed(1)}</strong></label>
             <label><span>kE · coupling</span><input aria-label="Gameplay Thermal environmentCoupling" type="range" min="0" max="1" step="0.01" value={thermalConfig.environmentCoupling} onChange={(event) => tuneThermal('environmentCoupling', event.target.value)} /><strong>{thermalConfig.environmentCoupling.toFixed(2)}</strong></label>
-            <label><span>cEnvGain</span><input aria-label="Gameplay Thermal environmentDampingGain" type="range" min="0" max="4" step="0.05" value={thermalConfig.environmentDampingGain} onChange={(event) => tuneThermal('environmentDampingGain', event.target.value)} /><strong>{thermalConfig.environmentDampingGain.toFixed(2)}</strong></label>
+            <label><span>{inertialMode ? 'cEnvGain · ignored' : 'cEnvGain'}</span><input aria-label="Gameplay Thermal environmentDampingGain" type="range" min="0" max="4" step="0.05" value={thermalConfig.environmentDampingGain} disabled={inertialMode} onChange={(event) => tuneThermal('environmentDampingGain', event.target.value)} /><strong>{thermalConfig.environmentDampingGain.toFixed(2)}</strong></label>
             <label><span>Clamp Min</span><input aria-label="Gameplay Thermal clampMin" type="range" min="-12" max="0" step="0.5" value={thermalConfig.clampMin} onChange={(event) => tuneThermal('clampMin', Math.min(Number(event.target.value), thermalConfig.clampMax - 0.5))} /><strong>{thermalConfig.clampMin.toFixed(1)}</strong></label>
             <label><span>Clamp Max</span><input aria-label="Gameplay Thermal clampMax" type="range" min="0" max="12" step="0.5" value={thermalConfig.clampMax} onChange={(event) => tuneThermal('clampMax', Math.max(Number(event.target.value), thermalConfig.clampMin + 0.5))} /><strong>{thermalConfig.clampMax.toFixed(1)}</strong></label>
             <div className="gameplay-toggle-row"><button type="button" disabled={!thermalConfigOverride} onClick={() => setThermalConfigOverride(null)}>Use Live Thermal Profile</button></div>
@@ -676,7 +685,7 @@ export function GameplayLab() {
                 <time>{event.t.toFixed(2)}</time> {event.type} <small>{event.actorId ?? ''}{event.targetId ? ` → ${event.targetId}` : ''}{event.source ? ` · ${event.source}` : ''}</small>
               </li>)}
             </ol>
-            <small>Trace distinguishes Active H/D Build/Spend, Incoming H, Collision dissipatedM, Domain Natural Build and same-AT suppression.</small>
+            <small>{inertialMode ? 'Inertial: Momentum semantic events create Drive; Collision dissipatedM creates instant Deposit; Drive End follows Intent / Forced Motion lifetime.' : 'Oscillator: Momentum semantic events create Drift impulses; Collision dissipatedM creates Hotward impulse.'} Domain Natural Build and same-AT suppression remain unchanged.</small>
           </section>
 
           <section className="panel-card gameplay-scope-card">
@@ -688,6 +697,7 @@ export function GameplayLab() {
               <li>HM2→DM0 and DM2→HM0 cross-channel candidate</li>
               <li>Launch / Release 1:1</li>
               <li>M ↔ Thermal + Domain Natural Build</li>
+              <li>Shared Thermal dual-mode: Oscillator impulse / Inertial Drive + Deposit</li>
               <li>2 deterministic telegraphed enemies</li>
               <li>Deflect / Link / full AI still deferred</li>
               <li>P0: simultaneous contested Cell holds both; full settlement / chained resolution deferred</li>
