@@ -88,7 +88,7 @@ const requiredMarkers = [
   'Thermal Diagram',
   'shared-live-v1',
   'thermal-baseline-a',
-  'shared-thermal-profile-runtime-v1-candidate',
+  'shared-thermal-dual-mode-runtime-v2-candidate',
   'gameplay-momentum-thermal-v1-candidate',
   'gameplay-at-plan-p0-candidate',
   'driving-lab-wall-pivot-reflection-v1',
