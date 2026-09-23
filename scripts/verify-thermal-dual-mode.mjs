@@ -80,6 +80,15 @@ let browser
 let client
 let profile
 
+const stop = async (child) => {
+  if (!child || child.exitCode !== null) return
+  await new Promise((resolve) => {
+    child.once('exit', resolve)
+    child.kill()
+    setTimeout(resolve, 3000)
+  })
+}
+
 try {
   const executable = chromeExecutable()
   assert(executable, 'Chrome/Edge is required (or set CHROME_BIN)')
@@ -241,7 +250,8 @@ try {
   assert(client.errors.length === 0, `Browser runtime exceptions: ${JSON.stringify(client.errors)}`)
   console.log('Thermal dual-mode browser regression passed: local A/B, shared Inertial Apply Live → Gameplay, Drive/Deposit semantics, and Preview==Commit.')
 } finally {
-  if (browser && browser.exitCode === null) browser.kill()
-  if (server && server.exitCode === null) server.kill()
-  if (profile) await rm(profile, { recursive: true, force: true })
+  try { client?.socket.close() } catch {}
+  await stop(browser)
+  await stop(server)
+  if (profile) await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
 }
