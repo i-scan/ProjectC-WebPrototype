@@ -458,6 +458,7 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   const travelled = new Set()
   const hitPairs = new Set()
   const sourceThermalEvents = []
+  const driveStopsByActor = new Map()
   const emit = (type, t, detail = {}) => {
     // Event payloads are immutable by construction in this resolver. Avoid deep-cloning
     // every event; actor snapshots belong in timed tracks, not duplicated event metadata.
