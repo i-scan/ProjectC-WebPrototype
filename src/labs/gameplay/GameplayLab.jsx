@@ -8,12 +8,17 @@ import { axialKey } from '../../sim/hex.js'
 import { AT_VISUAL_MS } from '../../sim/solver.js'
 import { TRAJECTORY_DEFAULT_RADIUS, TRAJECTORY_RULE } from '../trajectory/trajectory-rules.js'
 import { THERMAL_CLOCK_SOLVER, formatThermal, thermalDiagnostics } from '../thermal/thermal-clock-model.js'
+import { THERMAL_INERTIAL_SOLVER, inertialDiagnostics } from '../thermal/thermal-inertial-model.js'
 import {
   thermalConfigFromProfile,
+  thermalDynamicsMode,
   thermalEnvironment,
+  thermalInertialConfigFromProfile,
   thermalStateFromProfile,
+  withThermalTuning,
 } from '../../thermal/thermal-profile.js'
 import {
+  applyLiveThermalProfile,
   getActiveThermalProfile,
   subscribeThermalProfile,
 } from '../../thermal/thermal-profile-store.js'
@@ -57,7 +62,15 @@ function traceSummary(result, thermalEvents, domainTrace) {
     else if (entry.cause) parts.push(entry.actorId ? `${entry.cause}(${entry.actorId})` : entry.cause)
   }
   for (const entry of thermalEvents) {
-    parts.push(`${entry.source}: ${entry.impulse >= 0 ? '+' : ''}${entry.impulse.toFixed(2)}V [${entry.scope}]`)
+    if (entry.type === 'ThermalDriveStart') {
+      parts.push(`${entry.source}: Drive ${entry.driveRate >= 0 ? '+' : ''}${entry.driveRate.toFixed(2)} [${entry.scope}]`)
+    } else if (entry.type === 'ThermalDriveEnd') {
+      parts.push(`${entry.source}: Drive End @ ${entry.t.toFixed(2)}AT`)
+    } else if (entry.type === 'ThermalDeposit') {
+      parts.push(`${entry.source}: Deposit ${entry.deposit >= 0 ? '+' : ''}${entry.deposit.toFixed(2)}T [${entry.scope}]`)
+    } else {
+      parts.push(`${entry.source}: ${entry.impulse >= 0 ? '+' : ''}${entry.impulse.toFixed(2)}V [${entry.scope}]`)
+    }
   }
   for (const entry of domainTrace ?? []) {
     parts.push(entry.suppressed
@@ -105,9 +118,32 @@ export function GameplayLab() {
     : [], [cells, wallsEnabled])
   const actions = GAMEPLAY_ACTIONS_V1
   const selectedAction = actions.find((entry) => entry.id === selectedActionId) ?? actions[0]
+  const dynamicsMode = thermalDynamicsMode(profile)
+  const inertialConfig = thermalInertialConfigFromProfile(profile)
+  const inertialMode = dynamicsMode === 'inertial'
+  const thermalAuthority = inertialMode ? THERMAL_INERTIAL_SOLVER : THERMAL_CLOCK_SOLVER
   const environment = thermalEnvironment(profile, environmentId)
   const liveThermalConfig = useMemo(() => thermalConfigFromProfile(profile, environmentId), [profile, environmentId])
   const thermalConfig = thermalConfigOverride ?? liveThermalConfig
+  const thermalDerived = inertialMode
+    ? inertialDiagnostics(thermal, thermalConfig, inertialConfig)
+    : thermalDiagnostics(thermal, thermalConfig)
+  const publishDynamicsMode = (nextMode) => {
+    if (playbackRef.current || nextMode === dynamicsMode) return false
+    applyLiveThermalProfile(withThermalTuning(profile, { dynamicsMode: nextMode }))
+    setFullPreviewEntry(null)
+    clearAim()
+    return true
+  }
+  const tuneInertial = (key, value) => {
+    if (playbackRef.current) return false
+    applyLiveThermalProfile(withThermalTuning(profile, {
+      inertialConfig: { ...inertialConfig, [key]: Number(value) },
+    }))
+    setFullPreviewEntry(null)
+    clearAim()
+    return true
+  }
   const tuneThermal = (key, value) => setThermalConfigOverride((current) => ({
     ...(current ?? liveThermalConfig),
     [key]: Number(value),
