@@ -194,6 +194,7 @@ function actorSamplesFromTrajectoryPath(original, finalActor, path, window, worl
 
 function buildTrajectoryContactGameplayPlan({
   validation, player, enemies, thermal, profileSnapshot, config, worldAt,
+  dynamicsMode, inertialConfig,
   momentumFactor, collisionHeatFactor, domainNaturalBuild,
 }) {
   const resolved = validation.trajectoryPlan
@@ -206,12 +207,21 @@ function buildTrajectoryContactGameplayPlan({
     events.push(event)
     return event
   }
-  const addThermal = (raw, t, sourceId, targetId) => {
+  const addThermal = (raw, t, sourceId, targetId, driveEndT = 1) => {
     for (const entry of resolveThermalEvents(raw, { momentumFactor, collisionHeatFactor })) {
       const ids = entry.scope === 'both' ? [sourceId, targetId] : [entry.scope === 'target' ? targetId : sourceId]
       for (const actorId of ids.filter(Boolean)) {
-        const event = emit('ThermalImpulse', t, { ...entry, actorId })
-        if (actorId === player.id) sourceThermalEvents.push(event)
+        emitResolvedThermalEffect({
+          emit,
+          sourceThermalEvents,
+          entry,
+          actorId,
+          playerId: player.id,
+          dynamicsMode,
+          worldAt,
+          t,
+          driveEndT,
+        })
       }
     }
   }
@@ -295,7 +305,13 @@ function buildTrajectoryContactGameplayPlan({
     source: 'Collision dissipatedM', amount: dissipated, polarity: 'hotward', factorKind: 'collision', scope: 'both',
   }], contactT, player.id, conflict.targetActorId)
 
-  const timeline = thermalTimeline({ state: { ...thermal, worldAt }, config, events: sourceThermalEvents })
+  const timeline = thermalTimeline({
+    state: { ...thermal, worldAt },
+    config,
+    events: sourceThermalEvents,
+    dynamicsMode,
+    inertialConfig,
+  })
   const updateById = new Map((validation.targetUpdates ?? []).map((entry) => [entry.id, entry]))
   const finalEnemies = enemies.map((enemy) => {
     const next = createMomentumActor(updateById.get(enemy.id) ?? enemy)
@@ -355,6 +371,8 @@ function buildTrajectoryContactGameplayPlan({
     spatialAuthority: GAMEPLAY_SPATIAL_AUTHORITY,
     profileSnapshot,
     config,
+    thermalDynamicsMode: dynamicsMode,
+    thermalInertialConfig: { ...inertialConfig },
     thermalSegments: timeline.segments,
     sourceThermalEvents,
     samples: sourceSamples,
@@ -418,10 +436,13 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
   const validation = resolveAction(player, actionId, targetHex)
   if (!inputAction || !validation.valid || player.hp <= 0) return { valid: false, reason: validation.reason || 'No legal target / actor is down.' }
   const profileSnapshot = cloneThermalProfile(profile)
+  const dynamicsMode = thermalDynamicsMode(profileSnapshot)
+  const inertialConfig = thermalInertialConfigFromProfile(profileSnapshot)
   const config = thermalConfigOverride ? { ...thermalConfigOverride } : thermalConfigFromProfile(profileSnapshot, environmentId)
   if (validation.trajectoryPlan?.cellConflict) {
     return buildTrajectoryContactGameplayPlan({
       validation, player, enemies, thermal, profileSnapshot, config, worldAt,
+      dynamicsMode, inertialConfig,
       momentumFactor, collisionHeatFactor, domainNaturalBuild,
     })
   }
