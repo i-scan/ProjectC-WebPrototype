@@ -513,12 +513,17 @@ export function ThermalClockLab() {
         inertialConfig: { ...inertialConfig }, driveDurationAt, depositAt, deposit, selectedDriveRate,
         impulses: copyImpulses(impulses), selectedAction, previewHorizon, pastWindow,
         diagramY: { min: diagramYMin, max: diagramYMax },
-        liveProfile: { id: liveProfile.id, revision: liveProfile.revision },
+        liveProfile: { id: liveProfile.id, revision: liveProfile.revision, dynamicsMode: liveProfile.dynamicsMode, inertial: { ...liveProfile.inertial } },
         diagnostics: dynamicsMode === 'inertial' ? inertialDiagnostics(state, config, inertialConfig, selectedDriveRate) : thermalDiagnostics(state, config),
         predictedReady: copyState(selectedPreview.finalState), historySegments: history.length, playback: Boolean(playback),
       }),
       reset,
       commit,
+      applyLive: () => {
+        if (playback) return false
+        applyLive()
+        return true
+      },
       setMode: switchDynamicsMode,
       setAction: (actionId) => {
         if (playback || !THERMAL_ACTIONS.some((entry) => entry.id === actionId)) return false
