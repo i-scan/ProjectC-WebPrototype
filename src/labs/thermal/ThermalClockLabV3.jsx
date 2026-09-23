@@ -17,7 +17,9 @@ import {
 } from './thermal-clock-model.js'
 import {
   thermalConfigFromProfile,
+  thermalDynamicsMode,
   thermalImpulsesFromProfile,
+  thermalInertialConfigFromProfile,
   thermalStateFromProfile,
   withThermalTuning,
 } from '../../thermal/thermal-profile.js'
@@ -309,8 +311,8 @@ export function ThermalClockLab() {
   const [config, setConfig] = useState(() => thermalConfigFromProfile(getActiveThermalProfile(), 'adiabatic'))
   const [impulses, setImpulses] = useState(() => thermalImpulsesFromProfile(getActiveThermalProfile()))
   const [selectedAction, setSelectedAction] = useState('heat-ii')
-  const [dynamicsMode, setDynamicsMode] = useState('oscillator')
-  const [inertialConfig, setInertialConfig] = useState(() => ({ ...DEFAULT_INERTIAL_CONFIG }))
+  const [dynamicsMode, setDynamicsMode] = useState(() => thermalDynamicsMode(getActiveThermalProfile()))
+  const [inertialConfig, setInertialConfig] = useState(() => thermalInertialConfigFromProfile(getActiveThermalProfile()))
   const [driveDurationAt, setDriveDurationAt] = useState(1)
   const [depositAt, setDepositAt] = useState(0.5)
   const [deposit, setDeposit] = useState(0)
@@ -344,8 +346,16 @@ export function ThermalClockLab() {
   [inertialMode, selectedInertialPlan, state, config, selectedAction, impulses, previewHorizon])
   const selectedImpulse = actionImpulse(selectedAction, impulses)
   const action = THERMAL_ACTIONS.find((entry) => entry.id === selectedAction) ?? THERMAL_ACTIONS.at(-1)
-  const candidateProfile = useMemo(() => withThermalTuning(liveProfile, { config, impulses }), [liveProfile, config, impulses])
-  const profileDirty = !inertialMode && (JSON.stringify(candidateProfile.dynamics) !== JSON.stringify(liveProfile.dynamics) || JSON.stringify(candidateProfile.impulseTiers) !== JSON.stringify(liveProfile.impulseTiers))
+  const candidateProfile = useMemo(() => withThermalTuning(liveProfile, {
+    config,
+    impulses,
+    dynamicsMode,
+    inertialConfig,
+  }), [liveProfile, config, impulses, dynamicsMode, inertialConfig])
+  const profileDirty = candidateProfile.dynamicsMode !== liveProfile.dynamicsMode
+    || JSON.stringify(candidateProfile.dynamics) !== JSON.stringify(liveProfile.dynamics)
+    || JSON.stringify(candidateProfile.inertial) !== JSON.stringify(liveProfile.inertial)
+    || JSON.stringify(candidateProfile.impulseTiers) !== JSON.stringify(liveProfile.impulseTiers)
 
   const diagramConfig = playback?.config ?? config
   const diagramMode = playback?.dynamicsMode ?? dynamicsMode
@@ -407,6 +417,8 @@ export function ThermalClockLab() {
     if (!draft) { setLastEvent('No saved Thermal Profile draft found in this browser.'); return }
     const draftConfig = thermalConfigFromProfile(draft, 'adiabatic')
     setConfig((current) => ({ ...draftConfig, environmentTemperature: current.environmentTemperature, environmentCoupling: current.environmentCoupling }))
+    setDynamicsMode(thermalDynamicsMode(draft))
+    setInertialConfig(thermalInertialConfigFromProfile(draft))
     setImpulses(thermalImpulsesFromProfile(draft))
     setLastEvent(`Loaded draft ${draft.label} r${draft.revision} into Thermal Lab controls. Apply Live when ready.`)
   }
@@ -414,6 +426,8 @@ export function ThermalClockLab() {
     if (playback) return
     const liveConfig = thermalConfigFromProfile(liveProfile, 'adiabatic')
     setConfig((current) => ({ ...liveConfig, environmentTemperature: current.environmentTemperature, environmentCoupling: current.environmentCoupling }))
+    setDynamicsMode(thermalDynamicsMode(liveProfile))
+    setInertialConfig(thermalInertialConfigFromProfile(liveProfile))
     setImpulses(thermalImpulsesFromProfile(liveProfile))
     setLastEvent(`Reverted tunable Dynamics / Impulses to live ${liveProfile.label} r${liveProfile.revision}.`)
   }
@@ -423,9 +437,11 @@ export function ThermalClockLab() {
     const nextState = thermalStateFromProfile(liveProfile)
     setState(nextState); setVisualState(nextState)
     setConfig(thermalConfigFromProfile(liveProfile, 'adiabatic'))
+    setDynamicsMode(thermalDynamicsMode(liveProfile))
+    setInertialConfig(thermalInertialConfigFromProfile(liveProfile))
     setImpulses(thermalImpulsesFromProfile(liveProfile))
     setSelectedAction('heat-ii'); setPreviewHorizon(12); setPastWindow(8)
-    setInertialConfig({ ...DEFAULT_INERTIAL_CONFIG }); setDriveDurationAt(1); setDepositAt(0.5); setDeposit(0)
+    setDriveDurationAt(1); setDepositAt(0.5); setDeposit(0)
     setDiagramYMin(DEFAULT_DIAGRAM_Y.min); setDiagramYMax(DEFAULT_DIAGRAM_Y.max)
     setPlaybackSpeed(1); setHistory([])
     setLastEvent(`Lab reset from live ${liveProfile.label} r${liveProfile.revision}; worldAt = 0.`)
@@ -534,13 +550,13 @@ export function ThermalClockLab() {
       </header>
 
       <section className="thermal-card" data-thermal-dynamics-mode-switch="dual-mode-v1">
-        <div className="thermal-section-heading"><div><h2>Dynamics Mode</h2><p>Same numeric T / D / S for direct A/B; D semantics differ by mode.</p></div><span>{inertialMode ? 'CANDIDATE · LAB LOCAL' : 'LEGACY BASELINE'}</span></div>
+        <div className="thermal-section-heading"><div><h2>Dynamics Mode</h2><p>Same numeric T / D / S for direct A/B; Apply Live publishes this mode to Gameplay.</p></div><span>{inertialMode ? 'INERTIAL · SHARED LIVE CAPABLE' : 'OSCILLATOR · SHARED LIVE CAPABLE'}</span></div>
         <div className="thermal-choice-row">{DYNAMICS_MODES.map((mode) => <button type="button" key={mode.id} className={dynamicsMode === mode.id ? 'selected' : ''} disabled={Boolean(playback)} onClick={() => switchDynamicsMode(mode.id)}>{mode.label}</button>)}</div>
       </section>
 
       <section className="thermal-profile-bar" data-thermal-profile-bridge="shared-live-v1">
-        <div><span>Shared Thermal Profile</span><strong>{liveProfile.label} · r{liveProfile.revision}</strong><em>{inertialMode ? 'INERTIAL CANDIDATE · NOT PUBLISHED' : (profileDirty ? 'LOCAL TUNING DIRTY' : 'MATCHES LIVE')}</em></div>
-        <div className="thermal-profile-actions"><button type="button" disabled={Boolean(playback) || inertialMode || !profileDirty} onClick={applyLive}>Apply Live</button><button type="button" disabled={Boolean(playback) || inertialMode} onClick={saveDraft}>Save Draft</button><button type="button" disabled={Boolean(playback) || inertialMode} onClick={loadDraft}>Load Draft</button><button type="button" disabled={Boolean(playback) || inertialMode || !profileDirty} onClick={revertLive}>Revert Live</button></div>
+        <div><span>Shared Thermal Profile</span><strong>{liveProfile.label} · r{liveProfile.revision} · {liveProfile.dynamicsMode}</strong><em>{profileDirty ? 'LOCAL TUNING DIRTY' : 'MATCHES LIVE'}</em></div>
+        <div className="thermal-profile-actions"><button type="button" disabled={Boolean(playback) || !profileDirty} onClick={applyLive}>Apply Live</button><button type="button" disabled={Boolean(playback)} onClick={saveDraft}>Save Draft</button><button type="button" disabled={Boolean(playback)} onClick={loadDraft}>Load Draft</button><button type="button" disabled={Boolean(playback) || !profileDirty} onClick={revertLive}>Revert Live</button></div>
       </section>
 
       <section className="thermal-clock-grid">
@@ -553,7 +569,7 @@ export function ThermalClockLab() {
           <div className={`thermal-status ${playback ? 'is-resolving' : 'is-ready'}`}><strong>{playback ? 'ACTION IN FLIGHT · DIAGRAM UPDATES FROM LIVE NOW' : 'READY · SELECT → FORECAST → COMMIT'}</strong><span>{lastEvent}</span></div>
           <ThermalDiagram state={visualState} history={history} selectedFuture={selectedFuture} skipFuture={skipFuture} futureGhosts={futureGhosts} diagnostics={diagramDiagnostics} pastWindow={pastWindow} futureWindow={previewHorizon} actionLabel={action?.label ?? selectedAction} resolving={Boolean(playback)} yMin={diagramYMin} yMax={diagramYMax} />
           <section className="thermal-board-reserved thermal-board-reserved--compact" data-thermal-board-reserved="true"><div className="thermal-board-reserved__grid" /><div><p>RESERVED BOARD</p><h2>Future Trajectory Integration</h2><span>Thermal Dynamics remains isolated while the diagram and pendulum are evaluated.</span></div></section>
-          <section className="thermal-action-hand"><div className="thermal-hand-heading"><div><h2>Thermal Actions</h2><p>{inertialMode ? 'Heat / Cool sustain Drive during this 1AT action. Skip = Drive 0. Candidate settings remain local to this Lab.' : 'Selected card applies one Drift impulse now; Apply Live publishes tuned Legacy Dynamics / impulse tiers to Gameplay Lab.'}</p></div><button type="button" className="thermal-commit" data-thermal-commit disabled={Boolean(playback)} onClick={commit}>Commit 1AT</button></div><div className="thermal-action-row">{THERMAL_ACTIONS.map((entry) => <button type="button" key={entry.id} data-thermal-card={entry.id} className={`thermal-action-card ${entry.id === selectedAction ? 'selected' : ''} ${entry.sign > 0 ? 'heat' : entry.sign < 0 ? 'cool' : 'skip'}`} disabled={Boolean(playback)} onClick={() => { setSelectedAction(entry.id); setLastEvent(`${entry.label} selected. Thermal Diagram updated; worldAt has not advanced.`) }}><header><strong>{entry.label}</strong><em>1AT</em></header><span>{inertialMode ? (entry.sign === 0 ? 'Drive 0' : `Drive ${formatThermal(inertialActionDriveRate(entry.id, impulses), 2)} / AT²`) : (entry.sign === 0 ? 'Impulse 0' : `V ${entry.sign > 0 ? '+=' : '-='} ${formatNumber(Math.abs(actionImpulse(entry.id, impulses)), 2)}`)}</span></button>)}</div><div className="thermal-impulse-tuning" data-thermal-impulses>
+          <section className="thermal-action-hand"><div className="thermal-hand-heading"><div><h2>Thermal Actions</h2><p>{inertialMode ? 'Heat / Cool sustain Drive during this 1AT action. Skip = Drive 0. Apply Live publishes this Inertial profile to Gameplay.' : 'Selected card applies one Drift impulse now; Apply Live publishes tuned Legacy Dynamics / impulse tiers to Gameplay Lab.'}</p></div><button type="button" className="thermal-commit" data-thermal-commit disabled={Boolean(playback)} onClick={commit}>Commit 1AT</button></div><div className="thermal-action-row">{THERMAL_ACTIONS.map((entry) => <button type="button" key={entry.id} data-thermal-card={entry.id} className={`thermal-action-card ${entry.id === selectedAction ? 'selected' : ''} ${entry.sign > 0 ? 'heat' : entry.sign < 0 ? 'cool' : 'skip'}`} disabled={Boolean(playback)} onClick={() => { setSelectedAction(entry.id); setLastEvent(`${entry.label} selected. Thermal Diagram updated; worldAt has not advanced.`) }}><header><strong>{entry.label}</strong><em>1AT</em></header><span>{inertialMode ? (entry.sign === 0 ? 'Drive 0' : `Drive ${formatThermal(inertialActionDriveRate(entry.id, impulses), 2)} / AT²`) : (entry.sign === 0 ? 'Impulse 0' : `V ${entry.sign > 0 ? '+=' : '-='} ${formatNumber(Math.abs(actionImpulse(entry.id, impulses)), 2)}`)}</span></button>)}</div><div className="thermal-impulse-tuning" data-thermal-impulses>
   <RangeField label={inertialMode ? 'Small Drive' : 'Small impulse'} value={impulses.small} min={0} max={2.5} step={0.05} disabled={Boolean(playback)} onChange={(value) => setImpulses((current) => ({ ...current, small: value }))} />
   <RangeField label={inertialMode ? 'Medium Drive' : 'Medium impulse'} value={impulses.medium} min={0} max={3} step={0.05} disabled={Boolean(playback)} onChange={(value) => setImpulses((current) => ({ ...current, medium: value }))} />
   <RangeField label={inertialMode ? 'Large Drive' : 'Large impulse'} value={impulses.large} min={0} max={4} step={0.05} disabled={Boolean(playback)} onChange={(value) => setImpulses((current) => ({ ...current, large: value }))} />
@@ -564,7 +580,7 @@ export function ThermalClockLab() {
         <aside className="thermal-panel thermal-right">
           <section className="thermal-card" data-thermal-environment><div className="thermal-section-heading"><h3>Environment</h3><span>runtime context</span></div><div className="thermal-preset-row">{ENVIRONMENT_PRESETS.map((preset) => <button type="button" key={preset.id} disabled={Boolean(playback)} onClick={() => applyEnvironmentPreset(preset)}>{preset.label}</button>)}</div><RangeField label="Tenv" value={config.environmentTemperature} min={-6} max={6} step={0.1} disabled={Boolean(playback)} onChange={(value) => updateConfigField('environmentTemperature', value)} /><RangeField label="kE" value={config.environmentCoupling} min={0} max={1} step={0.01} disabled={Boolean(playback)} onChange={(value) => updateConfigField('environmentCoupling', value)} /><RangeField label={inertialMode ? 'cEnvGain · ignored' : 'cEnvGain'} value={config.environmentDampingGain} min={0} max={4} step={0.05} disabled={Boolean(playback) || inertialMode} onChange={(value) => updateConfigField('environmentDampingGain', value)} /></section>
           <section className="thermal-card" data-thermal-dynamics>
-  <div className="thermal-section-heading"><h3>Dynamics</h3><span>{inertialMode ? 'Inertial Relaxation · local candidate' : 'shared Legacy profile tuning'}</span></div>
+  <div className="thermal-section-heading"><h3>Dynamics</h3><span>{inertialMode ? 'Inertial Relaxation · shared profile tuning' : 'Legacy Oscillator · shared profile tuning'}</span></div>
   {inertialMode ? <>
     <label className="thermal-choice-label">Drift Half-Life preset</label>
     <div className="thermal-preset-row" data-thermal-drift-half-life-presets>{DRIFT_HALF_LIFE_PRESETS.map((value) => <button type="button" key={value} className={Math.abs(inertialConfig.driftHalfLifeAt - value) < 1e-6 ? 'selected' : ''} disabled={Boolean(playback)} onClick={() => setInertialConfig((current) => ({ ...current, driftHalfLifeAt: value }))}>{value} AT</button>)}</div>
