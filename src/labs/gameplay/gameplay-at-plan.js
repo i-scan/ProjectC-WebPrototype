@@ -1,7 +1,12 @@
 import { HEX_DIRECTIONS, axialDistance, axialKey, directionIdBetween } from '../../sim/hex.js'
 import { sampleTimedRecord } from '../../sim/plan-playback.js'
 import { TRAJECTORY_DEFAULT_RADIUS } from '../trajectory/trajectory-rules.js'
-import { thermalConfigFromProfile, cloneThermalProfile } from '../../thermal/thermal-profile.js'
+import {
+  thermalConfigFromProfile,
+  cloneThermalProfile,
+  thermalDynamicsMode,
+  thermalInertialConfigFromProfile,
+} from '../../thermal/thermal-profile.js'
 import { thermalTimeline, sampleThermalTimeline } from '../../thermal/thermal-runtime.js'
 import {
   actorBoardRecord, actorSpatialState, createMomentumActor, forcedDisplace,
@@ -23,6 +28,64 @@ const cycles = { 'enemy-a': ['move', 'attack', 'brace'], 'enemy-b': ['brace', 'm
 const momentumFields = (actor) => ({ hM: actor.hM, axisId: actor.axisId, downM: actor.downM, downPrepared: actor.downPrepared })
 const neighborToward = (from, to) => HEX_DIRECTIONS.map((dir) => ({ q: from.q + dir.q, r: from.r + dir.r }))
   .sort((a, b) => axialDistance(a, to) - axialDistance(b, to))[0]
+
+function emitResolvedThermalEffect({
+  emit,
+  sourceThermalEvents,
+  entry,
+  actorId,
+  playerId,
+  dynamicsMode,
+  worldAt,
+  t,
+  driveEndT = 1,
+  registerDriveStop = null,
+}) {
+  if (dynamicsMode === 'inertial') {
+    if (entry.factorKind === 'collision') {
+      const event = emit('ThermalDeposit', t, {
+        ...entry,
+        actorId,
+        deposit: entry.impulse,
+        thermalEffect: 'deposit',
+      })
+      if (actorId === playerId) sourceThermalEvents.push(event)
+      return
+    }
+
+    const rate = Number(entry.impulse) || 0
+    if (Math.abs(rate) <= 1e-9) return
+    const endT = Math.max(t, Math.min(1, Number(driveEndT) || 0))
+    const start = emit('ThermalDriveStart', t, {
+      ...entry,
+      actorId,
+      driveRate: rate,
+      driveDelta: rate,
+      driveEndT: endT,
+      thermalEffect: 'drive',
+    })
+    if (actorId === playerId) sourceThermalEvents.push(start)
+
+    const stop = emit('ThermalDriveEnd', endT, {
+      ...entry,
+      actorId,
+      driveRate: rate,
+      driveDelta: -rate,
+      driveStartT: t,
+      thermalEffect: 'drive',
+    })
+    if (actorId === playerId) sourceThermalEvents.push(stop)
+    registerDriveStop?.(actorId, stop)
+    return
+  }
+
+  const event = emit('ThermalImpulse', t, {
+    ...entry,
+    actorId,
+    thermalEffect: 'impulse',
+  })
+  if (actorId === playerId) sourceThermalEvents.push(event)
+}
 
 function mergeTrajectoryUntilEncounter(trajectorySamples, logicalTrack, encounterAt) {
   if (!trajectorySamples?.length || !logicalTrack?.length || !Number.isFinite(encounterAt)) return logicalTrack
