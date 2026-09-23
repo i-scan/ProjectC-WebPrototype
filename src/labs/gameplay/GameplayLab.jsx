@@ -484,7 +484,7 @@ export function GameplayLab() {
           <div><span>{ready ? 'Ready · World Time' : 'Playback · World Time'}</span><strong>{(worldAt + (ready ? 0 : uiProgress)).toFixed(2)} AT</strong></div>
           <div><span>Momentum</span><strong>{momentumBand(displayPlayer)}</strong></div>
           <div className={`thermal-${thermalDomain(displayThermal.temperature).toLowerCase()}`}><span>Thermal</span><strong>{thermalDomain(displayThermal.temperature)} · T {formatThermal(displayThermal.temperature, 2)}</strong></div>
-          <div><span>Drift</span><strong>{formatThermal(displayThermal.drift, 2)} / AT</strong></div>
+          <div><span>Drift {displayDynamicsMode === 'inertial' ? 'D' : 'V'}</span><strong>{formatThermal(displayThermal.drift, 2)} / AT</strong></div>
           <div><span>Cell</span><strong>{displayPlayer.hex.q},{displayPlayer.hex.r}</strong></div>
         </div>
       </header>
@@ -504,11 +504,12 @@ export function GameplayLab() {
               <div><span>Down</span><strong>{isDownSide(displayPlayer) ? `D${displayPlayer.downM}` : '—'}</strong></div>
             </div>
             <div data-gameplay-thermal-pendulum="shared-runtime-v1">
-              <ThermalPendulum state={displayThermal} config={displayConfig} previousState={previousThermal} className="gameplay-thermal-pendulum" />
+              <ThermalPendulum state={displayThermal} config={displayConfig} previousState={previousThermal} dynamicsMode={displayDynamicsMode} inertialConfig={displayInertialConfig} className="gameplay-thermal-pendulum" />
             </div>
             <dl className="state-list actor-state-list">
               <div><dt>Temperature</dt><dd>{formatThermal(displayThermal.temperature, 2)}</dd></div>
-              <div><dt>Drift</dt><dd>{formatThermal(displayThermal.drift, 2)}</dd></div>
+              <div><dt>Drift {displayDynamicsMode === 'inertial' ? 'D' : 'V'}</dt><dd>{formatThermal(displayThermal.drift, 2)}</dd></div>
+              <div><dt>Dynamics</dt><dd>{displayDynamicsMode}</dd></div>
               <div><dt>Set Point</dt><dd>{formatThermal(displayThermal.setPoint, 2)}</dd></div>
               <div><dt>Environment</dt><dd>{environment.label}</dd></div>
             </dl>
@@ -523,9 +524,11 @@ export function GameplayLab() {
                 : previewResolution?.reason || 'Ready.'}</p>
             <dl className="state-list compact">
               <div><dt>Ready Momentum</dt><dd>{momentumBand(previewDomain.actor)}</dd></div>
-              <div><dt>Action ΔV</dt><dd>{previewSourceImpulse >= 0 ? '+' : ''}{previewSourceImpulse.toFixed(2)}</dd></div>
+              <div><dt>{inertialMode ? 'Action Thermal' : 'Action ΔV'}</dt><dd>{inertialMode
+                ? `Drive ${previewDriveRate >= 0 ? '+' : ''}${previewDriveRate.toFixed(2)} · Deposit ${previewDeposit >= 0 ? '+' : ''}${previewDeposit.toFixed(2)}`
+                : `${previewSourceImpulse >= 0 ? '+' : ''}${previewSourceImpulse.toFixed(2)}`}</dd></div>
               <div><dt>Ready T</dt><dd>{formatThermal(previewThermal.finalState.temperature, 2)}</dd></div>
-              <div><dt>Ready V</dt><dd>{formatThermal(previewThermal.finalState.drift, 2)}</dd></div>
+              <div><dt>Ready {inertialMode ? 'D' : 'V'}</dt><dd>{formatThermal(previewThermal.finalState.drift, 2)}</dd></div>
               <div><dt>Target</dt><dd>{targetHex ? axialKey(targetHex) : '—'}</dd></div>
             </dl>
           </section>
