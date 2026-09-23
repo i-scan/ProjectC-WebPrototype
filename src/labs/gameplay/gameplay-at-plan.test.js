@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildGameplayATPlan, buildGameplaySpatialPreview, sampleGameplayATPlan } from './gameplay-at-plan.js'
 import { actorSpatialState, createDefaultEnemies, createMomentumActor } from './gameplay-momentum-model.js'
-import { BASELINE_THERMAL_PROFILE, thermalConfigFromProfile, thermalStateFromProfile } from '../../thermal/thermal-profile.js'
+import { BASELINE_THERMAL_PROFILE, thermalConfigFromProfile, thermalStateFromProfile, withThermalTuning } from '../../thermal/thermal-profile.js'
 import { thermalTimeline } from '../../thermal/thermal-runtime.js'
 import { collisionObstaclesFromCells, createCellWorld } from '../../sim/world.js'
 import {
@@ -153,6 +153,79 @@ describe('Gameplay AT plan: a frozen, queryable 1AT', () => {
     expect(a.intents).toEqual(b.intents)
     const sorted = (result) => result.finalState.enemies.slice().sort((x, y) => x.id.localeCompare(y.id))
     expect(sorted(a)).toEqual(sorted(b))
+  })
+})
+
+describe('Gameplay Inertial Thermal bridge', () => {
+  const inertialProfile = () => withThermalTuning(BASELINE_THERMAL_PROFILE, {
+    dynamicsMode: 'inertial',
+    inertialConfig: { driftHalfLifeAt: 1, recoveryHalfLifeAt: 3 },
+  })
+
+  it('turns Active Momentum thermal semantics into sustained Drive at the real transaction time', () => {
+    const result = plan({ profile: inertialProfile() })
+    const firstTravel = result.events.find((event) => event.type === 'Travel' && event.actorId === 'player')
+    const starts = result.sourceThermalEvents.filter((event) => event.type === 'ThermalDriveStart')
+    const ends = result.sourceThermalEvents.filter((event) => event.type === 'ThermalDriveEnd')
+    expect(result.thermalDynamicsMode).toBe('inertial')
+    expect(starts).toHaveLength(1)
+    expect(ends).toHaveLength(1)
+    expect(starts[0]).toMatchObject({ source: 'Active H Build', driveRate: 0.8 })
+    expect(starts[0].t).toBe(firstTravel.t)
+    expect(ends[0].t).toBe(1)
+    expect(result.sourceThermalEvents.some((event) => event.type === 'ThermalImpulse')).toBe(false)
+    expect(sampleGameplayATPlan(result, starts[0].t - 0.001).thermal.drift).toBeCloseTo(0, 8)
+    expect(sampleGameplayATPlan(result, Math.min(0.99, starts[0].t + 0.2)).thermal.drift).toBeGreaterThan(0)
+    expect(result.finalState.thermal.drift).toBeGreaterThan(0)
+    expect(result.finalState.thermal.temperature).toBeGreaterThan(1)
+  })
+
+  it('turns Active D Build into Coldward Drive without changing the Momentum rule', () => {
+    const result = plan({
+      profile: inertialProfile(),
+      player: createMomentumActor(),
+      actionId: 'brace',
+      targetHex: null,
+    })
+    expect(result.finalState.player.downM).toBe(1)
+    const drive = result.sourceThermalEvents.find((event) => event.type === 'ThermalDriveStart')
+    expect(drive).toMatchObject({ source: 'Active D Build', driveRate: -0.8, t: 0.2 })
+    expect(result.finalState.thermal.drift).toBeLessThan(0)
+    expect(result.finalState.thermal.temperature).toBeLessThan(1)
+  })
+
+  it('turns Collision dissipatedM into instant Deposit while D Spend remains a Drive', () => {
+    const result = plan({
+      profile: inertialProfile(),
+      player: createMomentumActor({ downM: 2, downPrepared: true }),
+      actionId: 'release',
+      targetHex: { q: 1, r: 0 },
+      enemies: [target({ hex: { q: 1, r: 0 }, downM: 1, downPrepared: true, intent: 'skip' })],
+    })
+    const spendDrive = result.sourceThermalEvents.find((event) =>
+      event.type === 'ThermalDriveStart' && event.source === 'Active D Spend / Convert')
+    const deposit = result.sourceThermalEvents.find((event) =>
+      event.type === 'ThermalDeposit' && event.source === 'Collision dissipatedM')
+    expect(spendDrive?.driveRate).toBeGreaterThan(0)
+    expect(deposit?.deposit).toBeGreaterThan(0)
+    expect(result.sourceThermalEvents.some((event) =>
+      event.type === 'ThermalDriveStart' && event.source === 'Collision dissipatedM')).toBe(false)
+  })
+
+  it('uses the exact shared Inertial thermalTimeline for Gameplay Preview and Commit state', () => {
+    const profile = inertialProfile()
+    const input = make({ profile, actionId: 'brace', targetHex: null })
+    const result = buildGameplayATPlan(input)
+    const expected = thermalTimeline({
+      state: { ...input.thermal, worldAt: input.thermal.worldAt ?? 0 },
+      config: result.config,
+      events: result.sourceThermalEvents,
+      dynamicsMode: 'inertial',
+      inertialConfig: result.thermalInertialConfig,
+    })
+    expect(result.finalState.thermal.temperature).toBeCloseTo(expected.finalState.temperature, 10)
+    expect(result.finalState.thermal.drift).toBeCloseTo(expected.finalState.drift, 10)
+    expect(sampleGameplayATPlan(result, 1).thermal).toEqual(result.finalState.thermal)
   })
 })
 
