@@ -149,7 +149,7 @@ try {
   })()`)
 
   assert(mounted.root, 'Gameplay v1 root missing')
-  assert(mounted.sharedThermal === 'shared-thermal-profile-runtime-v1-candidate', 'Shared Thermal runtime marker missing')
+  assert(mounted.sharedThermal === 'shared-thermal-dual-mode-runtime-v2-candidate', 'Shared Thermal runtime marker missing')
   assert(mounted.profileId === 'thermal-baseline-a', 'Active Thermal Profile id missing')
   assert(mounted.momentumBand === 'NO AXIS', 'Initial Momentum band marker missing')
   assert(mounted.heading, 'Gameplay v1 heading missing')
