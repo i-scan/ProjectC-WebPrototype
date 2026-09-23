@@ -242,7 +242,15 @@ export function GameplayLab() {
   const previewPlan = fullPreviewPlan ?? lightPreviewPlan
   const shownPlan = playback ?? fullPreviewPlan
   const previewThermalEvents = shownPlan?.sourceThermalEvents ?? []
-  const previewSourceImpulse = previewThermalEvents.reduce((sum, entry) => sum + entry.impulse, 0)
+  const previewSourceImpulse = previewThermalEvents
+    .filter((entry) => entry.type === 'ThermalImpulse')
+    .reduce((sum, entry) => sum + (entry.impulse ?? 0), 0)
+  const previewDriveRate = previewThermalEvents
+    .filter((entry) => entry.type === 'ThermalDriveStart')
+    .reduce((sum, entry) => sum + (entry.driveRate ?? 0), 0)
+  const previewDeposit = previewThermalEvents
+    .filter((entry) => entry.type === 'ThermalDeposit')
+    .reduce((sum, entry) => sum + (entry.deposit ?? 0), 0)
   const previewThermal = { finalState: shownPlan?.finalState?.thermal ?? thermal }
   const previewDomain = { actor: shownPlan?.finalState?.player ?? player, trace: shownPlan?.domainTrace ?? [] }
   const previewResolution = shownPlan ? { valid: shownPlan.valid, reason: shownPlan.reason,
@@ -252,6 +260,8 @@ export function GameplayLab() {
   const displayPlayer = visual?.player.actor ?? player
   const displayEnemies = visual ? enemies.map((actor) => visual.actors[actor.id].actor) : enemies
   const displayConfig = playback?.config ?? thermalConfig
+  const displayDynamicsMode = playback?.thermalDynamicsMode ?? dynamicsMode
+  const displayInertialConfig = playback?.thermalInertialConfig ?? inertialConfig
   const playerSpatial = useMemo(() => gameplayActorToTrajectoryState(player, worldAt), [player, worldAt])
   const boardActors = useMemo(() => enemies.filter((entry) => entry.hp > 0).map(actorBoardRecord), [enemies])
   const axisDisplayOverride = isDownSide(displayPlayer) ? `down-${displayPlayer.downM}` : 'auto'
