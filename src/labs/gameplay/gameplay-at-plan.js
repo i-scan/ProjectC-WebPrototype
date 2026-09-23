@@ -577,7 +577,14 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     const terminalLoss = stops.reduce((sum, entry) => sum + (entry.amount ?? 0), 0)
     const contactLoss = Math.max(0, forced.dissipatedM - terminalLoss)
     const next = actors.get(target.id)
-    if (amount > 0 || forced.gainedIncomingH > 0 || forced.dissipatedM > 0) cancelled.add(target.id)
+    const pathStates = forced.pathStates?.length
+      ? forced.pathStates
+      : forced.path.map((hex) => ({ hex, ...momentumFields(forced.actor) }))
+    const forcedDriveEndT = pathStates.length ? 0.94 : t
+    if (amount > 0 || forced.gainedIncomingH > 0 || forced.dissipatedM > 0) {
+      cancelled.add(target.id)
+      endThermalDrives(target.id, t)
+    }
     for (let index = queue.length - 1; index >= 0; index -= 1) {
       if (queue[index].actorId === target.id && ['forced', 'terminal-stop'].includes(queue[index].kind)) queue.splice(index, 1)
     }
@@ -598,7 +605,7 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     if (forced.trace.some((entry) => entry.cause === 'Down M resistance')) {
       emit('DownResistance', t, { actorId: target.id, hex: target.hex, trace: forced.trace })
     }
-    addThermal(forced.thermal, t, source.id, target.id)
+    addThermal(forced.thermal, t, source.id, target.id, forcedDriveEndT)
     if (contactLoss > 0) addThermal([{ source: 'Collision dissipatedM', amount: contactLoss,
       polarity: 'hotward', factorKind: 'collision', scope: 'both' }], t, source.id, target.id)
     if (collisionDamage && contactLoss > 0) {
@@ -619,9 +626,6 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       })
     }
 
-    const pathStates = forced.pathStates?.length
-      ? forced.pathStates
-      : forced.path.map((hex) => ({ hex, ...momentumFields(forced.actor) }))
     let firstMoveAt = null
     let vacated = false
     if (pathStates.length) {
@@ -660,6 +664,7 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     if (step.kind === 'attack-check') { attacks(t); continue }
     if (step.kind === 'terminal-stop') {
       const actor = actors.get(id)
+      endThermalDrives(id, t)
       const blocker = step.stop.actorId ? actors.get(step.stop.actorId) : null
       emit(blocker ? 'DeferredEncounter' : 'Collision', t, { actorId: id, targetId: blocker?.id,
         hex: blocker?.hex ?? actor.hex, axisId: step.axisId, dissipatedM: step.stop.amount,
@@ -693,6 +698,7 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     const occupant = liveActors.find((other) => other.id !== id && other.hp > 0 && sameCell(other.hex, step.hex))
     if (occupant && ['forced', 'settle'].includes(step.kind)) {
       cancelled.add(id)
+      endThermalDrives(id, t)
       for (let index = queue.length - 1; index >= 0; index -= 1) {
         if (queue[index].actorId === id) queue.splice(index, 1)
       }
@@ -728,6 +734,8 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       cancelled.add(competing.actorId)
 
       if (aPower === bPower) {
+        endThermalDrives(id, t)
+        endThermalDrives(competing.actorId, t)
         if (aPower > 0) {
           actor.hM = 0
           competingActor.hM = 0
@@ -764,6 +772,7 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
       const loserPower = Math.min(aPower, bPower)
       const winnerTargetHex = winnerIsCurrent ? step.hex : competing.hex
       const winnerAxis = directionIdBetween(winner.hex, winnerTargetHex) ?? winner.axisId
+      endThermalDrives(winnerId, t)
 
       emit('Encounter', t, {
         kind: edgeSwap ? 'EdgeCrossing' : 'SimultaneousClaim',
@@ -799,6 +808,7 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     if (occupant) {
       attacks(t)
       cancelled.add(id)
+      endThermalDrives(id, t)
       const impactM = Math.max(0, actor.hM)
       const impactAxis = directionIdBetween(actor.hex, step.hex) ?? actor.axisId
       emit('Encounter', t, { kind: 'Collision', actorId: id, targetId: occupant.id, hex: step.hex,
