@@ -1,20 +1,27 @@
-export const THERMAL_PROFILE_SCHEMA_VERSION = 1
-export const THERMAL_PROFILE_STORAGE_KEY = 'projectc.thermal-profile.draft.v1'
+export const THERMAL_PROFILE_SCHEMA_VERSION = 2
+export const THERMAL_PROFILE_STORAGE_KEY = 'projectc.thermal-profile.draft.v2'
+export const THERMAL_PROFILE_LEGACY_STORAGE_KEY = 'projectc.thermal-profile.draft.v1'
 
 const ACTION_ORDER = ['heat-i', 'heat-ii', 'heat-iii', 'cool-i', 'cool-ii', 'cool-iii', 'skip']
+const DYNAMICS_MODES = new Set(['oscillator', 'inertial'])
 
 export const BASELINE_THERMAL_PROFILE = Object.freeze({
   schemaVersion: THERMAL_PROFILE_SCHEMA_VERSION,
   id: 'thermal-baseline-a',
   label: 'Thermal Baseline A',
   revision: 1,
-  solverVersion: 'piecewise-analytic-second-order-v1',
+  solverVersion: 'thermal-dual-mode-v1',
+  dynamicsMode: 'oscillator',
   dynamics: Object.freeze({
     restoringK: 0.25,
     baseDamping: 0.25,
     environmentDampingGain: 1,
     clampMin: -6,
     clampMax: 6,
+  }),
+  inertial: Object.freeze({
+    driftHalfLifeAt: 1,
+    recoveryHalfLifeAt: 3,
   }),
   actorDefaults: Object.freeze({
     temperature: 1,
@@ -55,18 +62,24 @@ export function normalizeThermalProfile(input = BASELINE_THERMAL_PROFILE) {
   const profile = cloneThermalProfile(input)
   const min = numberOr(profile.dynamics?.clampMin, baseline.dynamics.clampMin)
   const max = numberOr(profile.dynamics?.clampMax, baseline.dynamics.clampMax)
+  const dynamicsMode = DYNAMICS_MODES.has(profile.dynamicsMode) ? profile.dynamicsMode : baseline.dynamicsMode
   return {
     schemaVersion: THERMAL_PROFILE_SCHEMA_VERSION,
     id: String(profile.id || baseline.id),
     label: String(profile.label || baseline.label),
     revision: Math.max(1, Math.round(numberOr(profile.revision, baseline.revision))),
     solverVersion: String(profile.solverVersion || baseline.solverVersion),
+    dynamicsMode,
     dynamics: {
       restoringK: Math.max(0, numberOr(profile.dynamics?.restoringK, baseline.dynamics.restoringK)),
       baseDamping: Math.max(0, numberOr(profile.dynamics?.baseDamping, baseline.dynamics.baseDamping)),
       environmentDampingGain: Math.max(0, numberOr(profile.dynamics?.environmentDampingGain, baseline.dynamics.environmentDampingGain)),
       clampMin: Math.min(min, max - 0.001),
       clampMax: Math.max(max, min + 0.001),
+    },
+    inertial: {
+      driftHalfLifeAt: Math.max(0.05, numberOr(profile.inertial?.driftHalfLifeAt, baseline.inertial.driftHalfLifeAt)),
+      recoveryHalfLifeAt: Math.max(0.05, numberOr(profile.inertial?.recoveryHalfLifeAt, baseline.inertial.recoveryHalfLifeAt)),
     },
     actorDefaults: {
       temperature: numberOr(profile.actorDefaults?.temperature, baseline.actorDefaults.temperature),
@@ -81,6 +94,14 @@ export function normalizeThermalProfile(input = BASELINE_THERMAL_PROFILE) {
     actions: cloneThermalProfile(profile.actions || baseline.actions),
     environments: cloneThermalProfile(profile.environments || baseline.environments),
   }
+}
+
+export function thermalDynamicsMode(profile = BASELINE_THERMAL_PROFILE) {
+  return normalizeThermalProfile(profile).dynamicsMode
+}
+
+export function thermalInertialConfigFromProfile(profile = BASELINE_THERMAL_PROFILE) {
+  return { ...normalizeThermalProfile(profile).inertial }
 }
 
 export function thermalActionList(profile = BASELINE_THERMAL_PROFILE) {
@@ -128,15 +149,25 @@ export function resolveThermalAction(profile = BASELINE_THERMAL_PROFILE, actionI
   }
 }
 
-export function withThermalTuning(profile, { config, impulses } = {}) {
+export function withThermalTuning(profile, {
+  config,
+  impulses,
+  dynamicsMode,
+  inertialConfig,
+} = {}) {
   const normalized = normalizeThermalProfile(profile)
   const next = cloneThermalProfile(normalized)
+  if (dynamicsMode && DYNAMICS_MODES.has(dynamicsMode)) next.dynamicsMode = dynamicsMode
   if (config) {
     next.dynamics.restoringK = Math.max(0, numberOr(config.restoringK, next.dynamics.restoringK))
     next.dynamics.baseDamping = Math.max(0, numberOr(config.baseDamping, next.dynamics.baseDamping))
     next.dynamics.environmentDampingGain = Math.max(0, numberOr(config.environmentDampingGain, next.dynamics.environmentDampingGain))
     next.dynamics.clampMin = numberOr(config.clampMin, next.dynamics.clampMin)
     next.dynamics.clampMax = numberOr(config.clampMax, next.dynamics.clampMax)
+  }
+  if (inertialConfig) {
+    next.inertial.driftHalfLifeAt = Math.max(0.05, numberOr(inertialConfig.driftHalfLifeAt, next.inertial.driftHalfLifeAt))
+    next.inertial.recoveryHalfLifeAt = Math.max(0.05, numberOr(inertialConfig.recoveryHalfLifeAt, next.inertial.recoveryHalfLifeAt))
   }
   if (impulses) {
     next.impulseTiers.small = Math.max(0, numberOr(impulses.small, next.impulseTiers.small))
