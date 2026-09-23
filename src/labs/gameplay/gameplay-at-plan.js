@@ -202,6 +202,7 @@ function buildTrajectoryContactGameplayPlan({
 
   const events = []
   const sourceThermalEvents = []
+  const driveStopsByActor = new Map()
   const emit = (type, t, detail = {}) => {
     const event = { id: `event-${events.length}`, type, t, worldAt: worldAt + t, ...detail }
     events.push(event)
@@ -469,12 +470,35 @@ export function buildGameplayATPlan({ player, enemies = [], thermal, profile,
     tracks[id].push({ t, ...actorSpatialState(actor, worldAt + t), actor: clone(actor),
       ...(position ? { position } : {}) })
   }
-  const addThermal = (raw, t, sourceId, targetId) => {
+  const registerDriveStop = (actorId, stopEvent) => {
+    const list = driveStopsByActor.get(actorId) ?? []
+    list.push(stopEvent)
+    driveStopsByActor.set(actorId, list)
+  }
+  const endThermalDrives = (actorId, t) => {
+    for (const stop of driveStopsByActor.get(actorId) ?? []) {
+      if (stop.t > t) {
+        stop.t = t
+        stop.worldAt = worldAt + t
+      }
+    }
+  }
+  const addThermal = (raw, t, sourceId, targetId, driveEndT = 1) => {
     for (const entry of resolveThermalEvents(raw, { momentumFactor, collisionHeatFactor })) {
       const ids = entry.scope === 'both' ? [sourceId, targetId] : [entry.scope === 'target' ? targetId : sourceId]
       for (const actorId of ids.filter(Boolean)) {
-        const event = emit('ThermalImpulse', t, { ...entry, actorId })
-        if (actorId === player.id) sourceThermalEvents.push(event)
+        emitResolvedThermalEffect({
+          emit,
+          sourceThermalEvents,
+          entry,
+          actorId,
+          playerId: player.id,
+          dynamicsMode,
+          worldAt,
+          t,
+          driveEndT,
+          registerDriveStop,
+        })
       }
     }
   }
