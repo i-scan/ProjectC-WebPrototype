@@ -172,8 +172,74 @@ try {
   assert(closeState(legacyAgain.state, numericBeforeSwitch), 'Mode switch must preserve numeric T/D/S')
   assert(legacyAgain.state.worldAt === numericBeforeSwitch.worldAt, 'Mode switch advanced worldAt')
 
+  // Shared-profile integration: publish Inertial from Thermal Clock, then enter
+  // Gameplay in the same app session. Gameplay must consume the exact mode and
+  // HD / HR values rather than reconstructing another thermal model.
+  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setMode('inertial')")
+  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setInertialConfig({driftHalfLifeAt:0.75,recoveryHalfLifeAt:2.5})")
+  const publishable = await until('publishable Inertial profile', async () => {
+    const state = await snapshot()
+    return state?.dynamicsMode === 'inertial'
+      && Math.abs(state.inertialConfig.driftHalfLifeAt - 0.75) < 1e-9
+      && Math.abs(state.inertialConfig.recoveryHalfLifeAt - 2.5) < 1e-9
+      ? state : false
+  })
+  assert(await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.applyLive()"), 'Thermal Clock Apply Live rejected Inertial mode')
+  const published = await until('Inertial Live profile', async () => {
+    const state = await snapshot()
+    return state?.liveProfile?.dynamicsMode === 'inertial'
+      && Math.abs(state.liveProfile.inertial.driftHalfLifeAt - 0.75) < 1e-9
+      && state
+  })
+  assert(published.liveProfile.revision > initial.liveProfile.revision, 'Apply Live did not advance shared profile revision')
+
+  await client.evaluate("window.location.hash='#gameplay-lab'")
+  const gameplaySnapshot = () => client.evaluate('window.__PROJECTC_GAMEPLAY_LAB__?.snapshot()')
+  const gameplay = await until('Gameplay consumed Inertial Live profile', async () => {
+    const state = await gameplaySnapshot()
+    return state?.dynamicsMode === 'inertial'
+      && state?.thermalAuthority === 'piecewise-analytic-inertial-relaxation-v1'
+      && Math.abs(state.inertialConfig.driftHalfLifeAt - 0.75) < 1e-9
+      && Math.abs(state.inertialConfig.recoveryHalfLifeAt - 2.5) < 1e-9
+      ? state : false
+  })
+
+  assert(await client.evaluate("window.__PROJECTC_GAMEPLAY_LAB__.playAction('brace')"), 'Gameplay Inertial Brace could not start')
+  const gameplayDrive = await until('Gameplay Thermal Drive playback', async () => {
+    const state = await gameplaySnapshot()
+    return !state?.ready
+      && state.events.some((event) => event.type === 'ThermalDriveStart' && event.source === 'Active D Build')
+      && state.events.some((event) => event.type === 'ThermalDriveEnd' && event.source === 'Active D Build')
+      ? state : false
+  })
+  const gameplayDriveEnd = await until('Gameplay Inertial Brace Ready', async () => {
+    const state = await gameplaySnapshot()
+    return state?.ready && state.worldAt === gameplay.worldAt + 1 ? state : false
+  })
+  assert(gameplayDriveEnd.thermal.drift < gameplay.thermal.drift, 'Gameplay Inertial Brace did not create Coldward residual Drift')
+
+  assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.loadDebugScenario(${JSON.stringify({
+    player: { id: 'player', hex: { q: 0, r: 0 }, hp: 100, downM: 2, downPrepared: true },
+    enemies: [{ id: 'enemy-a', hex: { q: 1, r: 0 }, hp: 40, downM: 1, downPrepared: true, intent: 'skip', intentIndex: 0 }],
+    thermal: { temperature: 1, drift: 0, setPoint: 1, worldAt: 0 },
+    worldAt: 0,
+    selectedActionId: 'release',
+  })})`), 'Gameplay Deposit fixture rejected')
+  await until('Gameplay Deposit fixture', async () => {
+    const state = await gameplaySnapshot()
+    return state?.ready && state.worldAt === 0 && state.player.downM === 2 ? state : false
+  })
+  assert(await client.evaluate("window.__PROJECTC_GAMEPLAY_LAB__.playAction('release',{q:1,r:0})"), 'Gameplay Inertial Release could not start')
+  const gameplayDeposit = await until('Gameplay Collision Deposit', async () => {
+    const state = await gameplaySnapshot()
+    return !state?.ready
+      && state.events.some((event) => event.type === 'ThermalDeposit' && event.source === 'Collision dissipatedM')
+      ? state : false
+  })
+  assert(gameplayDeposit.events.some((event) => event.type === 'ThermalDriveStart' && event.source === 'Active D Spend / Convert'), 'Release D Spend did not create Inertial Drive')
+
   assert(client.errors.length === 0, `Browser runtime exceptions: ${JSON.stringify(client.errors)}`)
-  console.log('Thermal dual-mode browser regression passed: mode A/B, 1AT Drive, mid-AT interrupt, Deposit semantics, and Preview==Commit.')
+  console.log('Thermal dual-mode browser regression passed: local A/B, shared Inertial Apply Live → Gameplay, Drive/Deposit semantics, and Preview==Commit.')
 } finally {
   if (browser && browser.exitCode === null) browser.kill()
   if (server && server.exitCode === null) server.kill()
