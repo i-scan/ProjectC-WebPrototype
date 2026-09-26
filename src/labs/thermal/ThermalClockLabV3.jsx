@@ -74,6 +74,17 @@ const DYNAMICS_MODES = Object.freeze([
   { id: 'oscillator', label: 'Oscillator · Legacy' },
   { id: 'inertial', label: 'Inertial Relaxation · Candidate' },
 ])
+const IMPACT_SLOT_OPTIONS = Object.freeze([3, 4, 5, 10])
+const DEFAULT_IMPACT_TIERS = Object.freeze({ small: 0.5, medium: 1, large: 1.5 })
+const IMPACT_EVENTS = Object.freeze([
+  { id: 'cold-iii', label: 'Cold Impact III', sign: -1, size: 'large' },
+  { id: 'cold-ii', label: 'Cold Impact II', sign: -1, size: 'medium' },
+  { id: 'cold-i', label: 'Cold Impact I', sign: -1, size: 'small' },
+  { id: 'none', label: 'No Impact', sign: 0, size: 'small' },
+  { id: 'hot-i', label: 'Hot Impact I', sign: 1, size: 'small' },
+  { id: 'hot-ii', label: 'Hot Impact II', sign: 1, size: 'medium' },
+  { id: 'hot-iii', label: 'Hot Impact III', sign: 1, size: 'large' },
+])
 
 function formatNumber(value, digits = 3) {
   if (!Number.isFinite(value)) return '—'
@@ -222,7 +233,7 @@ export function ThermalPendulum({ state, config, previousState, diagnostics: pro
   )
 }
 
-function ThermalDiagram({ state, history, selectedFuture, skipFuture, futureGhosts, diagnostics, pastWindow, futureWindow, actionLabel, resolving, yMin, yMax }) {
+function ThermalDiagram({ state, history, selectedFuture, skipFuture, futureGhosts, diagnostics, pastWindow, futureWindow, actionLabel, resolving, yMin, yMax, impactAbsoluteAt = null, impactImpulse = 0 }) {
   const minAt = state.worldAt - pastWindow
   const maxAt = state.worldAt + futureWindow
   const historySamples = history.flatMap((entry) => entry.samples ?? []).filter((sample) => sample.at >= minAt - 1e-6 && sample.at <= state.worldAt + 1e-6)
@@ -242,6 +253,9 @@ function ThermalDiagram({ state, history, selectedFuture, skipFuture, futureGhos
   for (let tick = Math.ceil(minAt); tick <= Math.floor(maxAt); tick += 1) xTicks.push(tick)
   const yTicks = Array.from({ length: 5 }, (_, index) => minT + (maxT - minT) * (index / 4))
   const nowX = xFor(state.worldAt)
+  const impactX = Number.isFinite(impactAbsoluteAt) && impactAbsoluteAt >= minAt - 1e-6 && impactAbsoluteAt <= maxAt + 1e-6
+    ? xFor(impactAbsoluteAt)
+    : null
   const setPointY = yFor(state.setPoint)
   const teqY = Number.isFinite(diagnostics.equilibriumTemperature) ? yFor(diagnostics.equilibriumTemperature) : null
 
@@ -262,6 +276,7 @@ function ThermalDiagram({ state, history, selectedFuture, skipFuture, futureGhos
           {historySamples.length > 1 && <polyline className="thermal-timeline__history" points={pointsFor(historySamples)} />}
           {!resolving && skipFuture.length > 1 && <polyline className="thermal-timeline__skip" points={pointsFor(skipFuture)} />}
           {selectedFuture.length > 1 && <polyline className="thermal-timeline__future" points={pointsFor(selectedFuture)} />}
+          {impactX !== null && <line className="thermal-timeline__impact" data-thermal-impact-marker x1={impactX} x2={impactX} y1={pad.top} y2={height - pad.bottom} />}
           <line className="thermal-timeline__now" x1={nowX} x2={nowX} y1={pad.top} y2={height - pad.bottom} />
           <circle className="thermal-timeline__current" cx={nowX} cy={yFor(state.temperature)} r="5" />
           {historicalIntegerPoints.map((sample) => <circle key={`past-${sample.worldAt}`} className="thermal-timeline__history-marker" cx={xFor(sample.worldAt)} cy={yFor(sample.temperature)} r="3.2" />)}
@@ -269,6 +284,7 @@ function ThermalDiagram({ state, history, selectedFuture, skipFuture, futureGhos
         </g>
         {setPointY >= pad.top && setPointY <= height - pad.bottom && <text className="thermal-timeline__setpoint-label" x={width - pad.right - 4} y={setPointY - 5} textAnchor="end">S {formatThermal(state.setPoint, 1)}</text>}
         {teqY !== null && teqY >= pad.top && teqY <= height - pad.bottom && Math.abs((diagnostics.equilibriumTemperature ?? state.setPoint) - state.setPoint) > 0.01 && <text className="thermal-timeline__teq-label" x={pad.left + 5} y={teqY - 5}>Teq {formatThermal(diagnostics.equilibriumTemperature, 1)}</text>}
+        {impactX !== null && <text className="thermal-timeline__impact-label" x={impactX + 4} y={pad.top + 23}>IMPACT {impactImpulse >= 0 ? '+' : ''}{formatThermal(impactImpulse, 2)}</text>}
         <text className="thermal-timeline__now-label" x={nowX + 5} y={pad.top + 12}>NOW</text>
       </svg>
       <div className="thermal-timeline__legend">
@@ -314,8 +330,10 @@ export function ThermalClockLab() {
   const [dynamicsMode, setDynamicsMode] = useState(() => thermalDynamicsMode(getActiveThermalProfile()))
   const [inertialConfig, setInertialConfig] = useState(() => thermalInertialConfigFromProfile(getActiveThermalProfile()))
   const [driveDurationAt, setDriveDurationAt] = useState(1)
-  const [depositAt, setDepositAt] = useState(0.5)
-  const [deposit, setDeposit] = useState(0)
+  const [selectedImpact, setSelectedImpact] = useState('none')
+  const [impactSlotsPerAt, setImpactSlotsPerAt] = useState(4)
+  const [impactAt, setImpactAt] = useState(0.5)
+  const [impactTiers, setImpactTiers] = useState(() => ({ ...DEFAULT_IMPACT_TIERS }))
   const [previewHorizon, setPreviewHorizon] = useState(12)
   const [pastWindow, setPastWindow] = useState(8)
   const [diagramYMin, setDiagramYMin] = useState(DEFAULT_DIAGRAM_Y.min)
@@ -328,14 +346,17 @@ export function ThermalClockLab() {
 
   const inertialMode = dynamicsMode === 'inertial'
   const selectedDriveRate = inertialActionDriveRate(selectedAction, impulses)
+  const impactEvent = IMPACT_EVENTS.find((entry) => entry.id === selectedImpact) ?? IMPACT_EVENTS.find((entry) => entry.id === 'none')
+  const impactImpulse = impactEvent.sign === 0 ? 0 : impactEvent.sign * Math.abs(impactTiers[impactEvent.size] ?? 0)
+  const impactTimes = useMemo(() => Array.from({ length: impactSlotsPerAt + 1 }, (_, index) => index / impactSlotsPerAt), [impactSlotsPerAt])
   const selectedInertialPlan = useMemo(() => inertialMode ? buildInertialActionPlan({
     state, thermalConfig: config, inertialConfig, actionId: selectedAction, strengths: impulses,
-    durationAt: 1, horizonAt: previewHorizon, driveDurationAt, depositAt, deposit,
-  }) : null, [inertialMode, state, config, inertialConfig, selectedAction, impulses, previewHorizon, driveDurationAt, depositAt, deposit])
+    durationAt: 1, horizonAt: previewHorizon, driveDurationAt, impactAt, impactImpulse,
+  }) : null, [inertialMode, state, config, inertialConfig, selectedAction, impulses, previewHorizon, driveDurationAt, impactAt, impactImpulse])
   const skipInertialPlan = useMemo(() => inertialMode ? buildInertialActionPlan({
     state, thermalConfig: config, inertialConfig, actionId: 'skip', strengths: impulses,
-    durationAt: 1, horizonAt: previewHorizon, driveDurationAt: 0, deposit: 0,
-  }) : null, [inertialMode, state, config, inertialConfig, impulses, previewHorizon])
+    durationAt: 1, horizonAt: previewHorizon, driveDurationAt: 0, impactAt, impactImpulse,
+  }) : null, [inertialMode, state, config, inertialConfig, impulses, previewHorizon, impactAt, impactImpulse])
   const diagnostics = useMemo(() => inertialMode
     ? inertialDiagnostics(state, config, inertialConfig, selectedDriveRate)
     : thermalDiagnostics(state, config),
@@ -441,7 +462,7 @@ export function ThermalClockLab() {
     setInertialConfig(thermalInertialConfigFromProfile(liveProfile))
     setImpulses(thermalImpulsesFromProfile(liveProfile))
     setSelectedAction('heat-ii'); setPreviewHorizon(12); setPastWindow(8)
-    setDriveDurationAt(1); setDepositAt(0.5); setDeposit(0)
+    setDriveDurationAt(1); setSelectedImpact('none'); setImpactSlotsPerAt(4); setImpactAt(0.5); setImpactTiers({ ...DEFAULT_IMPACT_TIERS })
     setDiagramYMin(DEFAULT_DIAGRAM_Y.min); setDiagramYMax(DEFAULT_DIAGRAM_Y.max)
     setPlaybackSpeed(1); setHistory([])
     setLastEvent(`Lab reset from live ${liveProfile.label} r${liveProfile.revision}; worldAt = 0.`)
@@ -460,12 +481,12 @@ export function ThermalClockLab() {
     if (inertialMode) {
       const inertialPlan = buildInertialActionPlan({
         state: source, thermalConfig: configSnapshot, inertialConfig, actionId: selectedAction, strengths: impulses,
-        durationAt: 1, horizonAt: 1, driveDurationAt, depositAt, deposit, samplesPerAt: 40,
+        durationAt: 1, horizonAt: 1, driveDurationAt, impactAt, impactImpulse, samplesPerAt: 40,
       })
-      setHistory((entries) => [...entries, { state: source, finalState: inertialPlan.finalState, samples: inertialPlan.path, actionId: selectedAction, dynamicsMode, driveRate: inertialPlan.driveRate, deposit }].slice(-60))
+      setHistory((entries) => [...entries, { state: source, finalState: inertialPlan.finalState, samples: inertialPlan.path, actionId: selectedAction, dynamicsMode, driveRate: inertialPlan.driveRate, impactAt, impactImpulse }].slice(-60))
       setPlayback(playbackFromPlan({ source, config: configSnapshot, dynamicsMode, inertialConfig: { ...inertialConfig }, inertialPlan, actionId: selectedAction, finalState: inertialPlan.finalState }, playbackIdRef.current++, 650 / Math.max(0.25, playbackSpeed)))
-      const depositCopy = Math.abs(deposit) > 1e-7 ? ` · Deposit ${formatThermal(deposit, 2)} @ ${depositAt.toFixed(2)}AT` : ''
-      setLastEvent(`${action?.label ?? selectedAction} committed · Drive ${formatThermal(inertialPlan.driveRate, 2)} · ${driveDurationAt.toFixed(2)}AT${depositCopy}.`)
+      const impactCopy = Math.abs(impactImpulse) > 1e-7 ? ` · Impact D ${impactImpulse >= 0 ? '+=' : '-='} ${formatThermal(Math.abs(impactImpulse), 2)} @ ${impactAt.toFixed(2)}AT` : ''
+      setLastEvent(`${action?.label ?? selectedAction} committed · Drive ${formatThermal(inertialPlan.driveRate, 2)} · ${driveDurationAt.toFixed(2)}AT${impactCopy}.`)
       return
     }
 
@@ -510,7 +531,8 @@ export function ThermalClockLab() {
         previewRule: THERMAL_CLOCK_PREVIEW_RULE,
         ghostRule: THERMAL_CLOCK_GHOST_RULE,
         state: copyState(state), visualState: copyState(visualState), config: copyConfig(config),
-        inertialConfig: { ...inertialConfig }, driveDurationAt, depositAt, deposit, selectedDriveRate,
+        inertialConfig: { ...inertialConfig }, driveDurationAt, selectedDriveRate,
+        selectedImpact, impactSlotsPerAt, impactAt, impactImpulse, impactTiers: { ...impactTiers },
         impulses: copyImpulses(impulses), selectedAction, previewHorizon, pastWindow,
         diagramY: { min: diagramYMin, max: diagramYMax },
         liveProfile: { id: liveProfile.id, revision: liveProfile.revision, dynamicsMode: liveProfile.dynamicsMode, inertial: { ...liveProfile.inertial } },
@@ -536,7 +558,24 @@ export function ThermalClockLab() {
         return true
       },
       setDriveDurationAt: (value) => { if (playback) return false; setDriveDurationAt(clamp(Number(value), 0, 1)); return true },
-      setDeposit: (amount, at = depositAt) => { if (playback) return false; setDeposit(Number(amount) || 0); setDepositAt(clamp(Number(at) || 0, 0, 1)); return true },
+      setImpactEvent: (impactId) => {
+        if (playback || !IMPACT_EVENTS.some((entry) => entry.id === impactId)) return false
+        setSelectedImpact(impactId)
+        return true
+      },
+      setImpactSlotsPerAt: (value) => {
+        if (playback || !IMPACT_SLOT_OPTIONS.includes(Number(value))) return false
+        const nextSlots = Number(value)
+        setImpactSlotsPerAt(nextSlots)
+        setImpactAt((current) => Math.round(current * nextSlots) / nextSlots)
+        return true
+      },
+      setImpactAt: (value) => {
+        if (playback) return false
+        const raw = clamp(Number(value) || 0, 0, 1)
+        setImpactAt(Math.round(raw * impactSlotsPerAt) / impactSlotsPerAt)
+        return true
+      },
     }
     return () => { delete window.__PROJECTC_THERMAL_CLOCK__ }
   })
@@ -572,14 +611,31 @@ export function ThermalClockLab() {
 
         <section className="thermal-center">
           <div className={`thermal-status ${playback ? 'is-resolving' : 'is-ready'}`}><strong>{playback ? 'ACTION IN FLIGHT · DIAGRAM UPDATES FROM LIVE NOW' : 'READY · SELECT → FORECAST → COMMIT'}</strong><span>{lastEvent}</span></div>
-          <ThermalDiagram state={visualState} history={history} selectedFuture={selectedFuture} skipFuture={skipFuture} futureGhosts={futureGhosts} diagnostics={diagramDiagnostics} pastWindow={pastWindow} futureWindow={previewHorizon} actionLabel={action?.label ?? selectedAction} resolving={Boolean(playback)} yMin={diagramYMin} yMax={diagramYMax} />
+          <ThermalDiagram state={visualState} history={history} selectedFuture={selectedFuture} skipFuture={skipFuture} futureGhosts={futureGhosts} diagnostics={diagramDiagnostics} pastWindow={pastWindow} futureWindow={previewHorizon} actionLabel={action?.label ?? selectedAction} resolving={Boolean(playback)} yMin={diagramYMin} yMax={diagramYMax} impactAbsoluteAt={inertialMode && selectedImpact !== 'none' ? (playback?.source?.worldAt ?? state.worldAt) + impactAt : null} impactImpulse={impactImpulse} />
           <section className="thermal-board-reserved thermal-board-reserved--compact" data-thermal-board-reserved="true"><div className="thermal-board-reserved__grid" /><div><p>RESERVED BOARD</p><h2>Future Trajectory Integration</h2><span>Thermal Dynamics remains isolated while the diagram and pendulum are evaluated.</span></div></section>
-          <section className="thermal-action-hand"><div className="thermal-hand-heading"><div><h2>Thermal Actions</h2><p>{inertialMode ? 'Heat / Cool sustain Drive during this 1AT action. Skip = Drive 0. Apply Live publishes this Inertial profile to Gameplay.' : 'Selected card applies one Drift impulse now; Apply Live publishes tuned Legacy Dynamics / impulse tiers to Gameplay Lab.'}</p></div><button type="button" className="thermal-commit" data-thermal-commit disabled={Boolean(playback)} onClick={commit}>Commit 1AT</button></div><div className="thermal-action-row">{THERMAL_ACTIONS.map((entry) => <button type="button" key={entry.id} data-thermal-card={entry.id} className={`thermal-action-card ${entry.id === selectedAction ? 'selected' : ''} ${entry.sign > 0 ? 'heat' : entry.sign < 0 ? 'cool' : 'skip'}`} disabled={Boolean(playback)} onClick={() => { setSelectedAction(entry.id); setLastEvent(`${entry.label} selected. Thermal Diagram updated; worldAt has not advanced.`) }}><header><strong>{entry.label}</strong><em>1AT</em></header><span>{inertialMode ? (entry.sign === 0 ? 'Drive 0' : `Drive ${formatThermal(inertialActionDriveRate(entry.id, impulses), 2)} / AT²`) : (entry.sign === 0 ? 'Impulse 0' : `V ${entry.sign > 0 ? '+=' : '-='} ${formatNumber(Math.abs(actionImpulse(entry.id, impulses)), 2)}`)}</span></button>)}</div><div className="thermal-impulse-tuning" data-thermal-impulses>
+          <section className="thermal-action-hand"><div className="thermal-hand-heading"><div><h2>Thermal Actions</h2><p>{inertialMode ? 'Heat / Cool sustain Drive during this 1AT action. Skip = Drive 0. Impact Event below is independent and instantaneous.' : 'Selected card applies one Drift impulse now; Apply Live publishes tuned Legacy Dynamics / impulse tiers to Gameplay Lab.'}</p></div><button type="button" className="thermal-commit" data-thermal-commit disabled={Boolean(playback)} onClick={commit}>Commit 1AT</button></div><div className="thermal-action-row">{THERMAL_ACTIONS.map((entry) => <button type="button" key={entry.id} data-thermal-card={entry.id} className={`thermal-action-card ${entry.id === selectedAction ? 'selected' : ''} ${entry.sign > 0 ? 'heat' : entry.sign < 0 ? 'cool' : 'skip'}`} disabled={Boolean(playback)} onClick={() => { setSelectedAction(entry.id); setLastEvent(`${entry.label} selected. Thermal Diagram updated; worldAt has not advanced.`) }}><header><strong>{entry.label}</strong><em>1AT</em></header><span>{inertialMode ? (entry.sign === 0 ? 'Drive 0' : `Drive ${formatThermal(inertialActionDriveRate(entry.id, impulses), 2)} / AT²`) : (entry.sign === 0 ? 'Impulse 0' : `V ${entry.sign > 0 ? '+=' : '-='} ${formatNumber(Math.abs(actionImpulse(entry.id, impulses)), 2)}`)}</span></button>)}</div><div className="thermal-impulse-tuning" data-thermal-impulses>
   <RangeField label={inertialMode ? 'Small Drive' : 'Small impulse'} value={impulses.small} min={0} max={2.5} step={0.05} disabled={Boolean(playback)} onChange={(value) => setImpulses((current) => ({ ...current, small: value }))} />
   <RangeField label={inertialMode ? 'Medium Drive' : 'Medium impulse'} value={impulses.medium} min={0} max={3} step={0.05} disabled={Boolean(playback)} onChange={(value) => setImpulses((current) => ({ ...current, medium: value }))} />
   <RangeField label={inertialMode ? 'Large Drive' : 'Large impulse'} value={impulses.large} min={0} max={4} step={0.05} disabled={Boolean(playback)} onChange={(value) => setImpulses((current) => ({ ...current, large: value }))} />
-  {inertialMode && <div data-thermal-inertial-inputs="drive-deposit-v1"><RangeField label="Drive duration" value={driveDurationAt} min={0} max={1} step={0.05} disabled={Boolean(playback) || selectedAction === 'skip'} onChange={setDriveDurationAt} suffix="AT" /><RangeField label="Deposit ΔT" value={deposit} min={-4} max={4} step={0.1} disabled={Boolean(playback)} onChange={setDeposit} /><RangeField label="Deposit at" value={depositAt} min={0} max={1} step={0.05} disabled={Boolean(playback) || Math.abs(deposit) < 1e-7} onChange={setDepositAt} suffix="AT" /></div>}
-</div></section>
+  {inertialMode && <div data-thermal-inertial-inputs="drive-plus-impact-v2"><RangeField label="Drive duration" value={driveDurationAt} min={0} max={1} step={0.05} disabled={Boolean(playback) || selectedAction === 'skip'} onChange={setDriveDurationAt} suffix="AT" /></div>}
+</div>
+{inertialMode && <div className="thermal-impact-events" data-thermal-impact-events="instant-drift-impulse-slots-v1">
+  <div className="thermal-hand-heading"><div><h3>Impact Event</h3><p>External event inside this AT. Instant <code>D += ΔD</code>; Temperature stays continuous; Impact consumes no AT.</p></div><span>{impactSlotsPerAt} slots / AT · t={impactAt.toFixed(2)}</span></div>
+  <div className="thermal-action-row">{IMPACT_EVENTS.map((entry) => {
+    const amount = entry.sign === 0 ? 0 : entry.sign * Math.abs(impactTiers[entry.size] ?? 0)
+    return <button type="button" key={entry.id} data-thermal-impact-card={entry.id} className={`thermal-action-card ${entry.id === selectedImpact ? 'selected' : ''} ${entry.sign > 0 ? 'heat' : entry.sign < 0 ? 'cool' : 'skip'}`} disabled={Boolean(playback)} onClick={() => { setSelectedImpact(entry.id); setLastEvent(`${entry.label} selected at ${impactAt.toFixed(2)}AT. Preview recomputed without advancing world time.`) }}><header><strong>{entry.label}</strong><em>EVENT</em></header><span>{entry.sign === 0 ? 'No Drift change' : `D ${amount >= 0 ? '+=' : '-='} ${formatNumber(Math.abs(amount), 2)}`}</span></button>
+  })}</div>
+  <label className="thermal-choice-label">Temporal Slots / AT</label>
+  <div className="thermal-choice-row" data-thermal-impact-slots>{IMPACT_SLOT_OPTIONS.map((count) => <button type="button" key={count} className={impactSlotsPerAt === count ? 'selected' : ''} disabled={Boolean(playback)} onClick={() => { setImpactSlotsPerAt(count); setImpactAt((current) => Math.round(current * count) / count) }}>{count}</button>)}</div>
+  <label className="thermal-choice-label">Impact insertion time</label>
+  <div className="thermal-choice-row" data-thermal-impact-times>{impactTimes.map((at, index) => <button type="button" key={at} className={Math.abs(impactAt - at) < 1e-7 ? 'selected' : ''} disabled={Boolean(playback) || selectedImpact === 'none'} onClick={() => setImpactAt(at)}>{index === impactTimes.length - 1 ? 'READY EDGE' : `S${index}`} · {at.toFixed(2)}</button>)}</div>
+  <div className="thermal-impulse-tuning" data-thermal-impact-strengths>
+    <RangeField label="Impact I · small" value={impactTiers.small} min={0} max={2.5} step={0.05} disabled={Boolean(playback)} onChange={(value) => setImpactTiers((current) => ({ ...current, small: value }))} />
+    <RangeField label="Impact II · medium" value={impactTiers.medium} min={0} max={3} step={0.05} disabled={Boolean(playback)} onChange={(value) => setImpactTiers((current) => ({ ...current, medium: value }))} />
+    <RangeField label="Impact III · large" value={impactTiers.large} min={0} max={4} step={0.05} disabled={Boolean(playback)} onChange={(value) => setImpactTiers((current) => ({ ...current, large: value }))} />
+  </div>
+</div>}
+</section>
         </section>
 
         <aside className="thermal-panel thermal-right">
@@ -616,7 +672,7 @@ export function ThermalClockLab() {
   </>}</dl>
 </section>
 <section className="thermal-card" data-thermal-preview-controls><div className="thermal-section-heading"><h3>Diagram / Playback</h3><span>display only</span></div><label className="thermal-choice-label">Past history shown</label><div className="thermal-choice-row" role="group" aria-label="Past History Window" data-thermal-past-window>{PAST_WINDOWS.map((windowAt) => <button type="button" key={windowAt} className={pastWindow === windowAt ? 'selected' : ''} disabled={Boolean(playback)} onClick={() => setPastWindow(windowAt)}>{windowAt} AT</button>)}</div><label className="thermal-choice-label">Future forecast shown</label><div className="thermal-choice-row" role="group" aria-label="Preview Horizon" data-thermal-future-window>{THERMAL_PREVIEW_HORIZONS.map((horizon) => <button type="button" key={horizon} className={previewHorizon === horizon ? 'selected' : ''} disabled={Boolean(playback)} onClick={() => setPreviewHorizon(horizon)}>{horizon} AT</button>)}</div><div className="thermal-clamp-row" data-thermal-diagram-y-range="manual-v1"><RangeField label="Diagram Y Min" value={diagramYMin} min={-12} max={0} step={0.5} disabled={Boolean(playback)} onChange={(value) => setDiagramYMin(Math.min(value, diagramYMax - 0.5))} /><RangeField label="Diagram Y Max" value={diagramYMax} min={0} max={12} step={0.5} disabled={Boolean(playback)} onChange={(value) => setDiagramYMax(Math.max(value, diagramYMin + 0.5))} /></div><RangeField label="Playback speed" value={playbackSpeed} min={0.25} max={2.5} step={0.25} disabled={Boolean(playback)} onChange={setPlaybackSpeed} suffix="×" /><div className="thermal-session-buttons"><button type="button" disabled={Boolean(playback) || history.length === 0} onClick={undo}>Undo 1 step</button><button type="button" disabled={Boolean(playback)} onClick={reset}>Reset Lab</button></div></section>
-          {inertialMode ? <section className="thermal-card thermal-parameter-guide" data-thermal-parameter-guide="inertial-v1"><div className="thermal-section-heading"><h3>Parameter Guide</h3><span>Inertial Relaxation</span></div><div className="thermal-focus-groups"><article><b>Input Memory</b><span>Drift Half-Life controls how long prior Drive remains relevant.</span></article><article><b>Recovery</b><span>Recovery Half-Life controls return toward Set Point S.</span></article><article><b>Environment</b><span>Tenv + kE; legacy cEnvGain is ignored.</span></article></div><dl className="thermal-parameter-list"><div><dt>Drive</dt><dd>Heat / Cool sustain U(t) during the active part of this 1AT action.</dd></div><div><dt>Deposit</dt><dd>Instant ΔT at the chosen event time; Drift D is unchanged.</dd></div><div><dt>Apex</dt><dd>Net Thermal Rate = 0, not D = 0.</dd></div></dl><div className="thermal-period-help" data-thermal-inertial-guide="half-life-v1"><b>Non-periodic candidate</b><span>D' = −λD·D + U(t)</span><span>T' = D + kR(S−T) + kE(Tenv−T)</span></div></section> : <ParameterGuide diagnostics={diagnostics} config={config} />}
+          {inertialMode ? <section className="thermal-card thermal-parameter-guide" data-thermal-parameter-guide="inertial-v1"><div className="thermal-section-heading"><h3>Parameter Guide</h3><span>Inertial Relaxation</span></div><div className="thermal-focus-groups"><article><b>Input Memory</b><span>Drift Half-Life controls how long prior Drive / Impact remains relevant.</span></article><article><b>Recovery</b><span>Recovery Half-Life controls return toward Set Point S.</span></article><article><b>Environment</b><span>Tenv + kE; legacy cEnvGain is ignored.</span></article></div><dl className="thermal-parameter-list"><div><dt>Drive</dt><dd>Heat / Cool sustain U(t) during the active part of this 1AT action.</dd></div><div><dt>Impact</dt><dd>Instant Drift impulse at a selected temporal slot: D += ΔD. Temperature remains continuous.</dd></div><div><dt>Slots</dt><dd>Only event timing is discrete. Relaxation between slot boundaries remains analytic and continuous.</dd></div><div><dt>Apex</dt><dd>Net Thermal Rate = 0, not D = 0.</dd></div></dl><div className="thermal-period-help" data-thermal-inertial-guide="half-life-v1"><b>Non-periodic candidate</b><span>D' = −λD·D + U(t)</span><span>T' = D + kR(S−T) + kE(Tenv−T)</span></div></section> : <ParameterGuide diagnostics={diagnostics} config={config} />}
         </aside>
       </section>
     </main>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_INERTIAL_CONFIG,
   applyThermalDeposit,
+  applyThermalDriftImpulse,
   buildInertialActionPlan,
   inertialNetRate,
   sampleInertialActionPlan,
@@ -51,6 +52,50 @@ describe('Thermal Inertial Relaxation candidate',()=>{
     const full=buildInertialActionPlan({state:DEFAULT_THERMAL_STATE,thermalConfig:DEFAULT_THERMAL_CONFIG,actionId:'heat-ii',driveDurationAt:1})
     expect(half.finalState.temperature).toBeLessThan(full.finalState.temperature)
     expect(half.finalState.drift).toBeLessThan(full.finalState.drift)
+  })
+
+  it('Impact impulse changes Drift instantly without teleporting Temperature',()=>{
+    const state={...DEFAULT_THERMAL_STATE,temperature:0.5,drift:-0.7}
+    const impacted=applyThermalDriftImpulse(state,1.25)
+    expect(impacted.temperature).toBeCloseTo(0.5,8)
+    expect(impacted.drift).toBeCloseTo(0.55,8)
+  })
+
+  it('the same Impact is stronger in Ready Drift when inserted later',()=>{
+    const early=buildInertialActionPlan({
+      state:DEFAULT_THERMAL_STATE,
+      thermalConfig:DEFAULT_THERMAL_CONFIG,
+      actionId:'skip',
+      impactAt:0.25,
+      impactImpulse:1,
+    })
+    const late=buildInertialActionPlan({
+      state:DEFAULT_THERMAL_STATE,
+      thermalConfig:DEFAULT_THERMAL_CONFIG,
+      actionId:'skip',
+      impactAt:0.75,
+      impactImpulse:1,
+    })
+    expect(late.finalState.drift).toBeGreaterThan(early.finalState.drift)
+    expect(early.finalState.temperature).toBeGreaterThan(late.finalState.temperature)
+  })
+
+  it('Impact at 1AT is applied before the Ready sample',()=>{
+    const baseline=buildInertialActionPlan({
+      state:DEFAULT_THERMAL_STATE,
+      thermalConfig:DEFAULT_THERMAL_CONFIG,
+      actionId:'skip',
+      impactImpulse:0,
+    })
+    const edge=buildInertialActionPlan({
+      state:DEFAULT_THERMAL_STATE,
+      thermalConfig:DEFAULT_THERMAL_CONFIG,
+      actionId:'skip',
+      impactAt:1,
+      impactImpulse:1,
+    })
+    expect(edge.finalState.temperature).toBeCloseTo(baseline.finalState.temperature,8)
+    expect(edge.finalState.drift-baseline.finalState.drift).toBeCloseTo(1,8)
   })
 
   it('Deposit changes T instantly without changing D',()=>{

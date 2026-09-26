@@ -126,7 +126,7 @@ try {
   assert(Math.abs(inertial.inertialConfig.recoveryHalfLifeAt - 3) < 1e-9, 'Recovery Half-Life baseline must be 3AT')
 
   await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setAction('heat-ii')")
-  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setDeposit(0,0.5)")
+  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setImpactEvent('none')")
   await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setDriveDurationAt(1)")
   const fullDrive = await until('Full Drive preview', async () => {
     const state = await snapshot()
@@ -144,25 +144,30 @@ try {
   assert(halfDrive.predictedReady.drift < fullDrive.predictedReady.drift, '0.5AT Drive should leave less residual Drift than 1AT Drive')
 
   await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setAction('skip')")
-  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setDeposit(0,0.5)")
-  const noDeposit = await until('No Deposit preview', async () => {
+  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setImpactSlotsPerAt(4)")
+  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setImpactEvent('hot-ii')")
+  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setImpactAt(0.25)")
+  const earlyImpact = await until('Early Impact preview', async () => {
     const state = await snapshot()
-    return state?.selectedAction === 'skip' && Math.abs(state.deposit) < 1e-9 && state
+    return state?.selectedAction === 'skip'
+      && state.selectedImpact === 'hot-ii'
+      && Math.abs(state.impactAt - 0.25) < 1e-9
+      && state
   })
-  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setDeposit(1,0.5)")
-  const withDeposit = await until('Deposit preview', async () => {
+  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setImpactAt(0.75)")
+  const lateImpact = await until('Late Impact preview', async () => {
     const state = await snapshot()
-    return Math.abs(state?.deposit - 1) < 1e-9 && state
+    return Math.abs(state?.impactAt - 0.75) < 1e-9 && state
   })
-  assert(withDeposit.predictedReady.temperature > noDeposit.predictedReady.temperature, 'Deposit did not increase T')
-  assert(Math.abs(withDeposit.predictedReady.drift - noDeposit.predictedReady.drift) < 1e-7, 'Deposit must not modify Drift D')
+  assert(lateImpact.predictedReady.drift > earlyImpact.predictedReady.drift, 'Later identical Impact should leave stronger Ready Drift')
+  assert(earlyImpact.predictedReady.temperature > lateImpact.predictedReady.temperature, 'Earlier identical Impact should influence Temperature longer before Ready')
 
-  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setDeposit(0,0.5)")
+  await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setImpactEvent('none')")
   await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setAction('heat-ii')")
   await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.setDriveDurationAt(1)")
   const beforeCommit = await until('Commit preview ready', async () => {
     const state = await snapshot()
-    return state?.selectedAction === 'heat-ii' && state.driveDurationAt === 1 && Math.abs(state.deposit) < 1e-9 && state
+    return state?.selectedAction === 'heat-ii' && state.driveDurationAt === 1 && state.selectedImpact === 'none' && state
   })
   await client.evaluate("window.__PROJECTC_THERMAL_CLOCK__.commit()")
   await until('Inertial playback started', async () => (await snapshot())?.playback)
@@ -248,7 +253,7 @@ try {
   assert(gameplayDeposit.events.some((event) => event.type === 'ThermalDriveStart' && event.source === 'Active D Spend / Convert'), 'Release D Spend did not create Inertial Drive')
 
   assert(client.errors.length === 0, `Browser runtime exceptions: ${JSON.stringify(client.errors)}`)
-  console.log('Thermal dual-mode browser regression passed: local A/B, shared Inertial Apply Live → Gameplay, Drive/Deposit semantics, and Preview==Commit.')
+  console.log('Thermal dual-mode browser regression passed: local A/B, slotted Impact Drift impulses, shared Inertial Apply Live → Gameplay, and Preview==Commit.')
 } finally {
   try { client?.socket.close() } catch {}
   await stop(browser)

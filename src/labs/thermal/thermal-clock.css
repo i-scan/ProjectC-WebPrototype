@@ -457,3 +457,9 @@
   .thermal-clamp-row { grid-template-columns: 1fr; }
   .thermal-timeline svg { min-height: 220px; }
 }
+
+
+.thermal-timeline__impact { stroke: #f1ce69; stroke-width: 1.2; stroke-dasharray: 4 3; opacity: .9; vector-effect: non-scaling-stroke; }
+.thermal-timeline__impact-label { fill: #f1ce69; font-size: 8px; font-weight: 800; }
+.thermal-impact-events { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(134, 166, 183, .16); }
+.thermal-impact-events .thermal-hand-heading { align-items: flex-start; }
