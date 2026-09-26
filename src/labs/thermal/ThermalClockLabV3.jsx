@@ -233,7 +233,7 @@ export function ThermalPendulum({ state, config, previousState, diagnostics: pro
   )
 }
 
-function ThermalDiagram({ state, history, selectedFuture, skipFuture, futureGhosts, diagnostics, pastWindow, futureWindow, actionLabel, resolving, yMin, yMax }) {
+function ThermalDiagram({ state, history, selectedFuture, skipFuture, futureGhosts, diagnostics, pastWindow, futureWindow, actionLabel, resolving, yMin, yMax, impactAbsoluteAt = null, impactImpulse = 0 }) {
   const minAt = state.worldAt - pastWindow
   const maxAt = state.worldAt + futureWindow
   const historySamples = history.flatMap((entry) => entry.samples ?? []).filter((sample) => sample.at >= minAt - 1e-6 && sample.at <= state.worldAt + 1e-6)
@@ -253,6 +253,9 @@ function ThermalDiagram({ state, history, selectedFuture, skipFuture, futureGhos
   for (let tick = Math.ceil(minAt); tick <= Math.floor(maxAt); tick += 1) xTicks.push(tick)
   const yTicks = Array.from({ length: 5 }, (_, index) => minT + (maxT - minT) * (index / 4))
   const nowX = xFor(state.worldAt)
+  const impactX = Number.isFinite(impactAbsoluteAt) && impactAbsoluteAt >= minAt - 1e-6 && impactAbsoluteAt <= maxAt + 1e-6
+    ? xFor(impactAbsoluteAt)
+    : null
   const setPointY = yFor(state.setPoint)
   const teqY = Number.isFinite(diagnostics.equilibriumTemperature) ? yFor(diagnostics.equilibriumTemperature) : null
 
@@ -273,6 +276,7 @@ function ThermalDiagram({ state, history, selectedFuture, skipFuture, futureGhos
           {historySamples.length > 1 && <polyline className="thermal-timeline__history" points={pointsFor(historySamples)} />}
           {!resolving && skipFuture.length > 1 && <polyline className="thermal-timeline__skip" points={pointsFor(skipFuture)} />}
           {selectedFuture.length > 1 && <polyline className="thermal-timeline__future" points={pointsFor(selectedFuture)} />}
+          {impactX !== null && <line className="thermal-timeline__impact" data-thermal-impact-marker x1={impactX} x2={impactX} y1={pad.top} y2={height - pad.bottom} />}
           <line className="thermal-timeline__now" x1={nowX} x2={nowX} y1={pad.top} y2={height - pad.bottom} />
           <circle className="thermal-timeline__current" cx={nowX} cy={yFor(state.temperature)} r="5" />
           {historicalIntegerPoints.map((sample) => <circle key={`past-${sample.worldAt}`} className="thermal-timeline__history-marker" cx={xFor(sample.worldAt)} cy={yFor(sample.temperature)} r="3.2" />)}
@@ -280,6 +284,7 @@ function ThermalDiagram({ state, history, selectedFuture, skipFuture, futureGhos
         </g>
         {setPointY >= pad.top && setPointY <= height - pad.bottom && <text className="thermal-timeline__setpoint-label" x={width - pad.right - 4} y={setPointY - 5} textAnchor="end">S {formatThermal(state.setPoint, 1)}</text>}
         {teqY !== null && teqY >= pad.top && teqY <= height - pad.bottom && Math.abs((diagnostics.equilibriumTemperature ?? state.setPoint) - state.setPoint) > 0.01 && <text className="thermal-timeline__teq-label" x={pad.left + 5} y={teqY - 5}>Teq {formatThermal(diagnostics.equilibriumTemperature, 1)}</text>}
+        {impactX !== null && <text className="thermal-timeline__impact-label" x={impactX + 4} y={pad.top + 23}>IMPACT {impactImpulse >= 0 ? '+' : ''}{formatThermal(impactImpulse, 2)}</text>}
         <text className="thermal-timeline__now-label" x={nowX + 5} y={pad.top + 12}>NOW</text>
       </svg>
       <div className="thermal-timeline__legend">
@@ -606,7 +611,7 @@ export function ThermalClockLab() {
 
         <section className="thermal-center">
           <div className={`thermal-status ${playback ? 'is-resolving' : 'is-ready'}`}><strong>{playback ? 'ACTION IN FLIGHT · DIAGRAM UPDATES FROM LIVE NOW' : 'READY · SELECT → FORECAST → COMMIT'}</strong><span>{lastEvent}</span></div>
-          <ThermalDiagram state={visualState} history={history} selectedFuture={selectedFuture} skipFuture={skipFuture} futureGhosts={futureGhosts} diagnostics={diagramDiagnostics} pastWindow={pastWindow} futureWindow={previewHorizon} actionLabel={action?.label ?? selectedAction} resolving={Boolean(playback)} yMin={diagramYMin} yMax={diagramYMax} />
+          <ThermalDiagram state={visualState} history={history} selectedFuture={selectedFuture} skipFuture={skipFuture} futureGhosts={futureGhosts} diagnostics={diagramDiagnostics} pastWindow={pastWindow} futureWindow={previewHorizon} actionLabel={action?.label ?? selectedAction} resolving={Boolean(playback)} yMin={diagramYMin} yMax={diagramYMax} impactAbsoluteAt={inertialMode && selectedImpact !== 'none' ? (playback?.source?.worldAt ?? state.worldAt) + impactAt : null} impactImpulse={impactImpulse} />
           <section className="thermal-board-reserved thermal-board-reserved--compact" data-thermal-board-reserved="true"><div className="thermal-board-reserved__grid" /><div><p>RESERVED BOARD</p><h2>Future Trajectory Integration</h2><span>Thermal Dynamics remains isolated while the diagram and pendulum are evaluated.</span></div></section>
           <section className="thermal-action-hand"><div className="thermal-hand-heading"><div><h2>Thermal Actions</h2><p>{inertialMode ? 'Heat / Cool sustain Drive during this 1AT action. Skip = Drive 0. Impact Event below is independent and instantaneous.' : 'Selected card applies one Drift impulse now; Apply Live publishes tuned Legacy Dynamics / impulse tiers to Gameplay Lab.'}</p></div><button type="button" className="thermal-commit" data-thermal-commit disabled={Boolean(playback)} onClick={commit}>Commit 1AT</button></div><div className="thermal-action-row">{THERMAL_ACTIONS.map((entry) => <button type="button" key={entry.id} data-thermal-card={entry.id} className={`thermal-action-card ${entry.id === selectedAction ? 'selected' : ''} ${entry.sign > 0 ? 'heat' : entry.sign < 0 ? 'cool' : 'skip'}`} disabled={Boolean(playback)} onClick={() => { setSelectedAction(entry.id); setLastEvent(`${entry.label} selected. Thermal Diagram updated; worldAt has not advanced.`) }}><header><strong>{entry.label}</strong><em>1AT</em></header><span>{inertialMode ? (entry.sign === 0 ? 'Drive 0' : `Drive ${formatThermal(inertialActionDriveRate(entry.id, impulses), 2)} / AT²`) : (entry.sign === 0 ? 'Impulse 0' : `V ${entry.sign > 0 ? '+=' : '-='} ${formatNumber(Math.abs(actionImpulse(entry.id, impulses)), 2)}`)}</span></button>)}</div><div className="thermal-impulse-tuning" data-thermal-impulses>
   <RangeField label={inertialMode ? 'Small Drive' : 'Small impulse'} value={impulses.small} min={0} max={2.5} step={0.05} disabled={Boolean(playback)} onChange={(value) => setImpulses((current) => ({ ...current, small: value }))} />
