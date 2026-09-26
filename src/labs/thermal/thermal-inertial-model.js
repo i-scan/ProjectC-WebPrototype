@@ -7,7 +7,7 @@ import {
 
 export const THERMAL_INERTIAL_RULE = 'thermal-inertial-relaxation-v1-candidate'
 export const THERMAL_INERTIAL_SOLVER = 'piecewise-analytic-inertial-relaxation-v1'
-export const THERMAL_INERTIAL_INPUT_RULE = 'sustained-drive-plus-deposit-v1'
+export const THERMAL_INERTIAL_INPUT_RULE = 'sustained-drive-plus-drift-impulse-v2'
 
 export const DEFAULT_INERTIAL_CONFIG = Object.freeze({
   driftHalfLifeAt: 1,
@@ -107,6 +107,16 @@ export function solveInertialSegment(inputState, inputThermalConfig, inputInerti
   }
 }
 
+export function applyThermalDriftImpulse(inputState, impulse) {
+  const state = normalizeThermalState(inputState)
+  return {
+    ...state,
+    drift: state.drift + finite(impulse, 0),
+  }
+}
+
+// Deprecated experiment support kept for the existing Gameplay bridge while
+// Thermal Clock validates Drift-impulse Impact semantics first.
 export function applyThermalDeposit(inputState, deposit, inputThermalConfig = {}) {
   const state = normalizeThermalState(inputState)
   const thermalConfig = normalizeThermalConfig(inputThermalConfig)
@@ -126,6 +136,8 @@ function solveActionTo({
   inertialConfig,
   driveRate,
   driveDurationAt,
+  impactAt,
+  impactImpulse,
   depositAt,
   deposit,
   durationAt,
@@ -134,6 +146,8 @@ function solveActionTo({
   const actionDuration = Math.max(0, finite(durationAt, 1))
   const actionTarget = Math.min(targetAt, actionDuration)
   const driveEnd = clamp(finite(driveDurationAt, actionDuration), 0, actionDuration)
+  const hasImpact = Math.abs(finite(impactImpulse, 0)) > EPS && Number.isFinite(Number(impactAt))
+  const impactTime = hasImpact ? clamp(finite(impactAt, 0), 0, actionDuration) : null
   const hasDeposit = Math.abs(finite(deposit, 0)) > EPS && Number.isFinite(Number(depositAt))
   const depositTime = hasDeposit ? clamp(finite(depositAt, 0), 0, actionDuration) : null
 
@@ -141,15 +155,18 @@ function solveActionTo({
   let current = normalizeThermalState(source)
   let currentDrive = driveEnd > 0 ? finite(driveRate, 0) : 0
   const events = []
+  if (impactTime !== null && impactTime <= actionTarget + EPS) events.push({ t: impactTime, type: 'impact' })
   if (depositTime !== null && depositTime <= actionTarget + EPS) events.push({ t: depositTime, type: 'deposit' })
   if (driveEnd > EPS && driveEnd < actionDuration - EPS && driveEnd <= actionTarget + EPS) events.push({ t: driveEnd, type: 'drive-end' })
-  events.sort((a, b) => a.t - b.t || (a.type === 'deposit' ? -1 : 1))
+  const priority = { impact: 0, deposit: 1, 'drive-end': 2 }
+  events.sort((a, b) => a.t - b.t || priority[a.type] - priority[b.type])
 
   for (const event of events) {
     if (event.t > cursor + EPS) {
       current = solveInertialSegment(current, thermalConfig, inertialConfig, event.t - cursor, currentDrive)
       cursor = event.t
     }
+    if (event.type === 'impact') current = applyThermalDriftImpulse(current, impactImpulse)
     if (event.type === 'deposit') current = applyThermalDeposit(current, deposit, thermalConfig)
     if (event.type === 'drive-end') currentDrive = 0
   }
@@ -175,6 +192,8 @@ export function buildInertialActionPlan({
   durationAt = 1,
   horizonAt = 4,
   driveDurationAt = 1,
+  impactAt = 0.5,
+  impactImpulse = 0,
   depositAt = 0.5,
   deposit = 0,
   samplesPerAt = 32,
@@ -188,6 +207,8 @@ export function buildInertialActionPlan({
   const driveDuration = actionId === 'skip'
     ? 0
     : clamp(finite(driveDurationAt, duration), 0, duration)
+  const impactValue = finite(impactImpulse, 0)
+  const impactTime = clamp(finite(impactAt, duration / 2), 0, duration)
   const depositValue = finite(deposit, 0)
   const depositTime = clamp(finite(depositAt, duration / 2), 0, duration)
 
@@ -197,6 +218,8 @@ export function buildInertialActionPlan({
     inertialConfig: inertial,
     driveRate,
     driveDurationAt: driveDuration,
+    impactAt: impactTime,
+    impactImpulse: impactValue,
     depositAt: depositTime,
     deposit: depositValue,
     durationAt: duration,
@@ -219,6 +242,7 @@ export function buildInertialActionPlan({
     events.push({ type: 'DriveStart', t: 0, rate: driveRate })
     events.push({ type: 'DriveEnd', t: driveDuration, rate: driveRate })
   }
+  if (Math.abs(impactValue) > EPS) events.push({ type: 'ImpactImpulse', t: impactTime, amount: impactValue })
   if (Math.abs(depositValue) > EPS) events.push({ type: 'Deposit', t: depositTime, amount: depositValue })
   events.sort((a, b) => a.t - b.t)
 
@@ -234,6 +258,8 @@ export function buildInertialActionPlan({
     inertialConfig: inertial,
     driveRate,
     driveDurationAt: driveDuration,
+    impactAt: impactTime,
+    impactImpulse: impactValue,
     depositAt: depositTime,
     deposit: depositValue,
     events,
@@ -252,6 +278,8 @@ export function sampleInertialActionPlan(plan, at) {
     inertialConfig: plan.inertialConfig,
     driveRate: plan.driveRate,
     driveDurationAt: plan.driveDurationAt,
+    impactAt: plan.impactAt,
+    impactImpulse: plan.impactImpulse,
     depositAt: plan.depositAt,
     deposit: plan.deposit,
     durationAt: plan.durationAt,
