@@ -191,3 +191,106 @@
     justify-content: flex-start;
   }
 }
+
+
+/* Relaxation test ergonomics: keep controls close to the diagram. */
+.thermal-center {
+  align-content: start;
+}
+
+.thermal-drive-tuning {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.thermal-drive-tuning .thermal-range-field,
+.thermal-impact-strengths .thermal-range-field {
+  min-width: 0;
+}
+
+.thermal-drive-tuning .thermal-range-field {
+  margin: 4px 0;
+  gap: 3px;
+}
+
+.thermal-drive-tuning .thermal-range-field > span {
+  font-size: 9px;
+}
+
+.thermal-drive-tuning .thermal-range-field__controls {
+  grid-template-columns: minmax(52px, 1fr) 48px auto;
+  gap: 4px;
+}
+
+.thermal-drive-tuning .thermal-range-field input[type="number"] {
+  padding: 4px;
+  font-size: 9px;
+}
+
+.thermal-impact-events {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.thermal-impact-timing-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+  margin-top: 6px;
+}
+
+.thermal-impact-timing-group {
+  min-width: 0;
+}
+
+.thermal-impact-timing-group .thermal-choice-label {
+  margin: 0 0 4px;
+}
+
+.thermal-choice-row--compact {
+  flex-wrap: nowrap;
+  gap: 4px;
+  margin-bottom: 0;
+}
+
+.thermal-choice-row--compact button {
+  padding: 5px 6px;
+  white-space: nowrap;
+  font-size: 8px;
+}
+
+.thermal-impact-timing-group--grow .thermal-choice-row--compact {
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.thermal-board-reserved--compact {
+  margin-top: 10px;
+}
+
+@media (max-width: 1120px) {
+  .thermal-drive-tuning {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .thermal-impact-timing-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 920px) {
+  .thermal-drive-tuning {
+    grid-template-columns: 1fr;
+  }
+
+  .thermal-choice-row--compact {
+    flex-wrap: wrap;
+  }
+
+  .thermal-impact-timing-group--grow .thermal-choice-row--compact {
+    overflow-x: visible;
+  }
+}
