@@ -169,9 +169,33 @@ try {
   assert(mounted.thermalControls && mounted.authorityCopy, 'Lab-authority Gameplay controls/copy missing')
   assert(mounted.board && mounted.boardRebuildCount >= 1, 'Board3D did not mount')
   assert(snapshot.ready && snapshot.worldAt === 0, 'Gameplay initial Ready snapshot changed')
+  assert(snapshot.linkRule === 'gameplay-link-window-p0-turn-based-hooks-v1', 'Gameplay Link Window rule marker missing')
+
+  assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.loadDebugScenario(${JSON.stringify({
+    player: { id: 'player', hex: { q: 0, r: 0 }, hM: 0, axisId: null },
+    enemies: [{ id: 'enemy-a', hex: { q: 3, r: 0 }, hp: 40, intent: 'skip', intentIndex: 0 }],
+    thermal: { temperature: 1, drift: 0, setPoint: 1, worldAt: 0 },
+    worldAt: 0,
+    selectedActionId: 'move',
+  })})`), 'Link Window fixture rejected')
+  assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.playAction('move', { q: 1, r: 0 })`), 'Link Window move could not start')
+  const linkSnapshot = await until('AfterMove Link Window', async () => {
+    const value = await client.evaluate('window.__PROJECTC_GAMEPLAY_LAB__.snapshot()')
+    return value?.ready && value?.linkWindow?.hook?.type === 'AfterMove' ? value : false
+  })
+  assert(linkSnapshot.linkWindow.options.some((entry) => entry.id === 'ranged-strike:enemy-a'), 'AfterMove Ranged Strike link missing')
+  const linkWorldAt = linkSnapshot.worldAt
+  assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.chooseLink('ranged-strike:enemy-a')`), 'Ranged Strike Link could not resolve')
+  const afterLink = await until('Ranged Strike Link resolution', async () => {
+    const value = await client.evaluate('window.__PROJECTC_GAMEPLAY_LAB__.snapshot()')
+    return !value?.linkWindow && value?.lastLinkResolution?.choiceId === 'ranged-strike:enemy-a' ? value : false
+  })
+  assert(afterLink.worldAt === linkWorldAt, 'Link action must not advance world time')
+  assert(afterLink.enemies.find((enemy) => enemy.id === 'enemy-a')?.hp === 32, 'Ranged Strike Link payload mismatch')
+  assert(afterLink.lastLinkResolution.trace.map((entry) => entry.stage).join('>') === 'Payload>Momentum>Space', 'Link resolution order changed')
   assert(client.errors.length === 0, `Browser exceptions: ${JSON.stringify(client.errors)}`)
 
-  console.log('Gameplay Lab browser smoke verified through CDP: Momentum v1 actions, shared Thermal V3 pendulum/runtime, telegraphed enemies, controls and Board3D are mounted.')
+  console.log('Gameplay Lab browser smoke verified through CDP: Momentum v1 actions, shared Thermal runtime, Link Window P0, controls and Board3D are mounted.')
 } finally {
   try { client?.socket.close() } catch {}
   await stop(chromeProcess)
