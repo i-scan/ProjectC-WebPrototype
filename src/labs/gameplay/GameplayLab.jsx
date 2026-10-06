@@ -115,6 +115,8 @@ export function GameplayLab() {
   const [lastPlan, setLastPlan] = useState(null)
   const [linkWindow, setLinkWindow] = useState(null)
   const [lastLinkResolution, setLastLinkResolution] = useState(null)
+  const [hoveredLinkId, setHoveredLinkId] = useState(null)
+  const [linkFx, setLinkFx] = useState(null)
   const playbackRef = useRef(null)
   const playbackId = useRef(0)
   const primaryBeforeRef = useRef(null)
@@ -273,6 +275,14 @@ export function GameplayLab() {
   const playerSpatial = useMemo(() => gameplayActorToTrajectoryState(player, worldAt), [player, worldAt])
   const boardActors = useMemo(() => enemies.filter((entry) => entry.hp > 0).map(actorBoardRecord), [enemies])
   const axisDisplayOverride = isDownSide(displayPlayer) ? `down-${displayPlayer.downM}` : 'auto'
+  const hoveredLinkResolution = useMemo(() => {
+    if (!linkWindow || !hoveredLinkId || hoveredLinkId === 'pass') return null
+    const result = resolveGameplayLink({ window: linkWindow, choiceId: hoveredLinkId, player, enemies })
+    return result?.valid ? result : null
+  }, [linkWindow, hoveredLinkId, player, enemies])
+  const displayedLinkResolution = hoveredLinkResolution ?? (lastLinkResolution?.choiceId !== 'pass' ? lastLinkResolution : null)
+  const displayedLinkChoiceId = hoveredLinkResolution ? hoveredLinkId : displayedLinkResolution?.choiceId
+  const displayedLinkMode = hoveredLinkResolution ? 'PREVIEW' : displayedLinkResolution ? 'RESULT' : null
 
   const clearAim = () => {
     setHoverHex(null)
@@ -304,6 +314,8 @@ export function GameplayLab() {
     setHistory((entries) => [...entries, before].slice(-40))
     primaryBeforeRef.current = before
     setLastLinkResolution(null)
+    setHoveredLinkId(null)
+    setLinkFx(null)
     const next = playbackFromPlan(plan, ++playbackId.current, atVisualMs)
     playbackRef.current = next
     setPlayback(next)
@@ -383,6 +395,12 @@ export function GameplayLab() {
     setPlayer(result.player)
     setEnemies(result.enemies)
     setLastLinkResolution(result)
+    setHoveredLinkId(null)
+    setLinkFx({
+      token: Date.now(),
+      choiceId,
+      targetId: result.consumedHook?.targetId ?? result.generatedHooks?.[0]?.targetId ?? null,
+    })
     const traceText = result.trace.map((entry) => `${entry.stage}: ${entry.summary}`).join(' · ')
     const hookText = result.generatedHooks.map((hook) => hook.type).join(', ') || 'none'
     setLastTrace(`LINK ${choiceId} · ${traceText} · Hook: ${hookText}`)
@@ -394,6 +412,8 @@ export function GameplayLab() {
   const passLink = () => {
     if (playbackRef.current || !linkWindow) return false
     setLastTrace(`Pass ${linkWindow.hook.type} · Link opportunity consumed.`)
+    setHoveredLinkId(null)
+    setLinkFx(null)
     setLastLinkResolution({
       valid: true,
       rule: GAMEPLAY_LINK_WINDOW_RULE,
@@ -421,6 +441,8 @@ export function GameplayLab() {
     setLastPlan(null)
     setLinkWindow(null)
     setLastLinkResolution(null)
+    setHoveredLinkId(null)
+    setLinkFx(null)
     setFullPreviewEntry(null)
     clearAim()
   }
@@ -442,6 +464,8 @@ export function GameplayLab() {
     setLastPlan(null)
     setLinkWindow(null)
     setLastLinkResolution(null)
+    setHoveredLinkId(null)
+    setLinkFx(null)
     primaryBeforeRef.current = null
     setFullPreviewEntry(null)
     setLastTrace(`Reset from ${profile.label} r${profile.revision}.`)
@@ -465,6 +489,8 @@ export function GameplayLab() {
     setLastPlan(null)
     setLinkWindow(null)
     setLastLinkResolution(null)
+    setHoveredLinkId(null)
+    setLinkFx(null)
     primaryBeforeRef.current = null
     setFullPreviewEntry(null)
     setLastTrace('Debug scenario loaded for deterministic browser validation.')
@@ -510,6 +536,8 @@ export function GameplayLab() {
         historyEntries: history.length,
         linkWindow: linkWindow ? clone(linkWindow) : null,
         lastLinkResolution: lastLinkResolution ? clone(lastLinkResolution) : null,
+        hoveredLinkId,
+        linkFx: linkFx ? clone(linkFx) : null,
         linkRule: GAMEPLAY_LINK_WINDOW_RULE,
       }),
       reset,
@@ -668,40 +696,27 @@ export function GameplayLab() {
               <span><i className="trajectory" />Blue path = Trajectory Lab curve / reflection</span>
               <span><i className="momentum-axis" />Horizontal M / Axis settlement comes from Trajectory runtime</span>
             </div>
-          </div>
-
-          {linkWindow && <section className="action-hand gameplay-link-window" data-gameplay-link-window={linkWindow.hook.type}>
-            <div className="hand-heading gameplay-link-heading">
-              <div>
-                <h2>{linkWindow.title} · {linkWindow.hook.type}</h2>
-                <p>{linkWindow.description}</p>
+            {displayedLinkResolution && <div className={`gameplay-link-result-overlay ${displayedLinkMode === 'PREVIEW' ? 'is-preview' : 'is-result'}`} data-gameplay-link-result={displayedLinkChoiceId ?? 'none'}>
+              <div className="gameplay-link-result-title">
+                <span>{displayedLinkMode}</span>
+                <strong>{String(displayedLinkChoiceId ?? '').replace(':', ' → ')}</strong>
               </div>
-              <span className="gameplay-link-order">Payload → Momentum → Space → Hook</span>
-            </div>
-            <div className="action-row gameplay-link-action-row">
-              {linkWindow.options.map((entry) => <button
-                type="button"
-                key={entry.id}
-                className={`action-card gameplay-link-action gameplay-link-${entry.id.split(':')[0]}`}
-                data-gameplay-link-action={entry.id}
-                onClick={() => resolveLink(entry.id)}
-              >
-                <header><strong>{entry.label}</strong><em>{entry.badge}</em></header>
-                <p>{entry.short}</p>
-                <span>Consumes {linkWindow.hook.type}</span>
-              </button>)}
-              <button type="button" className="action-card gameplay-link-action gameplay-link-pass" data-gameplay-link-action="pass" onClick={passLink}>
-                <header><strong>Pass</strong><em>END</em></header>
-                <p>Consume this opportunity without a follow-up.</p>
-                <span>No extra turn cost</span>
-              </button>
-            </div>
-            <div className="gameplay-link-meta">
-              <span>Hook <b>{linkWindow.hook.id}</b></span>
-              <span>Primary <b>{linkWindow.primaryActionId}</b></span>
-              <span>Rule <b>{GAMEPLAY_LINK_WINDOW_RULE}</b></span>
-            </div>
-          </section>}
+              <div className="gameplay-link-result-stages">
+                {displayedLinkResolution.trace?.slice(0, 3).map((entry) => <div key={entry.stage}>
+                  <b>{entry.stage}</b><span>{entry.summary}</span>
+                </div>)}
+              </div>
+            </div>}
+            {(hoveredLinkId || linkFx) && <div
+              key={linkFx?.token ?? `preview-${hoveredLinkId}`}
+              className={`gameplay-link-fx gameplay-link-fx--${String(hoveredLinkId ?? linkFx?.choiceId ?? '').split(':')[0]} ${hoveredLinkId ? 'is-preview' : 'is-result'}`}
+              data-gameplay-link-fx={hoveredLinkId ?? linkFx?.choiceId ?? 'none'}
+              aria-hidden="true"
+            >
+              <i className="fx-ring" /><i className="fx-slash fx-slash-a" /><i className="fx-slash fx-slash-b" /><i className="fx-streak fx-streak-a" /><i className="fx-streak fx-streak-b" />
+              <strong>{String(hoveredLinkId ?? linkFx?.choiceId ?? '').split(':')[0].toUpperCase()}</strong>
+            </div>}
+          </div>
 
           <section className="action-hand gameplay-action-hand">
             <div className="hand-heading">
@@ -729,6 +744,44 @@ export function GameplayLab() {
               ))}
             </div>
           </section>
+
+          {linkWindow && <section className="action-hand gameplay-link-window" data-gameplay-link-window={linkWindow.hook.type}>
+            <div className="hand-heading gameplay-link-heading">
+              <div>
+                <h2>{linkWindow.title} · {linkWindow.hook.type}</h2>
+                <p>{linkWindow.description}</p>
+              </div>
+              <span className="gameplay-link-order">Payload → Momentum → Space → Hook</span>
+            </div>
+            <div className="action-row gameplay-link-action-row">
+              {linkWindow.options.map((entry) => <button
+                type="button"
+                key={entry.id}
+                className={`action-card gameplay-link-action gameplay-link-${entry.id.split(':')[0]}`}
+                data-gameplay-link-action={entry.id}
+                onMouseEnter={() => setHoveredLinkId(entry.id)}
+                onMouseLeave={() => setHoveredLinkId((current) => current === entry.id ? null : current)}
+                onFocus={() => setHoveredLinkId(entry.id)}
+                onBlur={() => setHoveredLinkId((current) => current === entry.id ? null : current)}
+                onClick={() => resolveLink(entry.id)}
+              >
+                <header><strong>{entry.label}</strong><em>{entry.badge}</em></header>
+                <p>{entry.short}</p>
+                <span>Consumes {linkWindow.hook.type}</span>
+              </button>)}
+              <button type="button" className="action-card gameplay-link-action gameplay-link-pass" data-gameplay-link-action="pass" onMouseEnter={() => setHoveredLinkId(null)} onFocus={() => setHoveredLinkId(null)} onClick={passLink}>
+                <header><strong>Pass</strong><em>END</em></header>
+                <p>Consume this opportunity without a follow-up.</p>
+                <span>No extra turn cost</span>
+              </button>
+            </div>
+            <div className="gameplay-link-meta">
+              <span>Hook <b>{linkWindow.hook.id}</b></span>
+              <span>Primary <b>{linkWindow.primaryActionId}</b></span>
+              <span>Rule <b>{GAMEPLAY_LINK_WINDOW_RULE}</b></span>
+            </div>
+          </section>}
+
         </section>
 
         <aside className="side-panel right-panel gameplay-right-panel">

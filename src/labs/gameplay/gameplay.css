@@ -72,7 +72,7 @@
   opacity: .42;
 }
 
-.gameplay-action-row {
+.gameplay-lab .action-row.gameplay-action-row {
   grid-template-columns: repeat(4, minmax(120px, 1fr));
 }
 
@@ -152,13 +152,13 @@
 }
 
 @media (max-width: 1180px) {
-  .gameplay-action-row {
+  .gameplay-lab .action-row.gameplay-action-row {
     grid-template-columns: repeat(2, minmax(130px, 1fr));
   }
 }
 
 @media (max-width: 920px) {
-  .gameplay-action-row {
+  .gameplay-lab .action-row.gameplay-action-row {
     grid-template-columns: 1fr;
   }
   .gameplay-lab .gameplay-board-frame {
@@ -352,7 +352,7 @@
   white-space: nowrap;
 }
 
-.gameplay-link-action-row {
+.gameplay-lab .action-row.gameplay-link-action-row {
   grid-template-columns: repeat(5, minmax(112px, 1fr));
   gap: 7px;
 }
@@ -407,7 +407,7 @@
 }
 
 @media (max-width: 1320px) {
-  .gameplay-link-action-row {
+  .gameplay-lab .action-row.gameplay-link-action-row {
     grid-template-columns: repeat(3, minmax(120px, 1fr));
   }
 }
@@ -422,7 +422,351 @@
     margin-top: 8px;
   }
 
-  .gameplay-link-action-row {
+  .gameplay-lab .action-row.gameplay-link-action-row {
     grid-template-columns: 1fr;
+  }
+}
+
+
+/* Gameplay Lab test ergonomics ------------------------------------------------ */
+.gameplay-lab .gameplay-board-frame {
+  min-height: 410px;
+  height: 410px;
+}
+
+.gameplay-action-hand {
+  margin-top: 8px;
+}
+
+.gameplay-lab .action-row.gameplay-action-row {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.gameplay-action-row .action-card {
+  min-width: 0;
+  min-height: 88px;
+  padding: 8px 8px 7px;
+}
+
+.gameplay-action-row .action-card header {
+  gap: 4px;
+}
+
+.gameplay-action-row .action-card header strong {
+  font-size: 10px;
+}
+
+.gameplay-action-row .action-card header em {
+  font-size: 8px;
+}
+
+.gameplay-action-row .action-card p {
+  display: -webkit-box;
+  margin: 5px 0;
+  overflow: hidden;
+  color: #8fa5b2;
+  font-size: 8px;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.gameplay-action-row .action-card > span {
+  font-size: 8px;
+}
+
+.gameplay-link-window {
+  margin-top: 8px;
+  padding: 10px 11px;
+}
+
+.gameplay-link-heading p {
+  margin: 2px 0 0;
+  font-size: 9px;
+}
+
+.gameplay-lab .action-row.gameplay-link-action-row {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.gameplay-link-action-row .action-card {
+  min-width: 0;
+  min-height: 86px;
+  padding: 8px;
+}
+
+.gameplay-link-action-row .action-card p {
+  display: -webkit-box;
+  margin: 5px 0;
+  overflow: hidden;
+  font-size: 8px;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.gameplay-link-action-row .action-card > span {
+  font-size: 8px;
+}
+
+/* Link choice preview / committed result lives on top of the board so it does
+   not increase the scroll distance between cards and target Cells. */
+.gameplay-link-result-overlay {
+  position: absolute;
+  z-index: 34;
+  left: 12px;
+  right: 12px;
+  bottom: 46px;
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid rgba(126, 212, 232, .34);
+  border-radius: 9px;
+  background: rgba(7, 18, 28, .91);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+  pointer-events: none;
+}
+
+.gameplay-link-result-overlay.is-preview {
+  border-style: dashed;
+  opacity: .88;
+}
+
+.gameplay-link-result-overlay.is-result {
+  border-color: rgba(238, 198, 105, .48);
+  background: rgba(28, 24, 15, .91);
+}
+
+.gameplay-link-result-title {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.gameplay-link-result-title span {
+  color: #78d6e9;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.gameplay-link-result-overlay.is-result .gameplay-link-result-title span {
+  color: #edcd79;
+}
+
+.gameplay-link-result-title strong {
+  margin-top: 3px;
+  color: #e8f5f8;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.gameplay-link-result-stages {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.gameplay-link-result-stages > div {
+  min-width: 0;
+  padding: 5px 6px;
+  border-left: 2px solid rgba(113, 199, 222, .42);
+  background: rgba(48, 72, 87, .2);
+}
+
+.gameplay-link-result-stages b,
+.gameplay-link-result-stages span {
+  display: block;
+}
+
+.gameplay-link-result-stages b {
+  color: #aee9f4;
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.gameplay-link-result-stages span {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #a7b9c3;
+  font-size: 8px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Lightweight Link-specific board FX. Primary collision playback remains the
+   authoritative old P0 visual; this layer makes the chosen Link outcome legible. */
+.gameplay-link-fx {
+  position: absolute;
+  z-index: 33;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.gameplay-link-fx > strong {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  padding: 5px 9px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  background: rgba(8, 15, 23, .72);
+  font-size: 10px;
+  letter-spacing: .16em;
+  opacity: .92;
+}
+
+.gameplay-link-fx i {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+.gameplay-link-fx .fx-ring {
+  top: 42%;
+  left: 50%;
+  width: 86px;
+  height: 86px;
+  border: 4px solid currentColor;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(.7);
+  opacity: 0;
+}
+
+.gameplay-link-fx .fx-slash {
+  top: 42%;
+  left: 50%;
+  width: 150px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 12px currentColor;
+  opacity: 0;
+}
+
+.gameplay-link-fx .fx-slash-a { transform: translate(-50%, -50%) rotate(-28deg); }
+.gameplay-link-fx .fx-slash-b { transform: translate(-50%, -50%) rotate(26deg); }
+
+.gameplay-link-fx .fx-streak {
+  top: 42%;
+  left: 50%;
+  width: 120px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0;
+}
+.gameplay-link-fx .fx-streak-a { transform: translate(-72%, -14px) rotate(-8deg); }
+.gameplay-link-fx .fx-streak-b { transform: translate(-25%, 18px) rotate(-8deg); }
+
+.gameplay-link-fx--continue { color: #72dff2; }
+.gameplay-link-fx--strike,
+.gameplay-link-fx--ranged-strike { color: #ff7858; }
+.gameplay-link-fx--brace { color: #73b7ff; }
+.gameplay-link-fx--evade { color: #c18aef; }
+
+.gameplay-link-fx--continue .fx-streak,
+.gameplay-link-fx--evade .fx-streak {
+  opacity: .82;
+}
+
+.gameplay-link-fx--strike .fx-slash,
+.gameplay-link-fx--ranged-strike .fx-slash {
+  opacity: .95;
+}
+
+.gameplay-link-fx--brace .fx-ring {
+  opacity: .95;
+  box-shadow: 0 0 22px currentColor, inset 0 0 18px rgba(115, 183, 255, .25);
+}
+
+.gameplay-link-fx--evade .fx-ring {
+  opacity: .55;
+  border-style: dashed;
+}
+
+.gameplay-link-fx.is-preview {
+  opacity: .42;
+}
+
+.gameplay-link-fx.is-result .fx-ring {
+  animation: gameplay-link-ring .62s ease-out both;
+}
+
+.gameplay-link-fx.is-result .fx-slash {
+  animation: gameplay-link-slash .5s ease-out both;
+}
+
+.gameplay-link-fx.is-result .fx-streak {
+  animation: gameplay-link-streak .62s ease-out both;
+}
+
+.gameplay-link-fx.is-result > strong {
+  animation: gameplay-link-label .72s ease-out both;
+}
+
+@keyframes gameplay-link-ring {
+  0% { transform: translate(-50%, -50%) scale(.35); opacity: 0; }
+  28% { opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.35); opacity: .12; }
+}
+
+@keyframes gameplay-link-slash {
+  0% { width: 20px; opacity: 0; }
+  25% { opacity: 1; }
+  100% { width: 190px; opacity: .08; }
+}
+
+@keyframes gameplay-link-streak {
+  0% { margin-left: -70px; opacity: 0; }
+  24% { opacity: 1; }
+  100% { margin-left: 110px; opacity: .08; }
+}
+
+@keyframes gameplay-link-label {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.7); }
+  24% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  100% { opacity: .35; transform: translate(-50%, -50%) scale(1); }
+}
+
+@media (max-width: 1180px) {
+  .gameplay-lab .action-row.gameplay-action-row {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .gameplay-action-row .action-card p {
+    -webkit-line-clamp: 1;
+  }
+}
+
+@media (max-width: 920px) {
+  .gameplay-lab .gameplay-board-frame {
+    min-height: 360px;
+    height: 360px;
+  }
+
+  /* Gameplay Lab itself keeps a 720px center-column minimum. Preserve the
+     one-row testing layout even when the outer viewport is narrower. */
+  .gameplay-lab .action-row.gameplay-action-row {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .gameplay-lab .action-row.gameplay-link-action-row {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .gameplay-link-result-overlay {
+    grid-template-columns: 110px minmax(0, 1fr);
+  }
+
+  .gameplay-link-result-stages {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
