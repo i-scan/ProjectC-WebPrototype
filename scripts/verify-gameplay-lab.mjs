@@ -189,16 +189,22 @@ try {
     const actionBlock = document.querySelector('.gameplay-action-hand')
     const linkBlock = document.querySelector('.gameplay-link-window')
     const actionRow = document.querySelector('.gameplay-action-row')
-    const columns = getComputedStyle(actionRow).gridTemplateColumns.split(' ').filter(Boolean).length
+    const cards = [...actionRow.querySelectorAll('[data-gameplay-action-id]')]
+    const rowRect = actionRow.getBoundingClientRect()
+    const cardRects = cards.map((card) => card.getBoundingClientRect())
     return {
       boardHeight: Math.round(boardFrame.getBoundingClientRect().height),
       actionsBeforeLink: Boolean(actionBlock && linkBlock && (actionBlock.compareDocumentPosition(linkBlock) & Node.DOCUMENT_POSITION_FOLLOWING)),
-      actionColumns: columns,
+      actionCount: cards.length,
+      actionRowCount: new Set(cardRects.map((rect) => Math.round(rect.top))).size,
+      actionsFitWidth: cardRects.every((rect) => rect.left >= rowRect.left - 1 && rect.right <= rowRect.right + 1),
     }
   })()`)
   assert(ergonomicLayout.boardHeight <= 420, `Gameplay board is still too tall: ${ergonomicLayout.boardHeight}px`)
   assert(ergonomicLayout.actionsBeforeLink, 'Gameplay Actions must render before Link Window')
-  assert(ergonomicLayout.actionColumns === 7, `Gameplay Actions should fit one desktop row; got ${ergonomicLayout.actionColumns} columns`)
+  assert(ergonomicLayout.actionCount === 7, `Gameplay Actions count changed: ${ergonomicLayout.actionCount}`)
+  assert(ergonomicLayout.actionRowCount === 1, `Gameplay Actions should fit one desktop row; got ${ergonomicLayout.actionRowCount} visual rows`)
+  assert(ergonomicLayout.actionsFitWidth, 'Gameplay Actions overflow their compact row')
   const linkWorldAt = linkSnapshot.worldAt
   assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.chooseLink('ranged-strike:enemy-a')`), 'Ranged Strike Link could not resolve')
   const afterLink = await until('Ranged Strike Link resolution', async () => {
