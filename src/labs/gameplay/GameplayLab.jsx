@@ -43,6 +43,11 @@ import {
   gameplayActorToTrajectoryState,
   usesTrajectoryRuntime,
 } from './gameplay-lab-runtime.js'
+import {
+  GAMEPLAY_LINK_WINDOW_RULE,
+  deriveGameplayLinkWindow,
+  resolveGameplayLink,
+} from './gameplay-link-window.js'
 
 const BOARD_RADIUS = TRAJECTORY_DEFAULT_RADIUS
 const EMPTY_REACHABLE = Object.freeze([])
@@ -108,8 +113,11 @@ export function GameplayLab() {
   const [fullPreviewEntry, setFullPreviewEntry] = useState(null)
   const [lastPlanningMs, setLastPlanningMs] = useState(0)
   const [lastPlan, setLastPlan] = useState(null)
+  const [linkWindow, setLinkWindow] = useState(null)
+  const [lastLinkResolution, setLastLinkResolution] = useState(null)
   const playbackRef = useRef(null)
   const playbackId = useRef(0)
+  const primaryBeforeRef = useRef(null)
   const ready = !playback
 
   const cells = useMemo(() => createCellWorld(BOARD_RADIUS), [])
@@ -273,6 +281,10 @@ export function GameplayLab() {
 
   const beginAction = (actionId, hex = null) => {
     if (playbackRef.current) return false
+    if (linkWindow) {
+      setLastTrace(`Pass ${linkWindow.hook.type} · new Primary Action selected.`)
+      setLinkWindow(null)
+    }
     const actionKey = previewKeyFor(actionId, hex)
     let plan = fullPreviewEntry?.key === actionKey ? fullPreviewEntry.plan : null
     if (!plan) {
@@ -290,6 +302,8 @@ export function GameplayLab() {
       lastTrace,
     }
     setHistory((entries) => [...entries, before].slice(-40))
+    primaryBeforeRef.current = before
+    setLastLinkResolution(null)
     const next = playbackFromPlan(plan, ++playbackId.current, atVisualMs)
     playbackRef.current = next
     setPlayback(next)
@@ -322,6 +336,17 @@ export function GameplayLab() {
       setThermal(playback.finalState.thermal)
       setWorldAt(playback.finalState.worldAt)
       setLastPlan(playback)
+      const primaryBefore = primaryBeforeRef.current
+      const primaryActionId = playback.intents?.find((intent) => intent.actorId === playback.finalState.player.id)?.actionId ?? selectedActionId
+      const nextLinkWindow = deriveGameplayLinkWindow({
+        plan: playback,
+        beforePlayer: primaryBefore?.player ?? player,
+        afterPlayer: playback.finalState.player,
+        enemies: playback.finalState.enemies,
+        primaryActionId,
+        boardRadius: BOARD_RADIUS,
+      })
+      setLinkWindow(nextLinkWindow)
       setLastTrace(playback.events.filter((event) => !['Declare', 'Ready'].includes(event.type))
         .map((event) => {
           let thermalText = ''
@@ -330,7 +355,8 @@ export function GameplayLab() {
           if (event.type === 'ThermalDriveEnd') thermalText = ` · ${event.source} Drive End`
           if (event.type === 'ThermalDeposit') thermalText = ` · ${event.source} Deposit ${event.deposit >= 0 ? '+' : ''}${event.deposit.toFixed(2)}T`
           return `${event.t.toFixed(2)}AT ${event.type}${thermalText}`
-        }).join(' · '))
+        }).join(' · ') + (nextLinkWindow ? ` · LINK ${nextLinkWindow.hook.type} opened` : ''))
+      primaryBeforeRef.current = null
       playbackRef.current = null
       setPlayback(null)
       clearAim()
@@ -341,6 +367,45 @@ export function GameplayLab() {
       window.clearTimeout(commitTimer)
     }
   }, [playback?.id])
+
+  const resolveLink = (choiceId) => {
+    if (playbackRef.current || !linkWindow) return false
+    const result = resolveGameplayLink({
+      window: linkWindow,
+      choiceId,
+      player,
+      enemies,
+    })
+    if (!result.valid) {
+      setLastTrace(result.reason || 'Link resolution failed.')
+      return false
+    }
+    setPlayer(result.player)
+    setEnemies(result.enemies)
+    setLastLinkResolution(result)
+    const traceText = result.trace.map((entry) => `${entry.stage}: ${entry.summary}`).join(' · ')
+    const hookText = result.generatedHooks.map((hook) => hook.type).join(', ') || 'none'
+    setLastTrace(`LINK ${choiceId} · ${traceText} · Hook: ${hookText}`)
+    setLinkWindow(null)
+    clearAim()
+    return true
+  }
+
+  const passLink = () => {
+    if (playbackRef.current || !linkWindow) return false
+    setLastTrace(`Pass ${linkWindow.hook.type} · Link opportunity consumed.`)
+    setLastLinkResolution({
+      valid: true,
+      rule: GAMEPLAY_LINK_WINDOW_RULE,
+      choiceId: 'pass',
+      consumedHook: clone(linkWindow.hook),
+      trace: [],
+      generatedHooks: [],
+    })
+    setLinkWindow(null)
+    clearAim()
+    return true
+  }
 
   const undo = () => {
     if (playbackRef.current) return
@@ -354,6 +419,8 @@ export function GameplayLab() {
     setWorldAt(previous.worldAt)
     setLastTrace(previous.lastTrace)
     setLastPlan(null)
+    setLinkWindow(null)
+    setLastLinkResolution(null)
     setFullPreviewEntry(null)
     clearAim()
   }
@@ -373,6 +440,9 @@ export function GameplayLab() {
     setAtVisualMs(AT_VISUAL_MS)
     setHistory([])
     setLastPlan(null)
+    setLinkWindow(null)
+    setLastLinkResolution(null)
+    primaryBeforeRef.current = null
     setFullPreviewEntry(null)
     setLastTrace(`Reset from ${profile.label} r${profile.revision}.`)
     clearAim()
@@ -393,6 +463,9 @@ export function GameplayLab() {
     setSelectedActionId(nextActionId)
     setHistory([])
     setLastPlan(null)
+    setLinkWindow(null)
+    setLastLinkResolution(null)
+    primaryBeforeRef.current = null
     setFullPreviewEntry(null)
     setLastTrace('Debug scenario loaded for deterministic browser validation.')
     clearAim()
@@ -435,6 +508,9 @@ export function GameplayLab() {
         playbackFinal: playback ? clone(playback.finalState) : null,
         events: clone((playback ?? previewPlan ?? lastPlan)?.events ?? []),
         historyEntries: history.length,
+        linkWindow: linkWindow ? clone(linkWindow) : null,
+        lastLinkResolution: lastLinkResolution ? clone(lastLinkResolution) : null,
+        linkRule: GAMEPLAY_LINK_WINDOW_RULE,
       }),
       reset,
       loadDebugScenario,
@@ -445,6 +521,8 @@ export function GameplayLab() {
         return true
       },
       playAction: (actionId, hex = null) => beginAction(actionId, hex),
+      chooseLink: resolveLink,
+      passLink,
       setThermalMode: publishDynamicsMode,
       setInertialConfig: (next) => {
         if (playbackRef.current) return false
@@ -476,13 +554,15 @@ export function GameplayLab() {
       data-thermal-authority={thermalAuthority}
       data-thermal-dynamics-mode={dynamicsMode}
       data-walls={wallsEnabled ? 'on' : 'off'}
-      data-playback-state={ready ? 'ready' : 'playing'}
+      data-playback-state={ready ? (linkWindow ? 'link' : 'ready') : 'playing'}
+      data-link-window={linkWindow?.hook?.type ?? 'none'}
+      data-link-rule={GAMEPLAY_LINK_WINDOW_RULE}
       data-playback-at={ready ? '0' : uiProgress.toFixed(3)}
     >
       <header className="prototype-header">
         <div className="brand"><p>ProjectC · Gameplay × Momentum × Thermal v1</p><h1>Gameplay Lab</h1></div>
         <div className="headline-state">
-          <div><span>{ready ? 'Ready · World Time' : 'Playback · World Time'}</span><strong>{(worldAt + (ready ? 0 : uiProgress)).toFixed(2)} AT</strong></div>
+          <div><span>{!ready ? 'Playback · World Time' : linkWindow ? `Link · ${linkWindow.hook.type}` : 'Ready · World Time'}</span><strong>{(worldAt + (ready ? 0 : uiProgress)).toFixed(2)} AT</strong></div>
           <div><span>Momentum</span><strong>{momentumBand(displayPlayer)}</strong></div>
           <div className={`thermal-${thermalDomain(displayThermal.temperature).toLowerCase()}`}><span>Thermal</span><strong>{thermalDomain(displayThermal.temperature)} · T {formatThermal(displayThermal.temperature, 2)}</strong></div>
           <div><span>Drift {displayDynamicsMode === 'inertial' ? 'D' : 'V'}</span><strong>{formatThermal(displayThermal.drift, 2)} / AT</strong></div>
@@ -537,8 +617,10 @@ export function GameplayLab() {
 
         <section className="center-column">
           <div className="board-strip">
-            <strong>{selectedAction.label} · 1AT</strong>
-            <span>{!ready ? `PLAYING ${uiProgress.toFixed(2)} / 1 AT · input locked` : requiresTarget
+            <strong>{linkWindow ? `LINK · ${linkWindow.hook.type}` : `${selectedAction.label} · 1AT`}</strong>
+            <span>{!ready ? `PLAYING ${uiProgress.toFixed(2)} / 1 AT · input locked` : linkWindow
+              ? `${linkWindow.title} · choose a Link or start a new Primary Action to Pass`
+              : requiresTarget
               ? (selectedHex ? `Target ${axialKey(selectedHex)} selected` : (trajectoryTargetInput ? 'Choose any direction Cell · Trajectory Lab authority' : (reachable.length ? 'Choose a highlighted target / direction' : 'Current state has no legal target')))
               : selectedAction.short}</span>
           </div>
@@ -588,10 +670,43 @@ export function GameplayLab() {
             </div>
           </div>
 
+          {linkWindow && <section className="action-hand gameplay-link-window" data-gameplay-link-window={linkWindow.hook.type}>
+            <div className="hand-heading gameplay-link-heading">
+              <div>
+                <h2>{linkWindow.title} · {linkWindow.hook.type}</h2>
+                <p>{linkWindow.description}</p>
+              </div>
+              <span className="gameplay-link-order">Payload → Momentum → Space → Hook</span>
+            </div>
+            <div className="action-row gameplay-link-action-row">
+              {linkWindow.options.map((entry) => <button
+                type="button"
+                key={entry.id}
+                className={`action-card gameplay-link-action gameplay-link-${entry.id.split(':')[0]}`}
+                data-gameplay-link-action={entry.id}
+                onClick={() => resolveLink(entry.id)}
+              >
+                <header><strong>{entry.label}</strong><em>{entry.badge}</em></header>
+                <p>{entry.short}</p>
+                <span>Consumes {linkWindow.hook.type}</span>
+              </button>)}
+              <button type="button" className="action-card gameplay-link-action gameplay-link-pass" data-gameplay-link-action="pass" onClick={passLink}>
+                <header><strong>Pass</strong><em>END</em></header>
+                <p>Consume this opportunity without a follow-up.</p>
+                <span>No extra turn cost</span>
+              </button>
+            </div>
+            <div className="gameplay-link-meta">
+              <span>Hook <b>{linkWindow.hook.id}</b></span>
+              <span>Primary <b>{linkWindow.primaryActionId}</b></span>
+              <span>Rule <b>{GAMEPLAY_LINK_WINDOW_RULE}</b></span>
+            </div>
+          </section>}
+
           <section className="action-hand gameplay-action-hand">
             <div className="hand-heading">
               <div><h2>Gameplay Actions · Momentum v1</h2><p>Move / Drive / horizontal Skip execute the Trajectory Lab runtime unchanged; Gameplay adds Down / Attack / Launch / Release and the M↔T bridge.</p></div>
-              <span className="gameplay-ready-label" role="status">{ready ? 'READY · select → hover → click target' : `PLAYING · ${(uiProgress * 100).toFixed(0)}%`}</span>
+              <span className="gameplay-ready-label" role="status">{!ready ? `PLAYING · ${(uiProgress * 100).toFixed(0)}%` : linkWindow ? `LINK · ${linkWindow.hook.type} · choose or implicit Pass` : 'READY · select → hover → click target'}</span>
             </div>
             <div className="action-row gameplay-action-row">
               {actions.map((entry) => (
@@ -700,7 +815,10 @@ export function GameplayLab() {
               <li>M ↔ Thermal + Domain Natural Build</li>
               <li>Shared Thermal dual-mode: Oscillator impulse / Inertial Drive + Deposit</li>
               <li>2 deterministic telegraphed enemies</li>
-              <li>Deflect / Link / full AI still deferred</li>
+              <li>Link Window P0: Contact → Continue / Strike / Brace / Evade; AfterMove → Ranged Strike predicate</li>
+              <li>Link P0 resolution order: Payload → Momentum → Space → generated Hook</li>
+              <li>Link actions add no world time; choosing a new Primary implicitly Passes the open Hook</li>
+              <li>Full turn-settlement migration / chained second Link / full AI still deferred</li>
               <li>P0: simultaneous contested Cell holds both; full settlement / chained resolution deferred</li>
               <li>Clash is a visible hook, not a frozen damage rule</li>
             </ul>

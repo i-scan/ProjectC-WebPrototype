@@ -311,3 +311,118 @@
 .gameplay-timeline li.is-elapsed { border-left-color: #8bddf1; background: #16333c; }
 .gameplay-timeline time { color: #8bddf1; font-variant-numeric: tabular-nums; }
 .gameplay-timeline small { display: block; color: #acbac6; }
+
+
+/* Link Window P0 --------------------------------------------------------- */
+.gameplay-link-window {
+  margin-top: 10px;
+  padding: 13px;
+  border: 1px solid rgba(238, 198, 105, .42);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(77, 57, 22, .34), rgba(12, 25, 36, .92)),
+    rgba(8, 20, 31, .9);
+  box-shadow: inset 0 2px rgba(238, 198, 105, .16);
+}
+
+.gameplay-link-heading {
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.gameplay-link-heading h2 {
+  color: #f0d58a;
+}
+
+.gameplay-link-heading p {
+  max-width: 760px;
+  color: #9db0bc;
+}
+
+.gameplay-link-order {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid rgba(238, 198, 105, .24);
+  border-radius: 999px;
+  color: #e9cd81;
+  background: rgba(100, 75, 26, .2);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+
+.gameplay-link-action-row {
+  grid-template-columns: repeat(5, minmax(112px, 1fr));
+  gap: 7px;
+}
+
+.gameplay-link-action-row .action-card {
+  min-height: 104px;
+}
+
+.gameplay-link-action {
+  border-color: rgba(221, 191, 113, .2);
+}
+
+.gameplay-link-action header em {
+  color: #e6c878;
+}
+
+.gameplay-link-continue {
+  box-shadow: inset 0 2px rgba(109, 208, 232, .28);
+}
+
+.gameplay-link-strike,
+.gameplay-link-ranged-strike {
+  box-shadow: inset 0 2px rgba(224, 105, 74, .34);
+}
+
+.gameplay-link-brace {
+  box-shadow: inset 0 2px rgba(113, 166, 227, .34);
+}
+
+.gameplay-link-evade {
+  box-shadow: inset 0 2px rgba(174, 126, 224, .3);
+}
+
+.gameplay-link-pass {
+  opacity: .78;
+  box-shadow: inset 0 2px rgba(145, 157, 166, .2);
+}
+
+.gameplay-link-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+  color: #718b9c;
+  font-size: 8px;
+}
+
+.gameplay-link-meta b {
+  color: #aabdc8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 650;
+}
+
+@media (max-width: 1320px) {
+  .gameplay-link-action-row {
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 920px) {
+  .gameplay-link-heading {
+    display: block;
+  }
+
+  .gameplay-link-order {
+    display: inline-block;
+    margin-top: 8px;
+  }
+
+  .gameplay-link-action-row {
+    grid-template-columns: 1fr;
+  }
+}
