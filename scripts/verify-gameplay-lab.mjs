@@ -184,6 +184,21 @@ try {
     return value?.ready && value?.linkWindow?.hook?.type === 'AfterMove' ? value : false
   })
   assert(linkSnapshot.linkWindow.options.some((entry) => entry.id === 'ranged-strike:enemy-a'), 'AfterMove Ranged Strike link missing')
+  const ergonomicLayout = await client.evaluate(`(() => {
+    const boardFrame = document.querySelector('.gameplay-board-frame')
+    const actionBlock = document.querySelector('.gameplay-action-hand')
+    const linkBlock = document.querySelector('.gameplay-link-window')
+    const actionRow = document.querySelector('.gameplay-action-row')
+    const columns = getComputedStyle(actionRow).gridTemplateColumns.split(' ').filter(Boolean).length
+    return {
+      boardHeight: Math.round(boardFrame.getBoundingClientRect().height),
+      actionsBeforeLink: Boolean(actionBlock && linkBlock && (actionBlock.compareDocumentPosition(linkBlock) & Node.DOCUMENT_POSITION_FOLLOWING)),
+      actionColumns: columns,
+    }
+  })()`)
+  assert(ergonomicLayout.boardHeight <= 420, `Gameplay board is still too tall: ${ergonomicLayout.boardHeight}px`)
+  assert(ergonomicLayout.actionsBeforeLink, 'Gameplay Actions must render before Link Window')
+  assert(ergonomicLayout.actionColumns === 7, `Gameplay Actions should fit one desktop row; got ${ergonomicLayout.actionColumns} columns`)
   const linkWorldAt = linkSnapshot.worldAt
   assert(await client.evaluate(`window.__PROJECTC_GAMEPLAY_LAB__.chooseLink('ranged-strike:enemy-a')`), 'Ranged Strike Link could not resolve')
   const afterLink = await until('Ranged Strike Link resolution', async () => {
@@ -193,6 +208,12 @@ try {
   assert(afterLink.worldAt === linkWorldAt, 'Link action must not advance world time')
   assert(afterLink.enemies.find((enemy) => enemy.id === 'enemy-a')?.hp === 32, 'Ranged Strike Link payload mismatch')
   assert(afterLink.lastLinkResolution.trace.map((entry) => entry.stage).join('>') === 'Payload>Momentum>Space', 'Link resolution order changed')
+  const feedback = await client.evaluate(`(() => ({
+    result: document.querySelector('[data-gameplay-link-result="ranged-strike:enemy-a"]')?.textContent ?? '',
+    fx: document.querySelector('[data-gameplay-link-fx="ranged-strike:enemy-a"]')?.className ?? '',
+  }))()`)
+  assert(feedback.result.includes('Payload') && feedback.result.includes('Momentum') && feedback.result.includes('Space'), 'Link result overlay missing staged feedback')
+  assert(feedback.fx.includes('gameplay-link-fx--ranged-strike'), 'Link-specific result FX missing')
   assert(client.errors.length === 0, `Browser exceptions: ${JSON.stringify(client.errors)}`)
 
   console.log('Gameplay Lab browser smoke verified through CDP: Momentum v1 actions, shared Thermal runtime, Link Window P0, controls and Board3D are mounted.')
