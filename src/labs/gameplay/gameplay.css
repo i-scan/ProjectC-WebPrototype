@@ -752,19 +752,21 @@
     height: 360px;
   }
 
+  /* Gameplay Lab itself keeps a 720px center-column minimum. Preserve the
+     one-row testing layout even when the outer viewport is narrower. */
   .gameplay-action-row {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 
   .gameplay-link-action-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .gameplay-link-result-overlay {
-    grid-template-columns: 1fr;
+    grid-template-columns: 110px minmax(0, 1fr);
   }
 
   .gameplay-link-result-stages {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
